@@ -1,6 +1,12 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 sqlalchemy==2.0.35
+# Required by SQLAlchemy's async engine. Normally pulled in transitively via
+# an environment marker on supported platforms, but pin it explicitly - a
+# partially-failed `pip install` can leave it (and only it) missing, which
+# then only surfaces as a confusing runtime ImportError from deep inside
+# SQLAlchemy instead of a clear install-time failure.
+greenlet==3.5.5
 asyncpg==0.30.0
 aiosqlite==0.20.0
 psycopg2-binary==2.9.9

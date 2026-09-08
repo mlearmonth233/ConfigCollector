@@ -4,9 +4,17 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# $ErrorActionPreference only governs PowerShell-native errors - a failed
+# external command (npm install) does NOT stop the script on its own, so
+# it's checked explicitly. Without this, a failed install would go
+# unnoticed here and only surface later as a confusing module-not-found
+# error once Vite actually tries to start.
 if (-not (Test-Path "node_modules")) {
     Write-Host "Installing dependencies..."
     npm install
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm install failed (exit code $LASTEXITCODE) - see the output above for the actual error."
+    }
 }
 
 if (-not (Test-Path ".env.local")) {
