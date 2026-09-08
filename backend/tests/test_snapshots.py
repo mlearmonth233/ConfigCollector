@@ -3,36 +3,36 @@ from datetime import datetime, timezone
 import pytest
 from httpx import AsyncClient
 
-from app.api.snapshots import _build_filename
 from app.database import async_session_factory
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
+from app.services.filenames import build_snapshot_filename
 
 
 def test_build_filename_defaults_to_hostname_txt_no_timestamp():
     collected_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-    assert _build_filename("core-sw1", collected_at=collected_at, ext="txt", include_timestamp=False) == (
+    assert build_snapshot_filename("core-sw1", collected_at=collected_at, ext="txt", include_timestamp=False) == (
         "core-sw1.txt"
     )
 
 
 def test_build_filename_with_timestamp_and_log_extension():
     collected_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-    assert _build_filename("core-sw1", collected_at=collected_at, ext="log", include_timestamp=True) == (
+    assert build_snapshot_filename("core-sw1", collected_at=collected_at, ext="log", include_timestamp=True) == (
         "core-sw1_20260102T030405.log"
     )
 
 
 def test_build_filename_sanitizes_unsafe_characters():
     collected_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-    assert _build_filename('core sw1/"weird"', collected_at=collected_at, ext="txt", include_timestamp=False) == (
+    assert build_snapshot_filename('core sw1/"weird"', collected_at=collected_at, ext="txt", include_timestamp=False) == (
         "core_sw1_weird.txt"
     )
 
 
 def test_build_filename_falls_back_when_hostname_is_all_unsafe():
     collected_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-    assert _build_filename("///", collected_at=collected_at, ext="txt", include_timestamp=False) == "device.txt"
+    assert build_snapshot_filename("///", collected_at=collected_at, ext="txt", include_timestamp=False) == "device.txt"
 
 
 async def _register(client: AsyncClient, email: str) -> str:

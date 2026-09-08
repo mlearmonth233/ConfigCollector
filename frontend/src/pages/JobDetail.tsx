@@ -1,12 +1,15 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { extractErrorMessage } from "../api/client";
+import { apiClient, extractErrorMessage } from "../api/client";
+import { saveBlobResponse } from "../api/download";
 import { jobsApi } from "../api/resources";
 import type { JobDetail as JobDetailType } from "../api/types";
+import { DownloadOptions } from "../components/DownloadOptions";
 import { LiveConsole } from "../components/LiveConsole";
 import { SnapshotModal } from "../components/SnapshotModal";
 import { StatusBadge } from "../components/StatusBadge";
+import { useDownloadPrefs } from "../hooks/useDownloadPrefs";
 
 const ACTIVE_STATUSES = new Set(["pending", "running"]);
 
@@ -16,6 +19,26 @@ export function JobDetail() {
   const [error, setError] = useState<string | null>(null);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);
   const [expandedConsoles, setExpandedConsoles] = useState<Set<string>>(new Set());
+  const { prefs, updatePrefs } = useDownloadPrefs();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownloadAll() {
+    if (!jobId) return;
+    setDownloadError(null);
+    setDownloading(true);
+    try {
+      const response = await apiClient.get(`/api/jobs/${jobId}/download`, {
+        responseType: "blob",
+        params: { ext: prefs.extension, include_timestamp: prefs.includeTimestamp },
+      });
+      saveBlobResponse(response, `job-${jobId.slice(0, 8)}-configs.zip`);
+    } catch (err) {
+      setDownloadError(extractErrorMessage(err));
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   function toggleConsole(itemId: string) {
     setExpandedConsoles((prev) => {
@@ -68,6 +91,17 @@ export function JobDetail() {
         Started {new Date(job.created_at).toLocaleString()}
         {job.finished_at && ` · Finished ${new Date(job.finished_at).toLocaleString()}`}
       </p>
+
+      {downloadError && <div className="error-banner">{downloadError}</div>}
+
+      {job.items.some((i) => i.snapshot_id) && (
+        <div className="page-header-row download-footer" style={{ marginBottom: 16 }}>
+          <DownloadOptions prefs={prefs} onChange={updatePrefs} />
+          <button onClick={handleDownloadAll} disabled={downloading}>
+            {downloading ? "Preparing…" : "Download all"}
+          </button>
+        </div>
+      )}
 
       {job.items.some((i) => i.status === "authenticating") && (
         <div className="info-banner">

@@ -1,4 +1,3 @@
-import re
 from typing import Literal
 from uuid import UUID
 
@@ -13,6 +12,7 @@ from app.models.device import Device
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.schemas.snapshot import SnapshotOut, SnapshotSummaryOut
+from app.services.filenames import build_snapshot_filename
 
 router = APIRouter(prefix="/api", tags=["snapshots"])
 
@@ -51,7 +51,7 @@ async def download_snapshot(
 ) -> PlainTextResponse:
     snapshot = await _get_owned_snapshot(db, snapshot_id, user.org_id)
     device = await db.get(Device, snapshot.device_id)
-    filename = _build_filename(
+    filename = build_snapshot_filename(
         device.name if device else str(snapshot.device_id),
         collected_at=snapshot.collected_at,
         ext=ext,
@@ -61,16 +61,6 @@ async def download_snapshot(
         content=snapshot.content,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\s]+')
-
-
-def _build_filename(hostname: str, *, collected_at, ext: str, include_timestamp: bool) -> str:
-    base = _UNSAFE_FILENAME_CHARS.sub("_", hostname).strip("_") or "device"
-    if include_timestamp:
-        base += f"_{collected_at:%Y%m%dT%H%M%S}"
-    return f"{base}.{ext}"
 
 
 async def _get_owned_device(db: AsyncSession, device_id: UUID, org_id: UUID) -> Device:

@@ -211,6 +211,14 @@ anything unsafe for a filename replaced — `GET /api/snapshots/{id}/download`
 takes the same `ext`/`include_timestamp` query params directly, for scripted
 access.
 
+**Bulk download**: once at least one device in a job has a collected config,
+the job detail page shows the same file type/timestamp controls next to a
+**Download all** button, which bundles every completed device's config from
+that job into a single ZIP (one file per device, named the same way as a
+single download; two devices sharing a name get a numeric suffix so neither
+is silently overwritten). `GET /api/jobs/{id}/download` takes the same
+`ext`/`include_timestamp` query params for scripted access.
+
 ## Security notes
 
 - Device passwords/enable secrets are encrypted at rest with Fernet

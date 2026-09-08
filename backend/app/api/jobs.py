@@ -1,7 +1,10 @@
+import io
+import zipfile
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +17,7 @@ from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.user import User
 from app.schemas.job import JobCreate, JobDetailOut, JobItemOut, JobOut
 from app.services.device_types import parse_command_list, resolve_commands
+from app.services.filenames import build_snapshot_filename
 from app.tasks import collect_device_task
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -140,7 +144,54 @@ async def get_job(
     return await _fetch_job_detail(db, job_id, user.org_id)
 
 
-async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> JobDetailOut:
+@router.get("/{job_id}/download")
+async def download_job_configs(
+    job_id: UUID,
+    ext: Literal["txt", "log"] = Query(default="txt"),
+    include_timestamp: bool = Query(default=False),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """All of a job's successfully-collected configs, bundled as one ZIP -
+    each device named the same way a single-snapshot download would be."""
+    job = await _get_owned_job(db, job_id, user.org_id)
+    completed_items = [item for item in job.items if item.snapshot is not None]
+    if not completed_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No collected configs to download yet for this job",
+        )
+
+    buffer = io.BytesIO()
+    used_filenames: dict[str, int] = {}
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in completed_items:
+            device_name = item.device.name if item.device else str(item.device_id)
+            filename = build_snapshot_filename(
+                device_name,
+                collected_at=item.snapshot.collected_at,
+                ext=ext,
+                include_timestamp=include_timestamp,
+            )
+            if filename in used_filenames:
+                # Two devices sharing a sanitized name (or a re-run with no
+                # timestamp) would otherwise silently clobber one entry.
+                used_filenames[filename] += 1
+                stem, _, suffix = filename.rpartition(".")
+                filename = f"{stem}_{used_filenames[filename]}.{suffix}"
+            else:
+                used_filenames[filename] = 0
+            zf.writestr(filename, item.snapshot.content)
+
+    zip_filename = f"job-{str(job.id)[:8]}-configs.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
+
+
+async def _get_owned_job(db: AsyncSession, job_id: UUID, org_id: UUID) -> CollectionJob:
     # A plain select() (rather than Session.get()) always honors the eager
     # loading options below, even when `job` is already in this session's
     # identity map from earlier in the same request (e.g. just created).
@@ -167,6 +218,11 @@ async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> Job
     )
     if job is None or job.org_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
+
+
+async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> JobDetailOut:
+    job = await _get_owned_job(db, job_id, org_id)
     return _to_job_detail_out(job)
 
 
