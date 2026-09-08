@@ -7,9 +7,12 @@ sqlalchemy==2.0.35
 # then only surfaces as a confusing runtime ImportError from deep inside
 # SQLAlchemy instead of a clear install-time failure.
 greenlet==3.5.5
-asyncpg==0.30.0
+# 0.30.0/2.9.9 predate CPython 3.14 and have no wheel for it, forcing a
+# from-source build that then fails without PostgreSQL's pg_config
+# installed. These versions add cp314 wheels.
+asyncpg==0.31.0
 aiosqlite==0.20.0
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
 alembic==1.13.3
 pydantic==2.9.2
 pydantic-settings==2.5.2
