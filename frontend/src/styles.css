@@ -420,6 +420,36 @@ a {
   justify-content: flex-end;
 }
 
+.download-footer {
+  align-items: center;
+  gap: 14px;
+}
+
+.download-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-right: auto;
+}
+
+.inline-label {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.inline-label select {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
 .config-view {
   margin: 0;
   padding: 18px;

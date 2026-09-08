@@ -23,6 +23,13 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Content-Disposition isn't on the browser's default CORS-safelisted
+    # response headers, so without this, frontend JS can read the snapshot
+    # download's *body* fine but silently gets an empty string back for
+    # response.headers["content-disposition"] - the filename it carries
+    # (hostname, extension, optional timestamp) would never be visible to
+    # the page that's supposed to use it to name the saved file.
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(auth.router)

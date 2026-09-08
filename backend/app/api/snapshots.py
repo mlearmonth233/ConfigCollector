@@ -1,6 +1,8 @@
+import re
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,16 +44,33 @@ async def get_snapshot(
 @router.get("/snapshots/{snapshot_id}/download")
 async def download_snapshot(
     snapshot_id: UUID,
+    ext: Literal["txt", "log"] = Query(default="txt"),
+    include_timestamp: bool = Query(default=False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
     snapshot = await _get_owned_snapshot(db, snapshot_id, user.org_id)
     device = await db.get(Device, snapshot.device_id)
-    filename = f"{device.name if device else snapshot.device_id}-{snapshot.collected_at:%Y%m%dT%H%M%S}.txt"
+    filename = _build_filename(
+        device.name if device else str(snapshot.device_id),
+        collected_at=snapshot.collected_at,
+        ext=ext,
+        include_timestamp=include_timestamp,
+    )
     return PlainTextResponse(
         content=snapshot.content,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\s]+')
+
+
+def _build_filename(hostname: str, *, collected_at, ext: str, include_timestamp: bool) -> str:
+    base = _UNSAFE_FILENAME_CHARS.sub("_", hostname).strip("_") or "device"
+    if include_timestamp:
+        base += f"_{collected_at:%Y%m%dT%H%M%S}"
+    return f"{base}.{ext}"
 
 
 async def _get_owned_device(db: AsyncSession, device_id: UUID, org_id: UUID) -> Device:

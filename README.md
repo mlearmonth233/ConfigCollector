@@ -159,6 +159,22 @@ actually contacted, so its code has to be supplied up front just in case.
 These command overrides apply to that run only — they don't change a
 device's own saved `custom_commands`.
 
+### Downloading a collected config
+
+From a job's device row, "View config" opens the collected snapshot, with a
+**Download** button offering:
+
+- **File type** — `.txt` (default) or `.log`.
+- **Add timestamp to filename** — off by default, so the download is just
+  `<hostname>.txt`; check it to get `<hostname>_<collected-at>.txt` instead,
+  useful when keeping multiple snapshots of the same device side by side.
+
+Both choices are remembered in your browser (`localStorage`) for next time.
+The filename always starts from the device's name in ConfigCollector, with
+anything unsafe for a filename replaced — `GET /api/snapshots/{id}/download`
+takes the same `ext`/`include_timestamp` query params directly, for scripted
+access.
+
 ## Security notes
 
 - Device passwords/enable secrets are encrypted at rest with Fernet
