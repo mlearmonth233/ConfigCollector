@@ -1,6 +1,12 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
-sqlalchemy==2.0.35
+# 2.0.35 predates CPython 3.14 and crashes at import time on any model with
+# a stringified union annotation (e.g. Mapped["Credential | None"]) with
+# `TypeError: descriptor '__getitem__' requires a 'typing.Union' object but
+# received a 'tuple'` - a real incompatibility with 3.14's typing changes,
+# not a packaging issue. Fixed as of 2.0.52 (reproduced/confirmed against a
+# real Python 3.14 interpreter, not inferred from release notes).
+sqlalchemy==2.0.52
 # Required by SQLAlchemy's async engine. Normally pulled in transitively via
 # an environment marker on supported platforms, but pin it explicitly - a
 # partially-failed `pip install` can leave it (and only it) missing, which
