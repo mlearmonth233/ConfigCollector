@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+*.db
+
+# Node / frontend
+node_modules/
+dist/
+frontend/.env.local
+
+# Env files with real secrets
+.env
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
