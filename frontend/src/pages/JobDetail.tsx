@@ -80,6 +80,11 @@ export function JobDetail() {
               <td>{item.device_name}</td>
               <td>
                 <StatusBadge status={item.status} />
+                {item.used_fallback_credential && (
+                  <span className="status-badge status-fallback" title="Primary credential failed; the fallback credential was used instead">
+                    fallback used
+                  </span>
+                )}
               </td>
               <td>{item.error_message ?? "—"}</td>
               <td>

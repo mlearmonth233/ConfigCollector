@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models.credential import MfaMode
+from app.models.credential import Credential, MfaMode
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.user import User
@@ -39,7 +39,11 @@ async def create_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
-    device_query = select(Device).options(selectinload(Device.credential)).where(Device.org_id == user.org_id)
+    device_query = (
+        select(Device)
+        .options(selectinload(Device.credential).selectinload(Credential.fallback_credential))
+        .where(Device.org_id == user.org_id)
+    )
     if payload.device_ids:
         device_query = device_query.where(Device.id.in_(payload.device_ids))
         devices = list(await db.scalars(device_query))
@@ -52,13 +56,21 @@ async def create_job(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No devices to collect from")
 
     credential_otps = payload.credential_otps or {}
+
+    def _passcode_creds_in_use(d: Device) -> list[Credential]:
+        # Which credential ends up authenticating a device (primary or its
+        # fallback) isn't known until it's actually contacted, and an OTP
+        # can't be requested mid-run - so both must be supplied up front
+        # whenever either uses passcode-based MFA.
+        candidates = [d.credential, d.credential.fallback_credential if d.credential else None]
+        return [c for c in candidates if c is not None and c.mfa_mode == MfaMode.PASSCODE]
+
     missing_otp_credentials = sorted(
         {
-            d.credential.name
+            c.name
             for d in devices
-            if d.credential is not None
-            and d.credential.mfa_mode == MfaMode.PASSCODE
-            and not credential_otps.get(str(d.credential.id))
+            for c in _passcode_creds_in_use(d)
+            if not credential_otps.get(str(c.id))
         }
     )
     if missing_otp_credentials:
@@ -106,7 +118,11 @@ async def create_job(
         raw_override = commands_by_type.get(device.device_type)
         commands_override = parse_command_list(raw_override) if raw_override else None
         otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
-        collect_device_task.delay(str(item.id), commands_override=commands_override, otp=otp)
+        fallback = device.credential.fallback_credential if device.credential else None
+        fallback_otp = credential_otps.get(str(fallback.id)) if fallback else None
+        collect_device_task.delay(
+            str(item.id), commands_override=commands_override, otp=otp, fallback_otp=fallback_otp
+        )
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
     # in tests/dev without a broker) via a separate sync session, so re-fetch
@@ -183,6 +199,7 @@ def _to_job_detail_out(job: CollectionJob) -> JobDetailOut:
                 device_name=item.device.name if item.device else "",
                 status=item.status,
                 error_message=item.error_message,
+                used_fallback_credential=item.used_fallback_credential,
                 started_at=item.started_at,
                 finished_at=item.finished_at,
                 snapshot_id=item.snapshot.id if item.snapshot else None,

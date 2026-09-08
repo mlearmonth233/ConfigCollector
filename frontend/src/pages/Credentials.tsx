@@ -22,7 +22,12 @@ export function Credentials() {
   const [mfaMode, setMfaMode] = useState<MfaMode>("none");
   const [otpDelimiter, setOtpDelimiter] = useState(",");
   const [authTimeoutSeconds, setAuthTimeoutSeconds] = useState("45");
+  const [fallbackCredentialId, setFallbackCredentialId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // A fallback can't itself have a fallback (no chains) - matches the
+  // backend's validation, so only offer credentials that qualify.
+  const eligibleFallbacks = credentials.filter((c) => !c.fallback_credential_id);
 
   async function refresh() {
     setLoading(true);
@@ -48,6 +53,7 @@ export function Credentials() {
     setMfaMode("none");
     setOtpDelimiter(",");
     setAuthTimeoutSeconds("45");
+    setFallbackCredentialId("");
   }
 
   async function handleCreate(e: FormEvent) {
@@ -63,6 +69,7 @@ export function Credentials() {
         mfa_mode: mfaMode,
         otp_delimiter: otpDelimiter || ",",
         auth_timeout_seconds: Number(authTimeoutSeconds) || 45,
+        fallback_credential_id: fallbackCredentialId || undefined,
       });
       resetForm();
       await refresh();
@@ -154,6 +161,22 @@ export function Credentials() {
               </span>
             </label>
           )}
+          <label>
+            Fallback credential (optional)
+            <select value={fallbackCredentialId} onChange={(e) => setFallbackCredentialId(e.target.value)}>
+              <option value="">— none —</option>
+              {eligibleFallbacks.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              Tried if this credential's login fails outright (e.g. TACACS+/RADIUS is unreachable or the
+              account is locked) - typically a device's local/default account, or some other break-glass
+              login. Only credentials with no fallback of their own can be picked (no chains).
+            </span>
+          </label>
         </div>
         <button type="submit" disabled={submitting}>
           {submitting ? "Adding…" : "Add credential"}
@@ -171,6 +194,7 @@ export function Credentials() {
               <th>Enable secret</th>
               <th>MFA / AAA</th>
               <th>Auth timeout</th>
+              <th>Fallback</th>
               <th></th>
             </tr>
           </thead>
@@ -182,6 +206,7 @@ export function Credentials() {
                 <td>{c.has_enable_secret ? "Set" : "—"}</td>
                 <td>{c.mfa_mode === "none" ? "—" : c.mfa_mode}</td>
                 <td>{c.auth_timeout_seconds}s</td>
+                <td>{c.fallback_credential_name ?? "—"}</td>
                 <td>
                   <button className="link-button danger" onClick={() => handleDelete(c.id)}>
                     Delete
@@ -191,7 +216,7 @@ export function Credentials() {
             ))}
             {credentials.length === 0 && (
               <tr>
-                <td colSpan={6} className="empty-state">
+                <td colSpan={7} className="empty-state">
                   No credentials yet.
                 </td>
               </tr>

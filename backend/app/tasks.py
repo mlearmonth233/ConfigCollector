@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 from app.celery_app import celery_app
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
+from app.models.credential import Credential
+from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
-from app.services.collector import CollectionError, collect_device_config
+from app.services.collector import AuthenticationError, CollectionError, collect_device_config
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -14,6 +16,7 @@ def collect_device_task(
     job_item_id: str,
     commands_override: list[str] | None = None,
     otp: str | None = None,
+    fallback_otp: str | None = None,
 ) -> None:
     db = SyncSessionLocal()
     try:
@@ -35,30 +38,39 @@ def collect_device_task(
             item.status = JobStatus.FAILED
             item.error_message = "Device has no credential assigned"
         else:
+            on_authenticated = _make_authenticated_callback(db, item)
             try:
-                password = decrypt_secret(credential.encrypted_password)
-                secret = (
-                    decrypt_secret(credential.encrypted_enable_secret)
-                    if credential.encrypted_enable_secret
-                    else None
-                )
-                content = collect_device_config(
-                    host=device.host,
-                    port=device.port,
-                    device_type=device.device_type,
-                    username=credential.username,
-                    password=password,
-                    secret=secret,
-                    custom_commands=device.custom_commands,
-                    commands_override=commands_override,
-                    auth_timeout=credential.auth_timeout_seconds,
-                    mfa_mode=credential.mfa_mode.value,
-                    otp=otp,
-                    otp_delimiter=credential.otp_delimiter,
-                    on_authenticated=_make_authenticated_callback(db, item),
-                )
+                try:
+                    content = _attempt_collection(
+                        device, credential, otp, commands_override, on_authenticated
+                    )
+                    used_fallback = False
+                except AuthenticationError as primary_exc:
+                    fallback = credential.fallback_credential
+                    if fallback is None:
+                        raise
+                    # Reset to AUTHENTICATING (the callback may have already
+                    # flipped it to RUNNING had the primary attempt somehow
+                    # gotten further - it can't have, since AuthenticationError
+                    # only ever comes from a failed/timed-out login, but this
+                    # keeps the displayed phase honest regardless).
+                    item.status = JobStatus.AUTHENTICATING
+                    db.commit()
+                    try:
+                        content = _attempt_collection(
+                            device, fallback, fallback_otp, commands_override, on_authenticated
+                        )
+                        used_fallback = True
+                    except CollectionError as fallback_exc:
+                        raise CollectionError(
+                            f"Primary credential '{credential.name}' failed to authenticate: "
+                            f"{primary_exc} | Fallback credential '{fallback.name}' also failed: "
+                            f"{fallback_exc}"
+                        ) from fallback_exc
+
                 db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
                 item.status = JobStatus.COMPLETED
+                item.used_fallback_credential = used_fallback
             except CollectionError as exc:
                 item.status = JobStatus.FAILED
                 item.error_message = str(exc)
@@ -69,6 +81,36 @@ def collect_device_task(
         _finalize_job_if_done(db, item.job_id)
     finally:
         db.close()
+
+
+def _attempt_collection(
+    device: Device,
+    credential: Credential,
+    otp: str | None,
+    commands_override: list[str] | None,
+    on_authenticated,
+) -> str:
+    """One connection attempt with one credential. Raises AuthenticationError
+    if login itself fails, CommandExecutionError if login succeeds but
+    running commands doesn't - callers use that distinction to decide
+    whether falling back to another credential makes sense."""
+    password = decrypt_secret(credential.encrypted_password)
+    secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
+    return collect_device_config(
+        host=device.host,
+        port=device.port,
+        device_type=device.device_type,
+        username=credential.username,
+        password=password,
+        secret=secret,
+        custom_commands=device.custom_commands,
+        commands_override=commands_override,
+        auth_timeout=credential.auth_timeout_seconds,
+        mfa_mode=credential.mfa_mode.value,
+        otp=otp,
+        otp_delimiter=credential.otp_delimiter,
+        on_authenticated=on_authenticated,
+    )
 
 
 def _make_authenticated_callback(db, item: CollectionJobItem):

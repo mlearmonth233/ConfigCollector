@@ -121,6 +121,16 @@ needed. Each **credential** (`Devices → Credentials`) has:
   the TACACS+/RADIUS round trip + any MFA challenge/approval) before giving
   up. Plain local-auth devices are fine with the default (45s); push-MFA
   credentials often need 60–90s to give a human time to approve.
+- **Fallback credential** — tried if this credential's login fails outright
+  (TACACS+/RADIUS unreachable, account locked, etc.) — typically a device's
+  local/default account, or some other break-glass login. Point it at
+  another credential you've already created; a credential can only be
+  picked as a fallback if it has no fallback of its own (one level deep,
+  so a device tries at most two credentials). If the primary succeeds, the
+  fallback is never touched; if both are tried and both fail, the job item's
+  error message says so for each. When the fallback is what actually got a
+  device in, its job item is marked "fallback used" — worth a look, since it
+  usually means the primary AAA path is degraded.
 
 ### Queued, two-phase collection
 
@@ -143,8 +153,11 @@ When you start a collection (`Collect all`/`Collect selected`), a dialog
 lists every device type among the targeted devices (grouped by category —
 switch, WLC, firewall, PDU, console server) with its default command(s)
 pre-filled and editable, plus a one-time-passcode field for any credential
-in use that requires one. These command overrides apply to that run only —
-they don't change a device's own saved `custom_commands`.
+in use that requires one — including a passcode-mode fallback credential,
+since which one ends up authenticating a device isn't known until it's
+actually contacted, so its code has to be supplied up front just in case.
+These command overrides apply to that run only — they don't change a
+device's own saved `custom_commands`.
 
 ## Security notes
 

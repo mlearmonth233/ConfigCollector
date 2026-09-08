@@ -14,8 +14,10 @@ class JobCreate(BaseModel):
     # custom_commands, then the device type's registry default.
     commands_by_device_type: dict[str, str] | None = None
     # One-time passcode per credential (keyed by credential id, as a
-    # string), required for any credential whose mfa_mode is "passcode".
-    # Never stored - used once to authenticate, then discarded.
+    # string), required for any credential whose mfa_mode is "passcode" -
+    # including a fallback credential, since which one ends up needed isn't
+    # known until the device is actually contacted. Never stored - used
+    # once to authenticate, then discarded.
     credential_otps: dict[str, str] | None = None
 
 
@@ -25,6 +27,7 @@ class JobItemOut(BaseModel):
     device_name: str
     status: JobStatus
     error_message: str | None
+    used_fallback_credential: bool
     started_at: datetime | None
     finished_at: datetime | None
     snapshot_id: UUID | None

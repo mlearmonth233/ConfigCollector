@@ -28,6 +28,7 @@ export interface CredentialCreatePayload {
   mfa_mode?: MfaMode;
   otp_delimiter?: string;
   auth_timeout_seconds?: number;
+  fallback_credential_id?: string;
 }
 
 export const credentialsApi = {

@@ -289,3 +289,191 @@ async def test_device_types_expose_default_commands(client: AsyncClient, unique_
     assert by_key["cisco_ios"]["default_commands"] == ["show running-config"]
     assert by_key["pdu_generic"]["requires_custom_command"] is True
     assert by_key["pdu_generic"]["default_commands"] == []
+
+
+async def test_credential_fallback_roundtrip(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    local_admin = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "local-admin", "username": "admin", "password": "localpass"},
+    )
+    local_admin_id = local_admin.json()["id"]
+
+    primary = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-primary",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": local_admin_id,
+        },
+    )
+    assert primary.status_code == 201, primary.text
+    body = primary.json()
+    assert body["fallback_credential_id"] == local_admin_id
+    assert body["fallback_credential_name"] == "local-admin"
+
+
+async def test_credential_fallback_cannot_chain(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    local_admin = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "local-admin", "username": "admin", "password": "localpass"},
+    )
+    local_admin_id = local_admin.json()["id"]
+    primary = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-primary",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": local_admin_id,
+        },
+    )
+    primary_id = primary.json()["id"]
+
+    # primary already has a fallback - it can't itself be used as one (no chains).
+    resp = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "another",
+            "username": "x",
+            "password": "y",
+            "fallback_credential_id": primary_id,
+        },
+    )
+    assert resp.status_code == 400
+    assert "chain" in resp.json()["detail"]
+
+
+async def test_credential_fallback_cross_org_rejected(client: AsyncClient, unique_email):
+    token_a = await _register(client, unique_email)
+    other_email = f"other-{unique_email}"
+    token_b = await _register(client, other_email, org_name="OtherOrg")
+
+    other_cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token_b),
+        json={"name": "their-cred", "username": "x", "password": "y"},
+    )
+    other_cred_id = other_cred.json()["id"]
+
+    resp = await client.post(
+        "/api/credentials",
+        headers=_auth(token_a),
+        json={
+            "name": "mine",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": other_cred_id,
+        },
+    )
+    assert resp.status_code == 400
+
+
+async def test_credential_in_use_as_fallback_cannot_be_deleted(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    local_admin = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "local-admin", "username": "admin", "password": "localpass"},
+    )
+    local_admin_id = local_admin.json()["id"]
+    await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-primary",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": local_admin_id,
+        },
+    )
+
+    resp = await client.delete(f"/api/credentials/{local_admin_id}", headers=_auth(token))
+    assert resp.status_code == 400
+
+
+async def test_job_requires_otp_for_fallback_passcode_credential(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    fallback = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "local-mfa", "username": "admin", "password": "localpass", "mfa_mode": "passcode"},
+    )
+    fallback_id = fallback.json()["id"]
+    primary = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-primary",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": fallback_id,
+        },
+    )
+    primary_id = primary.json()["id"]
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.60", "device_type": "cisco_ios", "credential_id": primary_id},
+    )
+    device_id = device.json()["id"]
+
+    # The primary credential itself needs no OTP, but its fallback does -
+    # since we can't know in advance whether the fallback will be needed,
+    # the OTP must be supplied up front regardless.
+    resp = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert resp.status_code == 400
+    assert "local-mfa" in resp.json()["detail"]
+
+    resp = await client.post(
+        "/api/jobs",
+        headers=_auth(token),
+        json={"device_ids": [device_id], "credential_otps": {fallback_id: "111111"}},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_job_falls_back_and_reports_both_failures(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    fallback = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "local-admin", "username": "admin", "password": "localpass"},
+    )
+    fallback_id = fallback.json()["id"]
+    primary = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-primary",
+            "username": "netops",
+            "password": "cisco123",
+            "fallback_credential_id": fallback_id,
+        },
+    )
+    primary_id = primary.json()["id"]
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        # TEST-NET-1: guaranteed unroutable, so both the primary and
+        # fallback login attempts deterministically fail.
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios", "credential_id": primary_id},
+    )
+    device_id = device.json()["id"]
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert job.status_code == 201, job.text
+
+    detail = await client.get(f"/api/jobs/{job.json()['id']}", headers=_auth(token))
+    item = detail.json()["items"][0]
+    assert item["status"] == "failed"
+    assert item["used_fallback_credential"] is False
+    assert "tacacs-primary" in item["error_message"]
+    assert "local-admin" in item["error_message"]

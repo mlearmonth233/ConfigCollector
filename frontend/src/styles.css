@@ -279,6 +279,15 @@ a {
   text-transform: capitalize;
 }
 
+.status-badge + .status-badge {
+  margin-left: 6px;
+}
+
+.status-fallback {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .status-pending {
   background: #f3f4f6;
   color: #4b5563;

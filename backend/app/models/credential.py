@@ -49,5 +49,15 @@ class Credential(Base_):
     # a human time to approve on their phone.
     auth_timeout_seconds: Mapped[int] = mapped_column(Integer, default=45, nullable=False)
 
+    # Retried when this credential's login fails outright (e.g. the TACACS+/
+    # RADIUS server is unreachable, or the account is locked) - typically a
+    # device's local/default account, or some other break-glass login.
+    # One level deep only: a fallback's own fallback_credential_id, if any,
+    # is never chased further, so a device tries at most two credentials.
+    fallback_credential_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("credentials.id"), nullable=True
+    )
+
     organization: Mapped["Organization"] = relationship(back_populates="credentials")
     devices: Mapped[list["Device"]] = relationship(back_populates="credential")
+    fallback_credential: Mapped["Credential | None"] = relationship(remote_side="Credential.id")

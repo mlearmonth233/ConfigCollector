@@ -16,6 +16,8 @@ export interface Credential {
   mfa_mode: MfaMode;
   otp_delimiter: string;
   auth_timeout_seconds: number;
+  fallback_credential_id: string | null;
+  fallback_credential_name: string | null;
   created_at: string;
 }
 
@@ -52,6 +54,7 @@ export interface JobItem {
   device_name: string;
   status: JobStatus;
   error_message: string | null;
+  used_fallback_credential: boolean;
   started_at: string | null;
   finished_at: string | null;
   snapshot_id: string | null;

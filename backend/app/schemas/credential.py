@@ -17,6 +17,11 @@ class CredentialCreate(BaseModel):
     # seconds, but push-MFA approval can take much longer - bump this on
     # push/passcode credentials as needed.
     auth_timeout_seconds: int = Field(default=45, ge=5, le=300)
+    # Tried if THIS credential's login fails outright - e.g. a device's
+    # local/default account to fall back on when TACACS+/RADIUS is
+    # unreachable or the account is locked. Must reference another
+    # credential in the same org that itself has no fallback (no chains).
+    fallback_credential_id: UUID | None = None
 
 
 class CredentialOut(BaseModel):
@@ -27,6 +32,8 @@ class CredentialOut(BaseModel):
     mfa_mode: MfaMode
     otp_delimiter: str
     auth_timeout_seconds: int
+    fallback_credential_id: UUID | None
+    fallback_credential_name: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

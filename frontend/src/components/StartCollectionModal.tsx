@@ -38,8 +38,18 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
 
   // Any credential in use by the target devices that requires a one-time
   // passcode needs it supplied fresh for this run - it's never stored.
+  // This includes fallback credentials: which one ends up authenticating a
+  // device isn't known until it's actually contacted, so a passcode-based
+  // fallback needs its code up front too, just in case it's needed.
   const credentialsNeedingOtp = useMemo(() => {
-    const ids = new Set(devices.map((d) => d.credential_id).filter((id): id is string => !!id));
+    const ids = new Set<string>();
+    for (const d of devices) {
+      const primary = d.credential_id ? credentialMap.get(d.credential_id) : undefined;
+      if (primary) {
+        ids.add(primary.id);
+        if (primary.fallback_credential_id) ids.add(primary.fallback_credential_id);
+      }
+    }
     return Array.from(ids)
       .map((id) => credentialMap.get(id))
       .filter((c): c is Credential => !!c && c.mfa_mode === "passcode");
