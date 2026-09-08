@@ -477,3 +477,36 @@ async def test_job_falls_back_and_reports_both_failures(client: AsyncClient, uni
     assert item["used_fallback_credential"] is False
     assert "tacacs-primary" in item["error_message"]
     assert "local-admin" in item["error_message"]
+
+    # The live transcript should narrate both attempts, in order.
+    live_output = item["live_output"]
+    assert live_output.count("Connecting to 192.0.2.1:22") == 2
+    assert "Trying fallback credential 'local-admin'" in live_output
+    assert "ERROR:" in live_output
+
+
+async def test_job_live_output_narrates_commands_on_success(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "lab", "username": "admin", "password": "cisco123"},
+    )
+    cred_id = cred.json()["id"]
+    # 192.0.2.1 is unreachable, so this deterministically fails during the
+    # auth phase - the transcript should still show the connect attempt
+    # before it gives up.
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios", "credential_id": cred_id},
+    )
+    device_id = device.json()["id"]
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert job.status_code == 201, job.text
+
+    detail = await client.get(f"/api/jobs/{job.json()['id']}", headers=_auth(token))
+    item = detail.json()["items"][0]
+    assert item["live_output"].startswith("Connecting to 192.0.2.1:22 as admin...")
+    assert "Authenticated." not in item["live_output"]

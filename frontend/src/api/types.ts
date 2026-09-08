@@ -55,6 +55,7 @@ export interface JobItem {
   status: JobStatus;
   error_message: string | null;
   used_fallback_credential: boolean;
+  live_output: string;
   started_at: string | null;
   finished_at: string | null;
   snapshot_id: string | null;

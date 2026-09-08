@@ -34,6 +34,26 @@ def test_unreachable_device_raises_authentication_error_not_command_error():
         )
 
 
+def test_on_output_receives_connecting_line_before_failure():
+    chunks: list[str] = []
+    with pytest.raises(AuthenticationError):
+        collect_device_config(
+            host="192.0.2.1",
+            port=22,
+            device_type="cisco_ios",
+            username="admin",
+            password="cisco123",
+            secret=None,
+            custom_commands=None,
+            auth_timeout=2,
+            on_output=chunks.append,
+        )
+    transcript = "".join(chunks)
+    assert transcript.startswith("Connecting to 192.0.2.1:22 as admin...")
+    # Login never succeeded, so nothing past the connect attempt was emitted.
+    assert "Authenticated" not in transcript
+
+
 def test_passcode_mfa_without_otp_raises_before_connecting():
     with pytest.raises(Exception, match="one-time passcode is required"):
         collect_device_config(

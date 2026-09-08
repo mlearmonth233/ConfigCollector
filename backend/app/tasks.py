@@ -39,10 +39,11 @@ def collect_device_task(
             item.error_message = "Device has no credential assigned"
         else:
             on_authenticated = _make_authenticated_callback(db, item)
+            on_output = _make_output_callback(db, item)
             try:
                 try:
                     content = _attempt_collection(
-                        device, credential, otp, commands_override, on_authenticated
+                        device, credential, otp, commands_override, on_authenticated, on_output
                     )
                     used_fallback = False
                 except AuthenticationError as primary_exc:
@@ -56,9 +57,13 @@ def collect_device_task(
                     # keeps the displayed phase honest regardless).
                     item.status = JobStatus.AUTHENTICATING
                     db.commit()
+                    on_output(
+                        f"\nPrimary credential '{credential.name}' failed: {primary_exc}\n"
+                        f"Trying fallback credential '{fallback.name}'...\n"
+                    )
                     try:
                         content = _attempt_collection(
-                            device, fallback, fallback_otp, commands_override, on_authenticated
+                            device, fallback, fallback_otp, commands_override, on_authenticated, on_output
                         )
                         used_fallback = True
                     except CollectionError as fallback_exc:
@@ -74,6 +79,7 @@ def collect_device_task(
             except CollectionError as exc:
                 item.status = JobStatus.FAILED
                 item.error_message = str(exc)
+                on_output(f"\nERROR: {exc}\n")
 
         item.finished_at = datetime.now(timezone.utc)
         db.commit()
@@ -89,6 +95,7 @@ def _attempt_collection(
     otp: str | None,
     commands_override: list[str] | None,
     on_authenticated,
+    on_output,
 ) -> str:
     """One connection attempt with one credential. Raises AuthenticationError
     if login itself fails, CommandExecutionError if login succeeds but
@@ -110,6 +117,7 @@ def _attempt_collection(
         otp=otp,
         otp_delimiter=credential.otp_delimiter,
         on_authenticated=on_authenticated,
+        on_output=on_output,
     )
 
 
@@ -127,6 +135,21 @@ def _make_authenticated_callback(db, item: CollectionJobItem):
             db.rollback()
 
     return _on_authenticated
+
+
+def _make_output_callback(db, item: CollectionJobItem):
+    """Appends to an item's live transcript as collection progresses.
+    Swallows its own errors for the same reason _make_authenticated_callback
+    does - this is a progress side-effect, not the recorded outcome."""
+
+    def _on_output(text: str) -> None:
+        try:
+            item.live_output = (item.live_output or "") + text
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    return _on_output
 
 
 def _finalize_job_if_done(db, job_id) -> None:

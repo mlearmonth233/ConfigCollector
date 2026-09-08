@@ -178,7 +178,10 @@ across Celery workers), and each one goes through two phases in order:
 
 The job detail page shows each device's current phase live, and a banner
 reminds you to approve any pending push notification while devices are
-authenticating.
+authenticating. Click **Console** on any device's row to open a live,
+auto-scrolling transcript - connecting, authenticated, each command sent and
+its output, and (if it fails) which credential failed and why - updating as
+the job progresses via the same polling that drives the status column.
 
 ### Choosing commands per run
 

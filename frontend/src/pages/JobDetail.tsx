@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { jobsApi } from "../api/resources";
 import type { JobDetail as JobDetailType } from "../api/types";
+import { LiveConsole } from "../components/LiveConsole";
 import { SnapshotModal } from "../components/SnapshotModal";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -14,6 +15,16 @@ export function JobDetail() {
   const [job, setJob] = useState<JobDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);
+  const [expandedConsoles, setExpandedConsoles] = useState<Set<string>>(new Set());
+
+  function toggleConsole(itemId: string) {
+    setExpandedConsoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!jobId) return;
@@ -76,25 +87,41 @@ export function JobDetail() {
         </thead>
         <tbody>
           {job.items.map((item) => (
-            <tr key={item.id}>
-              <td>{item.device_name}</td>
-              <td>
-                <StatusBadge status={item.status} />
-                {item.used_fallback_credential && (
-                  <span className="status-badge status-fallback" title="Primary credential failed; the fallback credential was used instead">
-                    fallback used
-                  </span>
-                )}
-              </td>
-              <td>{item.error_message ?? "—"}</td>
-              <td>
-                {item.snapshot_id && (
-                  <button className="link-button" onClick={() => setOpenSnapshotId(item.snapshot_id)}>
-                    View config
+            <Fragment key={item.id}>
+              <tr>
+                <td>{item.device_name}</td>
+                <td>
+                  <StatusBadge status={item.status} />
+                  {item.used_fallback_credential && (
+                    <span className="status-badge status-fallback" title="Primary credential failed; the fallback credential was used instead">
+                      fallback used
+                    </span>
+                  )}
+                </td>
+                <td>{item.error_message ?? "—"}</td>
+                <td>
+                  <button className="link-button" onClick={() => toggleConsole(item.id)}>
+                    {expandedConsoles.has(item.id) ? "Hide console" : "Console"}
                   </button>
-                )}
-              </td>
-            </tr>
+                  {item.snapshot_id && (
+                    <button
+                      className="link-button"
+                      style={{ marginLeft: 12 }}
+                      onClick={() => setOpenSnapshotId(item.snapshot_id)}
+                    >
+                      View config
+                    </button>
+                  )}
+                </td>
+              </tr>
+              {expandedConsoles.has(item.id) && (
+                <tr className="console-row">
+                  <td colSpan={4}>
+                    <LiveConsole output={item.live_output} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>

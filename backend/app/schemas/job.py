@@ -28,6 +28,7 @@ class JobItemOut(BaseModel):
     status: JobStatus
     error_message: str | None
     used_fallback_credential: bool
+    live_output: str
     started_at: datetime | None
     finished_at: datetime | None
     snapshot_id: UUID | None

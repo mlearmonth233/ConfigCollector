@@ -200,6 +200,7 @@ def _to_job_detail_out(job: CollectionJob) -> JobDetailOut:
                 status=item.status,
                 error_message=item.error_message,
                 used_fallback_credential=item.used_fallback_credential,
+                live_output=item.live_output,
                 started_at=item.started_at,
                 finished_at=item.finished_at,
                 snapshot_id=item.snapshot.id if item.snapshot else None,

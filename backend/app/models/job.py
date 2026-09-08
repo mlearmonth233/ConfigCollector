@@ -52,6 +52,12 @@ class CollectionJobItem(Base_):
     # surfacing even on success - it usually means the primary AAA path
     # (e.g. TACACS+) is degraded and deserves a look.
     used_fallback_credential: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Live, human-readable transcript of the collection attempt - connecting,
+    # authenticating, each command sent and its output - appended to as it
+    # happens so a polling UI can show what's going on in real time instead
+    # of just a static "authenticating..." status, which matters most for a
+    # slow TACACS+/RADIUS round trip or a pending MFA approval.
+    live_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

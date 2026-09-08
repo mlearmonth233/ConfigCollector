@@ -47,6 +47,7 @@ def collect_device_config(
     otp: str | None = None,
     otp_delimiter: str = ",",
     on_authenticated: Callable[[], None] | None = None,
+    on_output: Callable[[str], None] | None = None,
 ) -> str:
     """Connect, authenticate, and run the configured show/config command(s).
 
@@ -56,7 +57,17 @@ def collect_device_config(
     "running" at exactly that point. It should not raise; any error it
     encounters is its own concern (e.g. a DB status update) and shouldn't be
     mistaken for a device authentication failure.
+
+    `on_output`, if given, is called with each successive chunk of a
+    human-readable transcript (connecting, authenticated, each command sent
+    and its output) as it becomes available, so callers can show live
+    progress instead of just a static status. Same no-raise contract as
+    `on_authenticated`.
     """
+
+    def _emit(text: str) -> None:
+        if on_output is not None:
+            on_output(text)
     try:
         spec = get_device_type_spec(device_type)
         commands = commands_override or resolve_commands(device_type, custom_commands)
@@ -93,6 +104,7 @@ def collect_device_config(
     if secret and spec.secret_supported:
         connection_params["secret"] = secret
 
+    _emit(f"Connecting to {host}:{port} as {username}...\n")
     try:
         with ConnectHandler(**connection_params) as conn:
             # Netmiko's constructor above blocks until the SSH session is
@@ -101,6 +113,7 @@ def collect_device_config(
             # login - authentication is done, only commands remain.
             if on_authenticated is not None:
                 on_authenticated()
+            _emit("Authenticated.\n")
 
             try:
                 if secret and spec.secret_supported:
@@ -108,7 +121,10 @@ def collect_device_config(
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
-                    outputs.append(conn.send_command(command, read_timeout=60))
+                    _emit(f"\n$ {command}\n")
+                    output = conn.send_command(command, read_timeout=60)
+                    outputs.append(output)
+                    _emit(output + "\n")
                 return "\n".join(outputs)
             except Exception as exc:  # noqa: BLE001 - reported as a job failure, not a crash
                 raise CommandExecutionError(
