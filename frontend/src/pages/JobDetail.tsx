@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { apiClient, extractErrorMessage } from "../api/client";
@@ -49,6 +49,17 @@ export function JobDetail() {
     });
   }
 
+  function expandAllConsoles(items: JobDetailType["items"]) {
+    setExpandedConsoles(new Set(items.map((i) => i.id)));
+  }
+
+  // The first time a still-running job loads, show every device's console
+  // right away instead of making the viewer click each one - the point is
+  // to watch all the switches being collected from at once, live. Only
+  // fires once, so a console the viewer collapses afterward stays
+  // collapsed on the next poll instead of snapping back open.
+  const hasAutoExpanded = useRef(false);
+
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
@@ -59,6 +70,10 @@ export function JobDetail() {
         const { data } = await jobsApi.get(jobId!);
         if (cancelled) return;
         setJob(data);
+        if (!hasAutoExpanded.current && ACTIVE_STATUSES.has(data.status)) {
+          hasAutoExpanded.current = true;
+          expandAllConsoles(data.items);
+        }
         if (!ACTIVE_STATUSES.has(data.status) && interval) {
           clearInterval(interval);
         }
@@ -93,6 +108,21 @@ export function JobDetail() {
       </p>
 
       {downloadError && <div className="error-banner">{downloadError}</div>}
+
+      {job.items.length > 1 && (
+        <p style={{ marginTop: -8 }}>
+          <button
+            className="link-button"
+            onClick={() =>
+              expandedConsoles.size === job.items.length
+                ? setExpandedConsoles(new Set())
+                : expandAllConsoles(job.items)
+            }
+          >
+            {expandedConsoles.size === job.items.length ? "Collapse all consoles" : "Expand all consoles"}
+          </button>
+        </p>
+      )}
 
       {job.items.some((i) => i.snapshot_id) && (
         <div className="page-header-row download-footer" style={{ marginBottom: 16 }}>

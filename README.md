@@ -183,6 +183,14 @@ auto-scrolling transcript - connecting, authenticated, each command sent and
 its output, and (if it fails) which credential failed and why - updating as
 the job progresses via the same polling that drives the status column.
 
+While a job is still pending or running, every device's console opens
+automatically the moment the page loads, so you can watch every switch being
+collected from at once without clicking into each one - a console you
+collapse manually stays collapsed on later polls instead of reopening. An
+**Expand all consoles** / **Collapse all consoles** toggle in the page
+header does the same for a job at any stage, including one that's already
+finished.
+
 ### Choosing commands per run
 
 When you start a collection (`Collect all`/`Collect selected`), a dialog
