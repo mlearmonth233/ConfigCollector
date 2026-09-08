@@ -10,6 +10,11 @@ from app.models.base import GUID, Base_
 
 class JobStatus(str, enum.Enum):
     PENDING = "pending"
+    # Item-only: queued for its turn, connecting and logging in (SSH +
+    # TACACS+/RADIUS round trip + any MFA challenge/approval). No config
+    # commands are sent until this phase succeeds.
+    AUTHENTICATING = "authenticating"
+    # Item-only: authenticated, now sending show/config commands.
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"

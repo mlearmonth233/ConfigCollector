@@ -6,11 +6,16 @@ export interface CurrentUser {
   role: "admin" | "member";
 }
 
+export type MfaMode = "none" | "push" | "passcode";
+
 export interface Credential {
   id: string;
   name: string;
   username: string;
   has_enable_secret: boolean;
+  mfa_mode: MfaMode;
+  otp_delimiter: string;
+  auth_timeout_seconds: number;
   created_at: string;
 }
 
@@ -31,6 +36,7 @@ export interface DeviceType {
   label: string;
   category: string;
   requires_custom_command: boolean;
+  default_commands: string[];
 }
 
 export interface DeviceImportResult {
@@ -38,7 +44,7 @@ export interface DeviceImportResult {
   errors: string[];
 }
 
-export type JobStatus = "pending" | "running" | "completed" | "failed";
+export type JobStatus = "pending" | "authenticating" | "running" | "completed" | "failed";
 
 export interface JobItem {
   id: string;

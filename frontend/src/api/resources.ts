@@ -7,6 +7,7 @@ import type {
   DeviceType,
   Job,
   JobDetail,
+  MfaMode,
   Snapshot,
   SnapshotSummary,
 } from "./types";
@@ -19,10 +20,19 @@ export const authApi = {
   me: () => apiClient.get<CurrentUser>("/api/auth/me"),
 };
 
+export interface CredentialCreatePayload {
+  name: string;
+  username: string;
+  password: string;
+  enable_secret?: string;
+  mfa_mode?: MfaMode;
+  otp_delimiter?: string;
+  auth_timeout_seconds?: number;
+}
+
 export const credentialsApi = {
   list: () => apiClient.get<Credential[]>("/api/credentials"),
-  create: (data: { name: string; username: string; password: string; enable_secret?: string }) =>
-    apiClient.post<Credential>("/api/credentials", data),
+  create: (data: CredentialCreatePayload) => apiClient.post<Credential>("/api/credentials", data),
   remove: (id: string) => apiClient.delete(`/api/credentials/${id}`),
 };
 
@@ -46,9 +56,20 @@ export const devicesApi = {
     apiClient.get<SnapshotSummary[]>(`/api/devices/${deviceId}/snapshots`),
 };
 
+export interface JobCreatePayload {
+  deviceIds?: string[];
+  commandsByDeviceType?: Record<string, string>;
+  credentialOtps?: Record<string, string>;
+}
+
 export const jobsApi = {
   list: () => apiClient.get<Job[]>("/api/jobs"),
-  create: (deviceIds?: string[]) => apiClient.post<JobDetail>("/api/jobs", { device_ids: deviceIds }),
+  create: ({ deviceIds, commandsByDeviceType, credentialOtps }: JobCreatePayload) =>
+    apiClient.post<JobDetail>("/api/jobs", {
+      device_ids: deviceIds,
+      commands_by_device_type: commandsByDeviceType,
+      credential_otps: credentialOtps,
+    }),
   get: (id: string) => apiClient.get<JobDetail>(`/api/jobs/${id}`),
 };
 

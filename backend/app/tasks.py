@@ -9,14 +9,22 @@ from app.services.collector import CollectionError, collect_device_config
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
-def collect_device_task(self, job_item_id: str) -> None:
+def collect_device_task(
+    self,
+    job_item_id: str,
+    commands_override: list[str] | None = None,
+    otp: str | None = None,
+) -> None:
     db = SyncSessionLocal()
     try:
         item = db.get(CollectionJobItem, job_item_id)
         if item is None:
             return
 
-        item.status = JobStatus.RUNNING
+        # Queued devices sit here until it's their turn; once dequeued, the
+        # first phase is authenticating (SSH + TACACS+/RADIUS + any MFA) -
+        # no config commands are sent until that succeeds.
+        item.status = JobStatus.AUTHENTICATING
         item.started_at = datetime.now(timezone.utc)
         db.commit()
 
@@ -42,6 +50,12 @@ def collect_device_task(self, job_item_id: str) -> None:
                     password=password,
                     secret=secret,
                     custom_commands=device.custom_commands,
+                    commands_override=commands_override,
+                    auth_timeout=credential.auth_timeout_seconds,
+                    mfa_mode=credential.mfa_mode.value,
+                    otp=otp,
+                    otp_delimiter=credential.otp_delimiter,
+                    on_authenticated=_make_authenticated_callback(db, item),
                 )
                 db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
                 item.status = JobStatus.COMPLETED
@@ -57,13 +71,29 @@ def collect_device_task(self, job_item_id: str) -> None:
         db.close()
 
 
+def _make_authenticated_callback(db, item: CollectionJobItem):
+    """Flips an item from AUTHENTICATING to RUNNING the instant its device
+    login succeeds. Swallows its own errors - a hiccup persisting this
+    transitional status shouldn't be mistaken for (or block) the actual
+    device collection outcome, which is recorded independently below."""
+
+    def _on_authenticated() -> None:
+        try:
+            item.status = JobStatus.RUNNING
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    return _on_authenticated
+
+
 def _finalize_job_if_done(db, job_id) -> None:
     job = db.get(CollectionJob, job_id)
     if job is None:
         return
 
     items = db.query(CollectionJobItem).filter(CollectionJobItem.job_id == job.id).all()
-    if any(i.status in (JobStatus.PENDING, JobStatus.RUNNING) for i in items):
+    if any(i.status in (JobStatus.PENDING, JobStatus.AUTHENTICATING, JobStatus.RUNNING) for i in items):
         return
 
     job.status = JobStatus.FAILED if any(i.status == JobStatus.FAILED for i in items) else JobStatus.COMPLETED

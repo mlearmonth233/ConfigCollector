@@ -20,6 +20,9 @@ def _to_out(c: Credential) -> CredentialOut:
         name=c.name,
         username=c.username,
         has_enable_secret=bool(c.encrypted_enable_secret),
+        mfa_mode=c.mfa_mode,
+        otp_delimiter=c.otp_delimiter,
+        auth_timeout_seconds=c.auth_timeout_seconds,
         created_at=c.created_at,
     )
 
@@ -45,6 +48,9 @@ async def create_credential(
         username=payload.username,
         encrypted_password=encrypt_secret(payload.password),
         encrypted_enable_secret=encrypt_secret(payload.enable_secret) if payload.enable_secret else None,
+        mfa_mode=payload.mfa_mode,
+        otp_delimiter=payload.otp_delimiter,
+        auth_timeout_seconds=payload.auth_timeout_seconds,
     )
     db.add(credential)
     await db.commit()

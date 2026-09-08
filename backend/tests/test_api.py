@@ -168,3 +168,124 @@ async def test_cross_org_device_access_denied(client: AsyncClient, unique_email)
 
     resp = await client.patch(f"/api/devices/{device_id}", headers=_auth(token_b), json={"site": "x"})
     assert resp.status_code == 404
+
+
+async def test_credential_mfa_fields_roundtrip(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={
+            "name": "tacacs-mfa",
+            "username": "admin",
+            "password": "cisco123",
+            "mfa_mode": "passcode",
+            "otp_delimiter": ";",
+            "auth_timeout_seconds": 90,
+        },
+    )
+    assert cred.status_code == 201, cred.text
+    body = cred.json()
+    assert body["mfa_mode"] == "passcode"
+    assert body["otp_delimiter"] == ";"
+    assert body["auth_timeout_seconds"] == 90
+
+    # Defaults for a plain (non-MFA) credential.
+    plain = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "plain", "username": "admin", "password": "cisco123"},
+    )
+    assert plain.status_code == 201
+    plain_body = plain.json()
+    assert plain_body["mfa_mode"] == "none"
+    assert plain_body["auth_timeout_seconds"] == 45
+
+
+async def test_job_requires_otp_for_passcode_credential(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "mfa-cred", "username": "admin", "password": "cisco123", "mfa_mode": "passcode"},
+    )
+    cred_id = cred.json()["id"]
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.30", "device_type": "cisco_ios", "credential_id": cred_id},
+    )
+    device_id = device.json()["id"]
+
+    # No OTP supplied - should be rejected before any device is contacted.
+    resp = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert resp.status_code == 400
+    assert "mfa-cred" in resp.json()["detail"]
+
+    # With an OTP supplied, the job is accepted (it will still fail to
+    # actually reach 192.0.2.30, but that's a collection failure, not a
+    # validation error).
+    resp = await client.post(
+        "/api/jobs",
+        headers=_auth(token),
+        json={"device_ids": [device_id], "credential_otps": {cred_id: "123456"}},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_job_command_override_is_accepted(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "lab", "username": "admin", "password": "cisco123"},
+    )
+    cred_id = cred.json()["id"]
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "pdu1", "host": "192.0.2.40", "device_type": "pdu_generic", "credential_id": cred_id},
+    )
+    device_id = device.json()["id"]
+
+    resp = await client.post(
+        "/api/jobs",
+        headers=_auth(token),
+        json={
+            "device_ids": [device_id],
+            "commands_by_device_type": {"pdu_generic": "about,show status"},
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_job_rejects_device_type_with_no_resolvable_command(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "lab", "username": "admin", "password": "cisco123"},
+    )
+    cred_id = cred.json()["id"]
+    # pdu_generic has no default command and no custom_commands set here -
+    # this must be rejected up front, not crash a worker task later.
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "pdu1", "host": "192.0.2.41", "device_type": "pdu_generic", "credential_id": cred_id},
+    )
+    device_id = device.json()["id"]
+
+    resp = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert resp.status_code == 400
+    assert "pdu1" in resp.json()["detail"]
+
+
+async def test_device_types_expose_default_commands(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.get("/api/device-types", headers=_auth(token))
+    assert resp.status_code == 200
+    by_key = {t["key"]: t for t in resp.json()}
+    assert by_key["cisco_ios"]["default_commands"] == ["show running-config"]
+    assert by_key["pdu_generic"]["requires_custom_command"] is True
+    assert by_key["pdu_generic"]["default_commands"] == []

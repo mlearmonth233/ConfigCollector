@@ -284,6 +284,11 @@ a {
   color: #4b5563;
 }
 
+.status-authenticating {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
 .status-running {
   background: #fef9c3;
   color: #854d0e;
@@ -377,6 +382,33 @@ a {
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+.modal-body {
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.modal-body h3 {
+  font-size: 14px;
+  margin: 18px 0 10px;
+}
+
+.modal-body h3:first-child {
+  margin-top: 0;
+}
+
+.modal-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-footer {
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
 }
 
 .config-view {

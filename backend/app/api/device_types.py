@@ -15,6 +15,7 @@ async def list_device_types(user: User = Depends(get_current_user)) -> list[dict
             "label": spec.label,
             "category": spec.category,
             "requires_custom_command": not spec.default_commands,
+            "default_commands": list(spec.default_commands),
         }
         for key, spec in DEVICE_TYPE_REGISTRY.items()
     ]

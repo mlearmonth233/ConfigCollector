@@ -97,11 +97,18 @@ def get_device_type_spec(device_type: str) -> DeviceTypeSpec:
         raise ValueError(f"Unknown device_type '{device_type}'") from exc
 
 
+def parse_command_list(raw: str) -> list[str]:
+    """Splits a comma-separated command string (as stored in
+    Device.custom_commands, or supplied per-run via a job's
+    commands_by_device_type) into individual commands."""
+    return [c.strip() for c in raw.split(",") if c.strip()]
+
+
 def resolve_commands(device_type: str, custom_commands: str | None) -> list[str]:
     """custom_commands, when set on the Device, is a comma-separated override
     of the registry's default_commands."""
     if custom_commands:
-        return [c.strip() for c in custom_commands.split(",") if c.strip()]
+        return parse_command_list(custom_commands)
     spec = get_device_type_spec(device_type)
     if not spec.default_commands:
         raise ValueError(

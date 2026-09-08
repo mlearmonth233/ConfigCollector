@@ -8,6 +8,15 @@ from app.models.job import JobStatus
 
 class JobCreate(BaseModel):
     device_ids: list[UUID] | None = None  # None/omitted = all devices in org
+    # Per-device_type command override for this run only (does not persist
+    # to Device.custom_commands) - e.g. {"cisco_ios": "show running-config",
+    # "pdu_generic": "about,show status"}. Falls back to each device's own
+    # custom_commands, then the device type's registry default.
+    commands_by_device_type: dict[str, str] | None = None
+    # One-time passcode per credential (keyed by credential id, as a
+    # string), required for any credential whose mfa_mode is "passcode".
+    # Never stored - used once to authenticate, then discarded.
+    credential_otps: dict[str, str] | None = None
 
 
 class JobItemOut(BaseModel):

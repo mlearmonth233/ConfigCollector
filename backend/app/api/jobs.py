@@ -8,10 +8,12 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.database import get_db
+from app.models.credential import MfaMode
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.user import User
 from app.schemas.job import JobCreate, JobDetailOut, JobItemOut, JobOut
+from app.services.device_types import parse_command_list, resolve_commands
 from app.tasks import collect_device_task
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -37,18 +39,53 @@ async def create_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
+    device_query = select(Device).options(selectinload(Device.credential)).where(Device.org_id == user.org_id)
     if payload.device_ids:
-        result = await db.scalars(
-            select(Device).where(Device.org_id == user.org_id, Device.id.in_(payload.device_ids))
-        )
-        devices = list(result)
+        device_query = device_query.where(Device.id.in_(payload.device_ids))
+        devices = list(await db.scalars(device_query))
         if len(devices) != len(set(payload.device_ids)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more devices not found")
     else:
-        devices = list(await db.scalars(select(Device).where(Device.org_id == user.org_id)))
+        devices = list(await db.scalars(device_query))
 
     if not devices:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No devices to collect from")
+
+    credential_otps = payload.credential_otps or {}
+    missing_otp_credentials = sorted(
+        {
+            d.credential.name
+            for d in devices
+            if d.credential is not None
+            and d.credential.mfa_mode == MfaMode.PASSCODE
+            and not credential_otps.get(str(d.credential.id))
+        }
+    )
+    if missing_otp_credentials:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A one-time passcode is required for these credentials before collection can start: "
+                + ", ".join(missing_otp_credentials)
+            ),
+        )
+
+    commands_by_type = payload.commands_by_device_type or {}
+    missing_command_devices = sorted(
+        d.name
+        for d in devices
+        if not commands_by_type.get(d.device_type)
+        and not _has_resolvable_commands(d.device_type, d.custom_commands)
+    )
+    if missing_command_devices:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "These devices have no default command for their type and no custom command "
+                "configured - specify commands_by_device_type before starting: "
+                + ", ".join(missing_command_devices)
+            ),
+        )
 
     job = CollectionJob(
         org_id=user.org_id,
@@ -65,8 +102,11 @@ async def create_job(
     for item in items:
         await db.refresh(item)
 
-    for item in items:
-        collect_device_task.delay(str(item.id))
+    for item, device in zip(items, devices):
+        raw_override = commands_by_type.get(device.device_type)
+        commands_override = parse_command_list(raw_override) if raw_override else None
+        otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
+        collect_device_task.delay(str(item.id), commands_override=commands_override, otp=otp)
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
     # in tests/dev without a broker) via a separate sync session, so re-fetch
@@ -91,6 +131,15 @@ async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> Job
     # get() would instead return that cached-but-not-eager-loaded instance,
     # so accessing job.items/snapshot afterwards would trigger a lazy load
     # that fails outside of an awaited context.
+    #
+    # populate_existing=True is equally required: by default SQLAlchemy's
+    # identity map wins even for a fresh select() - already-loaded *column*
+    # attributes on an identity-mapped row are left as-is, not overwritten,
+    # unless told otherwise. create_job's items were loaded/refreshed in
+    # this same session before dispatch; when CELERY_TASK_ALWAYS_EAGER runs
+    # a device's task inline (via a separate sync session/connection) and
+    # updates its status before we get here, this query would otherwise
+    # still hand back the item's pre-dispatch (pending) status.
     job = await db.scalar(
         select(CollectionJob)
         .where(CollectionJob.id == job_id)
@@ -98,10 +147,19 @@ async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> Job
             selectinload(CollectionJob.items).selectinload(CollectionJobItem.device),
             selectinload(CollectionJob.items).selectinload(CollectionJobItem.snapshot),
         )
+        .execution_options(populate_existing=True)
     )
     if job is None or job.org_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return _to_job_detail_out(job)
+
+
+def _has_resolvable_commands(device_type: str, custom_commands: str | None) -> bool:
+    try:
+        resolve_commands(device_type, custom_commands)
+        return True
+    except ValueError:
+        return False
 
 
 def _to_job_out(job: CollectionJob) -> JobOut:

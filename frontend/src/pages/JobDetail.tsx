@@ -58,6 +58,13 @@ export function JobDetail() {
         {job.finished_at && ` · Finished ${new Date(job.finished_at).toLocaleString()}`}
       </p>
 
+      {job.items.some((i) => i.status === "authenticating") && (
+        <div className="info-banner">
+          One or more devices are logging in - if their credential uses push-based MFA, approve the
+          request on your phone now. This can take up to a minute; no commands run until it succeeds.
+        </div>
+      )}
+
       <table className="data-table">
         <thead>
           <tr>

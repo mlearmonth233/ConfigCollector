@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "
 import { useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
-import { credentialsApi, devicesApi, deviceTypesApi, jobsApi } from "../api/resources";
+import { credentialsApi, devicesApi, deviceTypesApi } from "../api/resources";
 import type { Credential, Device, DeviceImportResult, DeviceType } from "../api/types";
+import { StartCollectionModal } from "../components/StartCollectionModal";
 
 export function Devices() {
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ export function Devices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [starting, setStarting] = useState(false);
+  const [collectionTarget, setCollectionTarget] = useState<Device[] | null>(null);
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -119,17 +120,8 @@ export function Devices() {
     }
   }
 
-  async function handleCollect(deviceIds?: string[]) {
-    setStarting(true);
-    setError(null);
-    try {
-      const { data } = await jobsApi.create(deviceIds);
-      navigate(`/jobs/${data.id}`);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setStarting(false);
-    }
+  function handleOpenCollect(targetDevices: Device[]) {
+    setCollectionTarget(targetDevices);
   }
 
   return (
@@ -217,12 +209,12 @@ export function Devices() {
 
       <div className="page-header-row">
         <div className="selection-actions">
-          <button disabled={starting || devices.length === 0} onClick={() => handleCollect()}>
+          <button disabled={devices.length === 0} onClick={() => handleOpenCollect(devices)}>
             Collect all
           </button>
           <button
-            disabled={starting || selected.size === 0}
-            onClick={() => handleCollect(Array.from(selected))}
+            disabled={selected.size === 0}
+            onClick={() => handleOpenCollect(devices.filter((d) => selected.has(d.id)))}
           >
             Collect selected ({selected.size})
           </button>
@@ -283,6 +275,19 @@ export function Devices() {
             )}
           </tbody>
         </table>
+      )}
+
+      {collectionTarget && (
+        <StartCollectionModal
+          devices={collectionTarget}
+          deviceTypes={deviceTypes}
+          credentials={credentials}
+          onClose={() => setCollectionTarget(null)}
+          onStarted={(job) => {
+            setCollectionTarget(null);
+            navigate(`/jobs/${job.id}`);
+          }}
+        />
       )}
     </div>
   );

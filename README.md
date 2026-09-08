@@ -100,6 +100,52 @@ the full supported list, spanning switches, WLCs, firewalls, PDUs, and
 console servers. New device types are added in
 `backend/app/services/device_types.py` by mapping to a Netmiko driver name.
 
+## TACACS+/RADIUS and MFA-backed logins
+
+TACACS+/RADIUS AAA (and any MFA layered on top, e.g. Duo) is configured on
+the device itself, not in this app — from ConfigCollector's point of view
+that just changes how long a login takes and whether a one-time code is
+needed. Each **credential** (`Devices → Credentials`) has:
+
+- **MFA / AAA mode**:
+  - `none` — plain username/password.
+  - `push` — the device's AAA backend prompts out-of-band (e.g. a Duo push
+    notification) and holds the login until it's approved. No extra input is
+    needed here, just a generous `auth_timeout_seconds`.
+  - `passcode` — a fresh one-time code is required on every collection run.
+    It's never stored: you're prompted for it (per credential in use) when
+    starting a collection, and it's appended to the password using the
+    credential's delimiter (default `,`, e.g. `mypassword,123456`) — the
+    convention most TACACS+/Duo integrations expect.
+- **Auth timeout (seconds)** — how long to wait for the full login (SSH +
+  the TACACS+/RADIUS round trip + any MFA challenge/approval) before giving
+  up. Plain local-auth devices are fine with the default (45s); push-MFA
+  credentials often need 60–90s to give a human time to approve.
+
+### Queued, two-phase collection
+
+Within a job, each device is queued and processed independently (fanned out
+across Celery workers), and each one goes through two phases in order:
+
+1. **Authenticating** — connect and log in (this is the phase a slow
+   TACACS+/RADIUS round trip or an MFA approval affects). No command is sent
+   to the device until this succeeds.
+2. **Running** — the configured command(s) are sent and the output is
+   captured as a config snapshot.
+
+The job detail page shows each device's current phase live, and a banner
+reminds you to approve any pending push notification while devices are
+authenticating.
+
+### Choosing commands per run
+
+When you start a collection (`Collect all`/`Collect selected`), a dialog
+lists every device type among the targeted devices (grouped by category —
+switch, WLC, firewall, PDU, console server) with its default command(s)
+pre-filled and editable, plus a one-time-passcode field for any credential
+in use that requires one. These command overrides apply to that run only —
+they don't change a device's own saved `custom_commands`.
+
 ## Security notes
 
 - Device passwords/enable secrets are encrypted at rest with Fernet
@@ -109,12 +155,22 @@ console servers. New device types are added in
   credential-less.
 - All data is scoped by `org_id`; cross-org access returns 404, not 403, to
   avoid leaking existence of other orgs' resources.
+- One-time passcodes are never persisted: they're passed through to the
+  Celery task that uses them and discarded after that run. They do transit
+  the Redis broker in flight (as task arguments), which is expected — treat
+  Redis like any other piece of internal infrastructure that shouldn't be
+  exposed publicly.
 
 ## Known limitations / next steps
 
 - Schema is bootstrapped via `Base.metadata.create_all` at startup rather
   than Alembic migrations — fine for getting started, but add Alembic
   before running this against a production database with real data in it.
+- MFA support covers the two most common device-side patterns: a push
+  approval you wait out with a longer timeout, and a passcode appended to
+  the password. A device whose AAA presents its own extra interactive CLI
+  prompt (beyond the initial SSH password) isn't handled and would need a
+  per-vendor Netmiko subclass.
 - No password reset / email verification flow.
 - RBAC is a single `admin`/`member` flag per user; no per-device or
   per-team permissions yet.
