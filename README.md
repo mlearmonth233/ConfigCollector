@@ -231,6 +231,11 @@ access.
 - Schema is bootstrapped via `Base.metadata.create_all` at startup rather
   than Alembic migrations — fine for getting started, but add Alembic
   before running this against a production database with real data in it.
+  For the local SQLite dev database specifically, a model gaining a new
+  column is detected automatically at startup and the file is reset (with a
+  console message explaining why) rather than crashing on the first request
+  that touches it — since that data is disposable anyway. This detection
+  never runs against Postgres.
 - MFA support covers the two most common device-side patterns: a push
   approval you wait out with a longer timeout, and a passcode appended to
   the password. A device whose AAA presents its own extra interactive CLI
