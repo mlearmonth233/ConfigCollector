@@ -14,8 +14,12 @@ asyncpg==0.31.0
 aiosqlite==0.20.0
 psycopg2-binary==2.9.12
 alembic==1.13.3
-pydantic==2.9.2
-pydantic-settings==2.5.2
+# pydantic==2.9.2 pins pydantic-core==2.23.4, a compiled Rust extension with
+# no CPython 3.14 wheel - pip then tries to compile it from source, which
+# needs a Rust toolchain AND the MSVC linker (Visual C++ Build Tools), which
+# most machines don't have. This version's pydantic-core has a cp314 wheel.
+pydantic==2.13.5
+pydantic-settings==2.15.0
 email-validator==2.2.0
 passlib==1.7.4
 bcrypt==4.0.1
