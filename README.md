@@ -76,6 +76,39 @@ echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
 npm run dev
 ```
 
+### Windows / PowerShell
+
+The commands above are bash syntax (`source`, inline `VAR=value cmd`) and
+won't run as-is in PowerShell. Use the bundled scripts instead, which handle
+venv creation, dependency install, and the Windows-specific syntax for you:
+
+```powershell
+.\backend\run-backend.ps1    # sets up + starts the backend
+.\frontend\run-frontend.ps1  # sets up + starts the frontend, in another window
+# or, from the repo root, start both at once (each in its own window):
+.\run-dev.ps1
+```
+
+If PowerShell blocks the scripts from running, allow local scripts once
+(per user, doesn't need admin):
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+### VS Code
+
+Open the repo root as the workspace. `.vscode/launch.json` provides:
+- **Backend (FastAPI)** — runs uvicorn under the Python debugger (breakpoints
+  work). The first time, select the backend's interpreter via
+  `Ctrl+Shift+P` → *Python: Select Interpreter* → `backend/.venv/...`.
+- **Frontend (Vite)** — runs the dev server in a terminal.
+- **Run ConfigCollector (Backend + Frontend)** — a compound that starts both
+  with a single **F5**.
+
+`.vscode/tasks.json` offers the same via *Terminal → Run Task* (including
+one-time `Backend: Create venv` / `Install deps` setup tasks) if you'd
+rather not use the debugger.
+
 ## Adding devices
 
 Devices can be added one at a time from the UI, or bulk-imported via CSV

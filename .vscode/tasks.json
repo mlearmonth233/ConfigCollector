@@ -1,0 +1,107 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend: Create venv",
+      "type": "shell",
+      "windows": { "command": "python -m venv .venv" },
+      "linux": { "command": "python3 -m venv .venv" },
+      "osx": { "command": "python3 -m venv .venv" },
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Install deps",
+      "type": "shell",
+      "windows": { "command": "${workspaceFolder}\\backend\\.venv\\Scripts\\pip.exe install -r requirements.txt" },
+      "linux": { "command": "${workspaceFolder}/backend/.venv/bin/pip install -r requirements.txt" },
+      "osx": { "command": "${workspaceFolder}/backend/.venv/bin/pip install -r requirements.txt" },
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "dependsOn": ["Backend: Create venv"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Run",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}\\backend\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/backend/.venv/bin/python -m uvicorn app.main:app --reload"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/backend/.venv/bin/python -m uvicorn app.main:app --reload"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/backend",
+        "env": { "CELERY_TASK_ALWAYS_EAGER": "true" }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Application startup complete\\."
+        }
+      },
+      "presentation": { "panel": "dedicated", "group": "run-all" }
+    },
+    {
+      "label": "Frontend: Install deps",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Ensure .env.local",
+      "type": "shell",
+      "windows": {
+        "command": "if (-not (Test-Path .env.local)) { 'VITE_API_BASE_URL=http://localhost:8000' | Out-File -Encoding utf8 .env.local }"
+      },
+      "linux": {
+        "command": "test -f .env.local || echo 'VITE_API_BASE_URL=http://localhost:8000' > .env.local"
+      },
+      "osx": {
+        "command": "test -f .env.local || echo 'VITE_API_BASE_URL=http://localhost:8000' > .env.local"
+      },
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Run",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "dependsOn": ["Frontend: Ensure .env.local"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "ready in"
+        }
+      },
+      "presentation": { "panel": "dedicated", "group": "run-all" }
+    },
+    {
+      "label": "Run All (Backend + Frontend)",
+      "dependsOn": ["Backend: Run", "Frontend: Run"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}
