@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.command_profiles import get_org_command_overrides
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.credential import Credential, MfaMode
@@ -86,12 +87,21 @@ async def create_job(
             ),
         )
 
+    # An org's saved Commands-page default (per device type) sits between a
+    # device's own custom_commands and the hardcoded registry default: it
+    # applies whenever a device has no custom_commands of its own and this
+    # run doesn't supply a commands_by_device_type override for its type.
+    org_overrides = await get_org_command_overrides(db, user.org_id)
+    org_default_commands = {
+        device_type: parse_command_list(profile.commands) for device_type, profile in org_overrides.items()
+    }
+
     commands_by_type = payload.commands_by_device_type or {}
     missing_command_devices = sorted(
         d.name
         for d in devices
         if not commands_by_type.get(d.device_type)
-        and not _has_resolvable_commands(d.device_type, d.custom_commands)
+        and not _has_resolvable_commands(d.device_type, d.custom_commands, org_default_commands.get(d.device_type))
     )
     if missing_command_devices:
         raise HTTPException(
@@ -120,7 +130,12 @@ async def create_job(
 
     for item, device in zip(items, devices):
         raw_override = commands_by_type.get(device.device_type)
-        commands_override = parse_command_list(raw_override) if raw_override else None
+        if raw_override:
+            commands_override = parse_command_list(raw_override)
+        elif not device.custom_commands and device.device_type in org_default_commands:
+            commands_override = org_default_commands[device.device_type]
+        else:
+            commands_override = None
         otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
         fallback = device.credential.fallback_credential if device.credential else None
         fallback_otp = credential_otps.get(str(fallback.id)) if fallback else None
@@ -226,7 +241,11 @@ async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> Job
     return _to_job_detail_out(job)
 
 
-def _has_resolvable_commands(device_type: str, custom_commands: str | None) -> bool:
+def _has_resolvable_commands(
+    device_type: str, custom_commands: str | None, org_default: list[str] | None
+) -> bool:
+    if custom_commands or org_default:
+        return True
     try:
         resolve_commands(device_type, custom_commands)
         return True

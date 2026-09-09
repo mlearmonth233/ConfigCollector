@@ -24,7 +24,7 @@ class DeviceTypeSpec:
 DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec(
-        "Cisco IOS Switch/Router", "switch", "cisco_ios", ("show running-config",)
+        "Cisco IOS Switch/Router", "switch", "cisco_ios", ("show tech-support",)
     ),
     "cisco_xe": DeviceTypeSpec(
         "Cisco IOS-XE Switch/Router", "switch", "cisco_xe", ("show running-config",)
@@ -88,6 +88,65 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
         "Generic Linux Host", "server", "linux", ("cat /etc/network/interfaces",), secret_supported=False
     ),
 }
+
+
+# Common "show" (read-only) commands offered as checkboxes on the Commands
+# page, grouped by category rather than exact device type since most vendors
+# within a category share enough CLI syntax for these to be useful starting
+# points - the user can always add anything else as free text. Cisco IOS
+# defaults to "show tech-support" (it bundles most of these plus platform
+# diagnostics), but every category's default is still listed here too so a
+# user can add it back alongside, or instead of, the default.
+CATEGORY_SUGGESTED_COMMANDS: dict[str, tuple[str, ...]] = {
+    "switch": (
+        "show tech-support",
+        "show running-config",
+        "show version",
+        "show inventory",
+        "show interfaces status",
+        "show ip interface brief",
+        "show vlan brief",
+        "show mac address-table",
+        "show cdp neighbors detail",
+        "show spanning-tree",
+        "show ip route",
+    ),
+    "wlc": (
+        "show run-config",
+        "show tech-support",
+        "show ap summary",
+        "show wlan summary",
+        "show client summary",
+    ),
+    "firewall": (
+        "show running-config",
+        "show tech-support",
+        "show version",
+        "show interface",
+        "show route",
+        "show nat",
+    ),
+    "pdu": (
+        "about",
+        "show status",
+        "show inlet",
+        "show outlets",
+    ),
+    "console_server": (
+        "show configuration",
+        "show version",
+        "show ports",
+    ),
+    "server": (
+        "cat /etc/network/interfaces",
+        "uname -a",
+        "df -h",
+    ),
+}
+
+
+def get_suggested_commands(category: str) -> tuple[str, ...]:
+    return CATEGORY_SUGGESTED_COMMANDS.get(category, ())
 
 
 def get_device_type_spec(device_type: str) -> DeviceTypeSpec:

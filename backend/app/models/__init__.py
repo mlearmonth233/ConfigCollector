@@ -1,3 +1,4 @@
+from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem
@@ -13,4 +14,5 @@ __all__ = [
     "CollectionJob",
     "CollectionJobItem",
     "ConfigSnapshot",
+    "CommandProfile",
 ]

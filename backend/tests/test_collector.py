@@ -9,7 +9,7 @@ def test_parse_command_list_strips_and_drops_blanks():
 
 
 def test_resolve_commands_uses_registry_default():
-    assert resolve_commands("cisco_ios", None) == ["show running-config"]
+    assert resolve_commands("cisco_ios", None) == ["show tech-support"]
 
 
 def test_resolve_commands_requires_custom_for_types_with_no_default():

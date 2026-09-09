@@ -122,7 +122,9 @@ def collect_device_config(
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
                     _emit(f"\n$ {command}\n")
-                    output = conn.send_command(command, read_timeout=60)
+                    # show tech-support (Cisco IOS's default command) routinely
+                    # takes minutes on real hardware, well past a 60s timeout.
+                    output = conn.send_command(command, read_timeout=300)
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)

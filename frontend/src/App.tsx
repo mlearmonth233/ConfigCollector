@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
+import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
 import { Devices } from "./pages/Devices";
 import { JobDetail } from "./pages/JobDetail";
@@ -30,6 +31,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Credentials />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/commands"
+          element={
+            <ProtectedRoute>
+              <Commands />
             </ProtectedRoute>
           }
         />

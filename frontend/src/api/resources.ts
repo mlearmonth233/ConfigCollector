@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type {
+  CommandProfile,
   Credential,
   CurrentUser,
   Device,
@@ -39,6 +40,13 @@ export const credentialsApi = {
 
 export const deviceTypesApi = {
   list: () => apiClient.get<DeviceType[]>("/api/device-types"),
+};
+
+export const commandProfilesApi = {
+  list: () => apiClient.get<CommandProfile[]>("/api/command-profiles"),
+  save: (deviceType: string, commands: string[]) =>
+    apiClient.put<CommandProfile>(`/api/command-profiles/${deviceType}`, { commands }),
+  reset: (deviceType: string) => apiClient.delete<CommandProfile>(`/api/command-profiles/${deviceType}`),
 };
 
 export const devicesApi = {

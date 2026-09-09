@@ -472,3 +472,35 @@ a {
   padding: 0 14px 14px;
   border-bottom: 1px solid var(--border);
 }
+
+.category-heading {
+  text-transform: capitalize;
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.command-profile-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.command-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.command-checklist .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  color: var(--text);
+  width: auto;
+}
+
+.command-checklist code {
+  font-size: 13px;
+}

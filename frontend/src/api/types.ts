@@ -39,6 +39,17 @@ export interface DeviceType {
   category: string;
   requires_custom_command: boolean;
   default_commands: string[];
+  is_custom_default: boolean;
+  suggested_commands: string[];
+}
+
+export interface CommandProfile {
+  device_type: string;
+  label: string;
+  category: string;
+  commands: string[];
+  suggested_commands: string[];
+  is_custom: boolean;
 }
 
 export interface DeviceImportResult {
