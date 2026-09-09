@@ -1,7 +1,85 @@
+import os
+import shutil
+import socket
+import subprocess
+import time
+
+import paramiko
 import pytest
 
 from app.services.collector import AuthenticationError, collect_device_config
 from app.services.device_types import parse_command_list, resolve_commands
+
+_SSHD = shutil.which("sshd") or "/usr/sbin/sshd"
+_HOST_KEY = "/etc/ssh/ssh_host_rsa_key"
+_REQUIRES_SSHD = pytest.mark.skipif(
+    not (os.path.exists(_SSHD) and os.path.exists(_HOST_KEY)),
+    reason="requires a system openssh-server install (sshd + host keys) to test against",
+)
+
+
+def test_legacy_kex_algorithm_enabled_for_old_devices():
+    # Some still-deployed switches/WLCs only speak diffie-hellman-group14-sha1,
+    # which recent Paramiko releases dropped from their default offer -
+    # collector.py re-enables it as a last-resort fallback on import.
+    assert "diffie-hellman-group14-sha1" in paramiko.Transport._preferred_kex
+    assert "diffie-hellman-group14-sha1" in paramiko.Transport._kex_info
+
+
+@_REQUIRES_SSHD
+def test_can_negotiate_with_a_server_offering_only_legacy_kex(tmp_path):
+    # Regression test for the real failure this was built to fix: a device
+    # whose SSH implementation only offers diffie-hellman-group14-sha1 used
+    # to fail here with "no acceptable kex algorithm" (surfacing to users as
+    # a misleading NetmikoTimeoutException) even though collector.py claims
+    # to support it - re-adding the algorithm's *name* without a working
+    # implementation behind it would look fixed but still fail exactly like
+    # this, so this spins up a real, restricted sshd rather than trusting
+    # the registration alone.
+    port = 2222
+    pid_file = tmp_path / "sshd.pid"
+    config = tmp_path / "sshd_config"
+    config.write_text(
+        f"Port {port}\n"
+        "ListenAddress 127.0.0.1\n"
+        f"HostKey {_HOST_KEY}\n"
+        "KexAlgorithms diffie-hellman-group14-sha1\n"
+        "PasswordAuthentication yes\n"
+        "UsePAM no\n"
+        f"PidFile {pid_file}\n"
+    )
+    os.makedirs("/run/sshd", exist_ok=True)
+
+    proc = subprocess.Popen([_SSHD, "-f", str(config), "-D"], stderr=subprocess.PIPE)
+    try:
+        for _ in range(20):
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                break
+            except OSError:
+                time.sleep(0.25)
+        else:
+            pytest.fail("test sshd never started listening")
+
+        # Wrong credentials on purpose - the point is proving the SSH
+        # session/key-exchange itself succeeds. A credentials rejection
+        # (NetmikoAuthenticationException) means it got past kex; the bug
+        # this guards against fails earlier, as NetmikoTimeoutException.
+        with pytest.raises(AuthenticationError) as excinfo:
+            collect_device_config(
+                host="127.0.0.1",
+                port=port,
+                device_type="linux",
+                username="root",
+                password="definitely-wrong-password",
+                secret=None,
+                custom_commands=None,
+                auth_timeout=5,
+            )
+        assert "rejected" in str(excinfo.value)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
 
 
 def test_parse_command_list_strips_and_drops_blanks():

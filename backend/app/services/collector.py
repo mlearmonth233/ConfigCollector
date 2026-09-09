@@ -8,11 +8,40 @@ may need a one-time passcode appended to the password. See Credential.mfa_mode.
 """
 
 from collections.abc import Callable
+from hashlib import sha1
 
+import paramiko
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
+from paramiko.kex_group14 import KexGroup14SHA256
 
 from app.services.device_types import get_device_type_spec, resolve_commands
+
+
+class _KexGroup14SHA1(KexGroup14SHA256):
+    """diffie-hellman-group14-sha1: identical Diffie-Hellman group/exchange
+    to KexGroup14SHA256, just hashed with SHA-1 - Paramiko implemented this
+    for years but dropped it (along with every other SHA-1 kex) as of its
+    3.x series. Reimplementing it here is 2 lines because the group
+    parameters (the only real cryptographic content) are unchanged; only
+    the transcript hash differs."""
+
+    name = "diffie-hellman-group14-sha1"
+    hash_algo = sha1
+
+
+# Some still-deployed switches/WLCs (old IOS, older AireOS controllers, etc.)
+# only speak diffie-hellman-group14-sha1 and never got past Paramiko
+# dropping it. Re-enable just this one (a fixed, well-vetted 2048-bit group -
+# not the weaker, dynamically-negotiated group-exchange-sha1 variant) as a
+# last-resort fallback: it's registered but appended to the *end* of the
+# preferred list, so Paramiko still tries every stronger algorithm first and
+# only falls back to this one when a device offers nothing better - this
+# doesn't weaken negotiation against any device that already supports
+# something stronger.
+if _KexGroup14SHA1.name not in paramiko.Transport._preferred_kex:
+    paramiko.Transport._preferred_kex = paramiko.Transport._preferred_kex + (_KexGroup14SHA1.name,)
+    paramiko.Transport._kex_info[_KexGroup14SHA1.name] = _KexGroup14SHA1
 
 
 class CollectionError(Exception):
@@ -138,21 +167,26 @@ def collect_device_config(
         # The device actively rejected the login - a real credentials
         # problem, not a network one.
         raise AuthenticationError(
-            f"Authentication was rejected for {host}:{port} ({exc.__class__.__name__}). Check the "
-            "credential's username/password, and for passcode-based MFA confirm a fresh one-time "
-            "code was supplied for this run."
+            f"Authentication was rejected for {host}:{port}: {exc}. Check the credential's "
+            "username/password, and for passcode-based MFA confirm a fresh one-time code was "
+            "supplied for this run."
         ) from exc
     except NetmikoTimeoutException as exc:
-        # No response at all within auth_timeout_seconds - almost always
-        # the device is simply unreachable (wrong host/IP, DNS, firewall,
-        # VPN, port 22 closed), not a slow TACACS+/MFA round trip. Leading
-        # with that (rather than suggesting a credential/timeout tweak)
-        # avoids sending users down the wrong troubleshooting path.
+        # Netmiko labels this exception class "Timeout", but it actually
+        # wraps *any* low-level SSH failure that isn't a straightforward
+        # credential rejection - a real connect timeout, but also things
+        # like an SSH key-exchange/cipher mismatch with an old device's
+        # SSH implementation. Always show the underlying message (str(exc))
+        # rather than just the exception's class name, since that's what
+        # actually distinguishes "unreachable" from "reachable but the SSH
+        # negotiation itself failed" - two very different fixes.
         raise AuthenticationError(
-            f"Timed out connecting to {host}:{port} ({exc.__class__.__name__}) - most likely the "
-            "device is unreachable (wrong host/IP, DNS, firewall, VPN, or port 22 not open), rather "
-            "than a credentials problem. If the device is reachable but its TACACS+/RADIUS or MFA "
-            "round trip is just slow, try raising the credential's auth_timeout_seconds instead."
+            f"Could not establish an SSH session with {host}:{port}: {exc}. If this looks like a "
+            "plain connect timeout, the device is most likely unreachable (wrong host/IP, DNS, "
+            "firewall, VPN, or port 22 not open) rather than a credentials problem - raising "
+            "auth_timeout_seconds won't help that. If the message above instead mentions a cipher, "
+            "key exchange, or other SSH negotiation detail, the device's SSH implementation is too "
+            "old/restrictive for this app's current settings."
         ) from exc
     except CollectionError:
         raise

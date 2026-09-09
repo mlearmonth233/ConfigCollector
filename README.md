@@ -263,6 +263,15 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
   the Redis broker in flight (as task arguments), which is expected — treat
   Redis like any other piece of internal infrastructure that shouldn't be
   exposed publicly.
+- Legacy SSH support: some still-deployed switches/WLCs only offer
+  `diffie-hellman-group14-sha1` for key exchange, which recent Paramiko
+  releases dropped entirely. `collector.py` reimplements just that one
+  algorithm (same well-vetted 2048-bit group as its still-supported SHA-256
+  sibling, only the transcript hash differs) and appends it to the *end* of
+  Paramiko's preferred list, so it's only ever used when a device offers
+  nothing stronger — never at the expense of a better algorithm a device
+  does support. The weaker, dynamically-negotiated
+  `diffie-hellman-group-exchange-sha1` is deliberately not re-enabled.
 
 ## Known limitations / next steps
 
