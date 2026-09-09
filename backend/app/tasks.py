@@ -24,69 +24,94 @@ def collect_device_task(
         if item is None:
             return
 
-        # Queued devices sit here until it's their turn; once dequeued, the
-        # first phase is authenticating (SSH + TACACS+/RADIUS + any MFA) -
-        # no config commands are sent until that succeeds.
-        item.status = JobStatus.AUTHENTICATING
-        item.started_at = datetime.now(timezone.utc)
-        db.commit()
-
-        device = item.device
-        credential = device.credential
-
-        if credential is None:
+        try:
+            _collect_one_device(db, item, commands_override, otp, fallback_otp)
+        except Exception as exc:  # noqa: BLE001
+            # Devices in a job are chained to run strictly one at a time
+            # (see jobs.py's create_job) - an exception escaping here would
+            # stop the chain outright, so every device still queued behind
+            # this one would never even be attempted. A truly unexpected
+            # error (as opposed to a normal auth/command failure, which
+            # _collect_one_device already turns into a FAILED item without
+            # raising) must still just fail this one item and let the chain
+            # continue.
+            db.rollback()
             item.status = JobStatus.FAILED
-            item.error_message = "Device has no credential assigned"
-        else:
-            on_authenticated = _make_authenticated_callback(db, item)
-            on_output = _make_output_callback(db, item)
-            try:
-                try:
-                    content = _attempt_collection(
-                        device, credential, otp, commands_override, on_authenticated, on_output
-                    )
-                    used_fallback = False
-                except AuthenticationError as primary_exc:
-                    fallback = credential.fallback_credential
-                    if fallback is None:
-                        raise
-                    # Reset to AUTHENTICATING (the callback may have already
-                    # flipped it to RUNNING had the primary attempt somehow
-                    # gotten further - it can't have, since AuthenticationError
-                    # only ever comes from a failed/timed-out login, but this
-                    # keeps the displayed phase honest regardless).
-                    item.status = JobStatus.AUTHENTICATING
-                    db.commit()
-                    on_output(
-                        f"\nPrimary credential '{credential.name}' failed: {primary_exc}\n"
-                        f"Trying fallback credential '{fallback.name}'...\n"
-                    )
-                    try:
-                        content = _attempt_collection(
-                            device, fallback, fallback_otp, commands_override, on_authenticated, on_output
-                        )
-                        used_fallback = True
-                    except CollectionError as fallback_exc:
-                        raise CollectionError(
-                            f"Primary credential '{credential.name}' failed to authenticate: "
-                            f"{primary_exc} | Fallback credential '{fallback.name}' also failed: "
-                            f"{fallback_exc}"
-                        ) from fallback_exc
-
-                db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
-                item.status = JobStatus.COMPLETED
-                item.used_fallback_credential = used_fallback
-            except CollectionError as exc:
-                item.status = JobStatus.FAILED
-                item.error_message = str(exc)
-                on_output(f"\nERROR: {exc}\n")
-
-        item.finished_at = datetime.now(timezone.utc)
-        db.commit()
+            item.error_message = f"Unexpected error during collection: {exc}"
+            item.finished_at = datetime.now(timezone.utc)
+            db.commit()
 
         _finalize_job_if_done(db, item.job_id)
     finally:
         db.close()
+
+
+def _collect_one_device(
+    db,
+    item: CollectionJobItem,
+    commands_override: list[str] | None,
+    otp: str | None,
+    fallback_otp: str | None,
+) -> None:
+    # Queued devices sit here until it's their turn; once dequeued, the
+    # first phase is authenticating (SSH + TACACS+/RADIUS + any MFA) -
+    # no config commands are sent until that succeeds.
+    item.status = JobStatus.AUTHENTICATING
+    item.started_at = datetime.now(timezone.utc)
+    db.commit()
+
+    device = item.device
+    credential = device.credential
+
+    if credential is None:
+        item.status = JobStatus.FAILED
+        item.error_message = "Device has no credential assigned"
+    else:
+        on_authenticated = _make_authenticated_callback(db, item)
+        on_output = _make_output_callback(db, item)
+        try:
+            try:
+                content = _attempt_collection(
+                    device, credential, otp, commands_override, on_authenticated, on_output
+                )
+                used_fallback = False
+            except AuthenticationError as primary_exc:
+                fallback = credential.fallback_credential
+                if fallback is None:
+                    raise
+                # Reset to AUTHENTICATING (the callback may have already
+                # flipped it to RUNNING had the primary attempt somehow
+                # gotten further - it can't have, since AuthenticationError
+                # only ever comes from a failed/timed-out login, but this
+                # keeps the displayed phase honest regardless).
+                item.status = JobStatus.AUTHENTICATING
+                db.commit()
+                on_output(
+                    f"\nPrimary credential '{credential.name}' failed: {primary_exc}\n"
+                    f"Trying fallback credential '{fallback.name}'...\n"
+                )
+                try:
+                    content = _attempt_collection(
+                        device, fallback, fallback_otp, commands_override, on_authenticated, on_output
+                    )
+                    used_fallback = True
+                except CollectionError as fallback_exc:
+                    raise CollectionError(
+                        f"Primary credential '{credential.name}' failed to authenticate: "
+                        f"{primary_exc} | Fallback credential '{fallback.name}' also failed: "
+                        f"{fallback_exc}"
+                    ) from fallback_exc
+
+            db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
+            item.status = JobStatus.COMPLETED
+            item.used_fallback_credential = used_fallback
+        except CollectionError as exc:
+            item.status = JobStatus.FAILED
+            item.error_message = str(exc)
+            on_output(f"\nERROR: {exc}\n")
+
+    item.finished_at = datetime.now(timezone.utc)
+    db.commit()
 
 
 def _attempt_collection(

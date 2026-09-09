@@ -167,8 +167,11 @@ needed. Each **credential** (`Devices → Credentials`) has:
 
 ### Queued, two-phase collection
 
-Within a job, each device is queued and processed independently (fanned out
-across Celery workers), and each one goes through two phases in order:
+Within a job, devices are collected strictly one at a time, in the order
+they were added - the next device isn't even dispatched until the previous
+one has fully finished (succeeded or failed), regardless of how many Celery
+workers are running. This keeps a large batch from hammering TACACS+/RADIUS
+or the network all at once. Each device goes through two phases in order:
 
 1. **Authenticating** — connect and log in (this is the phase a slow
    TACACS+/RADIUS round trip or an MFA approval affects). No command is sent

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
+from celery import chain
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,6 +129,7 @@ async def create_job(
     for item in items:
         await db.refresh(item)
 
+    signatures = []
     for item, device in zip(items, devices):
         raw_override = commands_by_type.get(device.device_type)
         if raw_override:
@@ -139,9 +141,21 @@ async def create_job(
         otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
         fallback = device.credential.fallback_credential if device.credential else None
         fallback_otp = credential_otps.get(str(fallback.id)) if fallback else None
-        collect_device_task.delay(
-            str(item.id), commands_override=commands_override, otp=otp, fallback_otp=fallback_otp
+        signatures.append(
+            collect_device_task.si(
+                str(item.id), commands_override=commands_override, otp=otp, fallback_otp=fallback_otp
+            )
         )
+
+    # Devices within a job authenticate strictly one at a time, in the order
+    # they were added - a large batch shouldn't hammer TACACS+/RADIUS or the
+    # network all at once. Chaining (rather than independently queuing each
+    # with .delay()) guarantees the next device's task isn't even dispatched
+    # until the previous one has fully finished, success or failure,
+    # regardless of how many Celery workers/concurrency slots are available.
+    # .si() (immutable signature) is used since each task doesn't need the
+    # previous one's return value, just to run after it.
+    chain(*signatures).apply_async()
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
     # in tests/dev without a broker) via a separate sync session, so re-fetch
