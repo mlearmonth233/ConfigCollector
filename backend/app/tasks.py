@@ -17,29 +17,66 @@ def collect_device_task(
     commands_override: list[str] | None = None,
     otp: str | None = None,
     fallback_otp: str | None = None,
+    remaining: list[dict] | None = None,
 ) -> None:
+    # `remaining` is the rest of this job's queue: dicts of
+    # {item_id, commands_override, otp, fallback_otp} for every device still
+    # to come, in order. Rather than a Celery chain (which only dispatches
+    # the next device once this one has *fully* finished), the next device
+    # is dispatched as soon as *this* device finishes authenticating - see
+    # dispatch_next() below - so a device's (usually fast) command-running
+    # phase overlaps with the next device's (usually slow, TACACS+/RADIUS-
+    # bound) authentication phase. At most one device is ever
+    # authenticating at a time, since the next dispatch only ever happens
+    # once this one stops needing to.
+    remaining = remaining or []
+    dispatched_next = False
+
+    def dispatch_next() -> None:
+        nonlocal dispatched_next
+        if dispatched_next or not remaining:
+            return
+        dispatched_next = True
+        next_device, *rest = remaining
+        collect_device_task.apply_async(
+            args=[next_device["item_id"]],
+            kwargs={
+                "commands_override": next_device["commands_override"],
+                "otp": next_device["otp"],
+                "fallback_otp": next_device["fallback_otp"],
+                "remaining": rest,
+            },
+        )
+
     db = SyncSessionLocal()
     try:
         item = db.get(CollectionJobItem, job_item_id)
         if item is None:
+            dispatch_next()
             return
 
         try:
-            _collect_one_device(db, item, commands_override, otp, fallback_otp)
+            _collect_one_device(db, item, commands_override, otp, fallback_otp, dispatch_next)
         except Exception as exc:  # noqa: BLE001
-            # Devices in a job are chained to run strictly one at a time
-            # (see jobs.py's create_job) - an exception escaping here would
-            # stop the chain outright, so every device still queued behind
-            # this one would never even be attempted. A truly unexpected
-            # error (as opposed to a normal auth/command failure, which
-            # _collect_one_device already turns into a FAILED item without
-            # raising) must still just fail this one item and let the chain
-            # continue.
+            # An exception escaping here would otherwise mean dispatch_next()
+            # was never called at all (it's only invoked from within
+            # _collect_one_device, on a successful authentication) - every
+            # device still queued behind this one would then never even be
+            # attempted. A truly unexpected error (as opposed to a normal
+            # auth/command failure, which _collect_one_device already turns
+            # into a FAILED item without raising) must still just fail this
+            # one item and let the queue continue.
             db.rollback()
             item.status = JobStatus.FAILED
             item.error_message = f"Unexpected error during collection: {exc}"
             item.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        # No-op if authentication already triggered it above - this only
+        # does anything when this device never got past authenticating (no
+        # credential assigned, auth failed with no/failed fallback, or the
+        # unexpected-error path just above), so the queue still advances.
+        dispatch_next()
 
         _finalize_job_if_done(db, item.job_id)
     finally:
@@ -52,6 +89,7 @@ def _collect_one_device(
     commands_override: list[str] | None,
     otp: str | None,
     fallback_otp: str | None,
+    dispatch_next,
 ) -> None:
     # Queued devices sit here until it's their turn; once dequeued, the
     # first phase is authenticating (SSH + TACACS+/RADIUS + any MFA) -
@@ -67,7 +105,7 @@ def _collect_one_device(
         item.status = JobStatus.FAILED
         item.error_message = "Device has no credential assigned"
     else:
-        on_authenticated = _make_authenticated_callback(db, item)
+        on_authenticated = _make_authenticated_callback(db, item, dispatch_next)
         on_output = _make_output_callback(db, item)
         try:
             try:
@@ -146,11 +184,14 @@ def _attempt_collection(
     )
 
 
-def _make_authenticated_callback(db, item: CollectionJobItem):
+def _make_authenticated_callback(db, item: CollectionJobItem, dispatch_next):
     """Flips an item from AUTHENTICATING to RUNNING the instant its device
-    login succeeds. Swallows its own errors - a hiccup persisting this
-    transitional status shouldn't be mistaken for (or block) the actual
-    device collection outcome, which is recorded independently below."""
+    login succeeds, and dispatches the next queued device at that same
+    moment (see collect_device_task) so it can start authenticating while
+    this device's commands are still running. Swallows its own errors for
+    the status update - a hiccup persisting this transitional status
+    shouldn't be mistaken for (or block) the actual device collection
+    outcome, which is recorded independently below."""
 
     def _on_authenticated() -> None:
         try:
@@ -158,6 +199,7 @@ def _make_authenticated_callback(db, item: CollectionJobItem):
             db.commit()
         except Exception:  # noqa: BLE001
             db.rollback()
+        dispatch_next()
 
     return _on_authenticated
 

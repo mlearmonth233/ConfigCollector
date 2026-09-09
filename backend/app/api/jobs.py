@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
-from celery import chain
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,11 +51,16 @@ async def create_job(
     )
     if payload.device_ids:
         device_query = device_query.where(Device.id.in_(payload.device_ids))
-        devices = list(await db.scalars(device_query))
-        if len(devices) != len(set(payload.device_ids)):
+        devices_by_id = {d.id: d for d in await db.scalars(device_query)}
+        if len(devices_by_id) != len(set(payload.device_ids)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more devices not found")
+        # `IN (...)` doesn't preserve the given order (it can come back in
+        # primary-key/index order) - devices are collected one at a time in
+        # this order (see dispatch below), so it needs to actually match
+        # what was requested rather than something incidental.
+        devices = [devices_by_id[device_id] for device_id in payload.device_ids]
     else:
-        devices = list(await db.scalars(device_query))
+        devices = list(await db.scalars(device_query.order_by(Device.created_at)))
 
     if not devices:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No devices to collect from")
@@ -129,7 +133,7 @@ async def create_job(
     for item in items:
         await db.refresh(item)
 
-    signatures = []
+    dispatch_specs = []
     for item, device in zip(items, devices):
         raw_override = commands_by_type.get(device.device_type)
         if raw_override:
@@ -141,21 +145,33 @@ async def create_job(
         otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
         fallback = device.credential.fallback_credential if device.credential else None
         fallback_otp = credential_otps.get(str(fallback.id)) if fallback else None
-        signatures.append(
-            collect_device_task.si(
-                str(item.id), commands_override=commands_override, otp=otp, fallback_otp=fallback_otp
-            )
+        dispatch_specs.append(
+            {
+                "item_id": str(item.id),
+                "commands_override": commands_override,
+                "otp": otp,
+                "fallback_otp": fallback_otp,
+            }
         )
 
-    # Devices within a job authenticate strictly one at a time, in the order
-    # they were added - a large batch shouldn't hammer TACACS+/RADIUS or the
-    # network all at once. Chaining (rather than independently queuing each
-    # with .delay()) guarantees the next device's task isn't even dispatched
-    # until the previous one has fully finished, success or failure,
-    # regardless of how many Celery workers/concurrency slots are available.
-    # .si() (immutable signature) is used since each task doesn't need the
-    # previous one's return value, just to run after it.
-    chain(*signatures).apply_async()
+    # Only the first device is dispatched here - each device's task
+    # dispatches the next one itself, as soon as it finishes authenticating
+    # (see tasks.py's collect_device_task/dispatch_next), so a device's
+    # command-running phase overlaps with the next device's authentication
+    # phase instead of waiting for it. At most one device is ever
+    # authenticating at a time, since the next dispatch only happens once
+    # this one stops needing to - a large batch still can't hammer
+    # TACACS+/RADIUS or the network with concurrent logins.
+    first, *rest = dispatch_specs
+    collect_device_task.apply_async(
+        args=[first["item_id"]],
+        kwargs={
+            "commands_override": first["commands_override"],
+            "otp": first["otp"],
+            "fallback_otp": first["fallback_otp"],
+            "remaining": rest,
+        },
+    )
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
     # in tests/dev without a broker) via a separate sync session, so re-fetch
