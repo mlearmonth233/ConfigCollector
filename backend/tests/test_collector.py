@@ -34,6 +34,26 @@ def test_unreachable_device_raises_authentication_error_not_command_error():
         )
 
 
+def test_unreachable_device_error_points_at_network_not_credentials():
+    # NetmikoTimeoutException (no response at all) is almost always a
+    # reachability problem, not a credentials one - the error message
+    # shouldn't send users chasing TACACS+/MFA settings for it.
+    with pytest.raises(AuthenticationError) as excinfo:
+        collect_device_config(
+            host="192.0.2.1",
+            port=22,
+            device_type="cisco_ios",
+            username="admin",
+            password="cisco123",
+            secret=None,
+            custom_commands=None,
+            auth_timeout=2,
+        )
+    message = str(excinfo.value)
+    assert "unreachable" in message
+    assert "credentials problem" in message
+
+
 def test_on_output_receives_connecting_line_before_failure():
     chunks: list[str] = []
     with pytest.raises(AuthenticationError):

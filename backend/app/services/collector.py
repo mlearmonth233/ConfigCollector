@@ -134,12 +134,25 @@ def collect_device_config(
                 ) from exc
     except CommandExecutionError:
         raise
-    except (NetmikoAuthenticationException, NetmikoTimeoutException) as exc:
+    except NetmikoAuthenticationException as exc:
+        # The device actively rejected the login - a real credentials
+        # problem, not a network one.
         raise AuthenticationError(
-            f"Authentication failed or timed out for {host}:{port} ({exc.__class__.__name__}). "
-            "If this device authenticates via TACACS+/RADIUS or requires MFA approval, try raising "
-            "the credential's auth_timeout_seconds, and for passcode-based MFA confirm a fresh "
-            "one-time code was supplied for this run."
+            f"Authentication was rejected for {host}:{port} ({exc.__class__.__name__}). Check the "
+            "credential's username/password, and for passcode-based MFA confirm a fresh one-time "
+            "code was supplied for this run."
+        ) from exc
+    except NetmikoTimeoutException as exc:
+        # No response at all within auth_timeout_seconds - almost always
+        # the device is simply unreachable (wrong host/IP, DNS, firewall,
+        # VPN, port 22 closed), not a slow TACACS+/MFA round trip. Leading
+        # with that (rather than suggesting a credential/timeout tweak)
+        # avoids sending users down the wrong troubleshooting path.
+        raise AuthenticationError(
+            f"Timed out connecting to {host}:{port} ({exc.__class__.__name__}) - most likely the "
+            "device is unreachable (wrong host/IP, DNS, firewall, VPN, or port 22 not open), rather "
+            "than a credentials problem. If the device is reachable but its TACACS+/RADIUS or MFA "
+            "round trip is just slow, try raising the credential's auth_timeout_seconds instead."
         ) from exc
     except CollectionError:
         raise
