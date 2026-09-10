@@ -206,18 +206,20 @@ async def cancel_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
-    """Cancels every device in this job that hasn't started yet (still
-    PENDING - either queued behind another device or its task just hasn't
-    been picked up by the worker yet). A device already AUTHENTICATING or
-    RUNNING can't be safely interrupted mid-SSH-session, so it's left to
-    finish naturally; no *further* device past it will be dispatched once
-    the whole remaining chain is cancelled (see tasks.py's terminal-status
-    guard, which skips - rather than resurrects - an already-cancelled
-    item when its turn in the chain comes up)."""
+    """Cancels this job. A device still PENDING (queued behind another one,
+    or its task just hasn't been picked up by the worker yet) is marked
+    CANCELLED immediately, skipped outright when its turn comes up (see
+    tasks.py's terminal-status guard). A device already authenticating or
+    mid-command-list can't be interrupted right this instant - a live SSH
+    call is opaque until it returns - but cancel_requested is checked
+    between each command in that device's list (see collector.py's
+    should_cancel), so it stops there rather than only ever finishing the
+    entire device untouched."""
     job = await _get_owned_job(db, job_id, user.org_id)
     if job.status != JobStatus.RUNNING:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job has already finished")
 
+    job.cancel_requested = True
     now = datetime.now(timezone.utc)
     for item in job.items:
         if item.status == JobStatus.PENDING:

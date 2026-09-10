@@ -75,8 +75,9 @@ export function JobDetail() {
     if (!jobId) return;
     if (
       !confirm(
-        "Cancel this job? Devices that haven't started yet will be skipped; a device already " +
-          "connecting or running commands will finish normally."
+        "Cancel this job? Devices that haven't started yet will be skipped. A device still " +
+          "connecting will finish that step first (it can't be interrupted mid-login); a device " +
+          "already running commands stops after its current command instead of running the rest."
       )
     ) {
       return;

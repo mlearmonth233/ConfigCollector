@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from app.celery_app import celery_app
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
@@ -7,7 +9,13 @@ from app.models.credential import Credential
 from app.models.device import Device
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
-from app.services.collector import AuthenticationError, CollectionError, EnableModeError, collect_device_config
+from app.services.collector import (
+    AuthenticationError,
+    CollectionCancelled,
+    CollectionError,
+    EnableModeError,
+    collect_device_config,
+)
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -117,10 +125,11 @@ def _collect_one_device(
     else:
         on_authenticated = _make_authenticated_callback(db, item, dispatch_next)
         on_output = _make_output_callback(db, item)
+        should_cancel = _make_should_cancel(db, item.job_id)
         try:
             try:
                 content = _attempt_collection(
-                    device, credential, otp, commands_override, on_authenticated, on_output
+                    device, credential, otp, commands_override, on_authenticated, on_output, should_cancel
                 )
                 used_fallback = False
             except (AuthenticationError, EnableModeError) as primary_exc:
@@ -142,7 +151,7 @@ def _collect_one_device(
                 )
                 try:
                     content = _attempt_collection(
-                        device, fallback, fallback_otp, commands_override, on_authenticated, on_output
+                        device, fallback, fallback_otp, commands_override, on_authenticated, on_output, should_cancel
                     )
                     used_fallback = True
                 except CollectionError as fallback_exc:
@@ -154,6 +163,11 @@ def _collect_one_device(
             db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
             item.status = JobStatus.COMPLETED
             item.used_fallback_credential = used_fallback
+        except CollectionCancelled:
+            # should_cancel() already noticed this mid-command-list and
+            # collector.py already narrated it into live_output - nothing
+            # more to record than the outcome itself.
+            item.status = JobStatus.CANCELLED
         except CollectionError as exc:
             item.status = JobStatus.FAILED
             item.error_message = str(exc)
@@ -170,12 +184,15 @@ def _attempt_collection(
     commands_override: list[str] | None,
     on_authenticated,
     on_output,
+    should_cancel,
 ) -> str:
     """One connection attempt with one credential. Raises AuthenticationError
     if login itself fails, EnableModeError if login succeeds but entering
     enable mode doesn't, or a plain CommandExecutionError if login and
     enable both succeed but running commands doesn't - callers retry with a
-    fallback credential for the first two, never the last."""
+    fallback credential for the first two, never the last. Raises
+    CollectionCancelled instead of any of those if should_cancel() notices a
+    cancel request before running a command."""
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
     return collect_device_config(
@@ -193,6 +210,7 @@ def _attempt_collection(
         otp_delimiter=credential.otp_delimiter,
         on_authenticated=on_authenticated,
         on_output=on_output,
+        should_cancel=should_cancel,
     )
 
 
@@ -214,6 +232,23 @@ def _make_authenticated_callback(db, item: CollectionJobItem, dispatch_next):
         dispatch_next()
 
     return _on_authenticated
+
+
+def _make_should_cancel(db, job_id):
+    """A fresh read of CollectionJob.cancel_requested every time it's
+    called (never cached) - the whole point is noticing a cancel request
+    made by a concurrent request (jobs.py's cancel_job) while this device
+    is mid-command-list. Defensively swallows its own errors (a hiccup
+    checking this shouldn't be mistaken for a real cancellation, or crash a
+    collection that would otherwise have succeeded)."""
+
+    def _should_cancel() -> bool:
+        try:
+            return bool(db.execute(select(CollectionJob.cancel_requested).where(CollectionJob.id == job_id)).scalar())
+        except Exception:  # noqa: BLE001
+            return False
+
+    return _should_cancel
 
 
 def _make_output_callback(db, item: CollectionJobItem):

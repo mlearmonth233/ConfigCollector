@@ -77,7 +77,7 @@ async def test_next_device_starts_authenticating_as_soon_as_previous_authenticat
 
     events: list[str] = []
 
-    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output):
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
         events.append(f"{device.host}-authenticating")
         on_authenticated()
         events.append(f"{device.host}-running")
@@ -131,10 +131,10 @@ async def test_job_continues_after_unexpected_exception_mid_chain(
 
     original = tasks_module._attempt_collection
 
-    def _boom_for_first_device(device, credential, otp, commands_override, on_authenticated, on_output):
+    def _boom_for_first_device(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
         if device.host == "203.0.113.1":
             raise RuntimeError("simulated unexpected crash")
-        return original(device, credential, otp, commands_override, on_authenticated, on_output)
+        return original(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel)
 
     monkeypatch.setattr(tasks_module, "_attempt_collection", _boom_for_first_device)
 
@@ -199,7 +199,7 @@ async def test_cancelling_mid_chain_skips_remaining_devices_without_resurrecting
         assert device.status_code == 201, device.text
         created.append(device.json())
 
-    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output):
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
         if device.host == "10.0.1.1":
             # Simulate a cancel request arriving (via jobs.py's cancel_job)
             # while sw2/sw3 are still queued (PENDING) behind sw1 - that
@@ -324,3 +324,60 @@ async def test_clear_finished_jobs_leaves_running_ones_alone(client: AsyncClient
     resp2 = await client.delete("/api/jobs", headers=_auth(token))
     assert resp2.status_code == 200
     assert resp2.json()["deleted"] == 0
+
+
+async def test_cancel_stops_a_device_partway_through_its_command_list(
+    client: AsyncClient, unique_email, monkeypatch
+):
+    # Reproduces the real bug report: cancelling a job only ever skipped
+    # devices that hadn't started yet - for a job where the device is
+    # already authenticating/running by the time the user clicks cancel
+    # (the common case once pipelining is involved), it looked like cancel
+    # did nothing at all. This verifies the actual fix: a device mid-way
+    # through its command list notices cancel_requested (set by the real
+    # /cancel endpoint) and stops, via the same should_cancel plumbing
+    # collector.py uses for real.
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "lab", "username": "admin", "password": "cisco123"},
+    )
+    cred_id = cred.json()["id"]
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "10.0.9.1", "device_type": "cisco_ios", "credential_id": cred_id},
+    )
+    device_id = device.json()["id"]
+
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        on_authenticated()
+        # Simulate a concurrent POST /api/jobs/{id}/cancel arriving right
+        # after this device authenticates, exactly as it would set
+        # CollectionJob.cancel_requested for real.
+        db = tasks_module.SyncSessionLocal()
+        try:
+            item = (
+                db.query(tasks_module.CollectionJobItem)
+                .filter(tasks_module.CollectionJobItem.device_id == device.id)
+                .one()
+            )
+            job = db.get(tasks_module.CollectionJob, item.job_id)
+            job.cancel_requested = True
+            db.commit()
+        finally:
+            db.close()
+        if should_cancel():
+            raise tasks_module.CollectionCancelled(f"cancelled for {device.host}")
+        return f"hostname {device.host}\n"  # pragma: no cover - shouldn't be reached
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
+    assert job.status_code == 201, job.text
+
+    detail = await client.get(f"/api/jobs/{job.json()['id']}", headers=_auth(token))
+    body = detail.json()
+    assert body["status"] == "cancelled"
+    assert body["items"][0]["status"] == "cancelled"

@@ -18,9 +18,13 @@ class JobStatus(str, enum.Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
-    # A device the user cancelled before it got a chance to start (still
-    # PENDING at cancel time). A device already AUTHENTICATING/RUNNING at
-    # cancel time is left to finish naturally - see jobs.py's cancel_job.
+    # A device the user cancelled - either before it got a chance to start
+    # (still PENDING at cancel time, so skipped outright), or partway
+    # through its command list (collector.py stops between commands once
+    # it notices - see CollectionJob.cancel_requested). Authenticating
+    # itself can't be interrupted this way - a live SSH/AAA call is opaque
+    # until it returns - so a device still connecting when cancelled
+    # finishes that step normally before the next command-loop check stops it.
     CANCELLED = "cancelled"
 
 
@@ -41,6 +45,15 @@ class CollectionJob(Base_):
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set by jobs.py's cancel_job. A device still PENDING at that moment is
+    # marked CANCELLED immediately; a device already authenticating or
+    # mid-command-list can't be interrupted right away (a live SSH call is
+    # opaque until it returns), but collector.py checks this flag between
+    # each command in that device's list and stops before running the next
+    # one, so a job with several commands left to run responds to a cancel
+    # within roughly one command's round trip rather than only ever
+    # finishing the entire device untouched.
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="jobs")
     items: Mapped[list["CollectionJobItem"]] = relationship(

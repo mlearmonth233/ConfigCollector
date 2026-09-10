@@ -51,7 +51,7 @@ async def test_enable_mode_failure_falls_back_to_other_credential(client: AsyncC
     )
     device_id = device.json()["id"]
 
-    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output):
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
         on_authenticated()
         if credential.name == "tacacs-primary":
             raise EnableModeError("Failed to enter enable mode: wrong secret")
@@ -79,7 +79,7 @@ async def test_enable_mode_failure_on_both_credentials_reports_both(client: Asyn
     )
     device_id = device.json()["id"]
 
-    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output):
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
         on_authenticated()
         raise EnableModeError(f"Failed to enter enable mode as {credential.name}")
 

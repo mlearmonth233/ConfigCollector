@@ -8,7 +8,7 @@ import paramiko
 import pytest
 
 from app.services import collector as collector_module
-from app.services.collector import AuthenticationError, collect_device_config
+from app.services.collector import AuthenticationError, CollectionCancelled, collect_device_config
 from app.services.device_types import DEVICE_TYPE_REGISTRY, DeviceTypeSpec, parse_command_list, resolve_commands
 
 _SSHD = shutil.which("sshd") or "/usr/sbin/sshd"
@@ -382,3 +382,34 @@ def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_pattern_based_read(monke
 
     assert fake.cmd_verify_values == [True]
     assert fake.auto_find_prompt_values == [True]
+
+
+def test_should_cancel_stops_before_the_next_command(monkeypatch):
+    # should_cancel() is checked before each command, not mid-command - a
+    # live SSH call is opaque until it returns - so a cancel noticed after
+    # the first command starts still lets that one finish, then raises
+    # CollectionCancelled instead of running any of the rest.
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    checks = {"count": 0}
+
+    def should_cancel() -> bool:
+        checks["count"] += 1
+        return checks["count"] > 1  # False before the 1st command, True before the 2nd
+
+    with pytest.raises(CollectionCancelled):
+        collect_device_config(
+            host="10.0.0.9",
+            port=22,
+            device_type="cisco_ios",
+            username="admin",
+            password="cisco123",
+            secret=None,
+            custom_commands=None,
+            auth_timeout=5,
+            commands_override=["show version", "show run"],
+            should_cancel=should_cancel,
+        )
+
+    assert fake.pattern_based_calls == ["show version"]

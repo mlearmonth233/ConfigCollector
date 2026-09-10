@@ -89,6 +89,13 @@ class EnableModeError(CommandExecutionError):
     AuthenticationError triggers a fallback login attempt."""
 
 
+class CollectionCancelled(CollectionError):
+    """The user cancelled the job while this device was between commands
+    in its list (see the should_cancel callback below) - distinguished from
+    a plain CommandExecutionError so callers record this item as CANCELLED
+    rather than FAILED."""
+
+
 def collect_device_config(
     *,
     host: str,
@@ -105,6 +112,7 @@ def collect_device_config(
     otp_delimiter: str = ",",
     on_authenticated: Callable[[], None] | None = None,
     on_output: Callable[[str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> str:
     """Connect, authenticate, and run the configured show/config command(s).
 
@@ -120,6 +128,13 @@ def collect_device_config(
     and its output) as it becomes available, so callers can show live
     progress instead of just a static status. Same no-raise contract as
     `on_authenticated`.
+
+    `should_cancel`, if given, is checked before each command in the list
+    (never mid-connect/mid-command - a live SSH call is opaque until it
+    returns) and raises CollectionCancelled if it returns True, so a job
+    cancelled by the user stops before running any further commands on a
+    device that's already authenticated, rather than only ever running the
+    whole list untouched.
     """
 
     def _emit(text: str) -> None:
@@ -218,6 +233,9 @@ def collect_device_config(
                 use_timing_read = spec.netmiko_driver == "generic_termserver" or spec.category == "wlc"
                 outputs = []
                 for command in commands:
+                    if should_cancel is not None and should_cancel():
+                        _emit("\nCancelled - stopping before the next command.\n")
+                        raise CollectionCancelled(f"Collection for {host}:{port} was cancelled")
                     outputs.append(f"! ---- {command} ----")
                     _emit(f"\n$ {command}\n")
                     # A handful of these (show tech-support, show run on a
@@ -230,13 +248,13 @@ def collect_device_config(
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)
-            except EnableModeError:
+            except (EnableModeError, CollectionCancelled):
                 raise
             except Exception as exc:  # noqa: BLE001 - reported as a job failure, not a crash
                 raise CommandExecutionError(
                     f"Authenticated to {host}:{port} but failed while running commands: {exc}"
                 ) from exc
-    except CommandExecutionError:
+    except (CommandExecutionError, CollectionCancelled):
         raise
     except NetmikoAuthenticationException as exc:
         # The device actively rejected the login - a real credentials
