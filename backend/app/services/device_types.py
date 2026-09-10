@@ -89,8 +89,8 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
 # breaking that command with "Pattern not detected" errors.
 _CISCO_WLC_COMMANDS: tuple[str, ...] = (
     "show ap stats ethernet summary",
-    "sh cdp nei",
-    "sh lldp nei",
+    "show cdp neighbors",
+    "show lldp neighbors",
     "show advanced 802.11a summary",
     "show advanced 802.11b summary",
     "show wlan apgroups",
