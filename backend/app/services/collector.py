@@ -9,13 +9,16 @@ may need a one-time passcode appended to the password. See Credential.mfa_mode.
 
 from collections.abc import Callable
 from hashlib import sha1
+from os import path as os_path
 
 import paramiko
 from cryptography.hazmat.primitives import hashes
 from netmiko import ConnectHandler
+from netmiko.base_connection import BaseConnection as NetmikoBaseConnection
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
 from paramiko.kex_group14 import KexGroup14SHA256
 from paramiko.rsakey import RSAKey
+from paramiko.ssh_exception import AuthenticationException as ParamikoAuthenticationException
 
 from app.services.device_types import get_device_type_spec, resolve_commands
 
@@ -60,6 +63,57 @@ if "ssh-rsa" not in paramiko.Transport._preferred_keys:
     paramiko.Transport._preferred_keys = paramiko.Transport._preferred_keys + ("ssh-rsa",)
     paramiko.Transport._key_info["ssh-rsa"] = RSAKey
     RSAKey.HASHES["ssh-rsa"] = hashes.SHA1
+
+
+class _SSHClientWithKeyboardInteractiveFallback(paramiko.SSHClient):
+    """Falls back to SSH "keyboard-interactive" auth if plain "password" auth
+    is rejected outright, instead of giving up immediately.
+
+    This matters for TACACS+/RADIUS-backed logins: many devices only relay
+    the actual AAA challenge/response round trip when the login happens over
+    keyboard-interactive - the same device may still accept a locally-defined
+    account fine over plain "password" auth, so this isn't visible until you
+    hit a TACACS+-mapped account. Paramiko's own SSHClient never tries this
+    fallback once a password is supplied (see SSHClient._auth: it only ever
+    calls auth_interactive_dumb() in the branch taken when *no* password was
+    given at all), so a login that only actually works over keyboard-
+    interactive looks identical to a flat-out wrong password - "Authentication
+    to device failed" with no hint that the auth *method* was the problem,
+    even though the username/password themselves are completely correct.
+
+    Only engages after a first straightforward "password" attempt has
+    already failed, so a device that already authenticates fine today is
+    unaffected - this can only turn an existing failure into a success, never
+    the reverse."""
+
+    def _auth(self, username, password, *args, **kwargs):
+        transport = self.get_transport()
+        assert transport is not None
+        try:
+            transport.auth_password(username, password)
+            return
+        except ParamikoAuthenticationException:
+            pass
+
+        def _answer_every_prompt_with_the_password(title, instructions, prompt_list):
+            return [password for _ in prompt_list]
+
+        transport.auth_interactive(username, _answer_every_prompt_with_the_password)
+
+
+def _build_ssh_client_with_keyboard_interactive_fallback(self: NetmikoBaseConnection) -> paramiko.SSHClient:
+    """Same as netmiko.base_connection.BaseConnection._build_ssh_client,
+    just returning our SSHClient subclass instead of a plain one."""
+    remote_conn_pre = _SSHClientWithKeyboardInteractiveFallback()
+    if self.system_host_keys:
+        remote_conn_pre.load_system_host_keys()
+    if self.alt_host_keys and os_path.isfile(self.alt_key_file):
+        remote_conn_pre.load_host_keys(self.alt_key_file)
+    remote_conn_pre.set_missing_host_key_policy(self.key_policy)
+    return remote_conn_pre
+
+
+NetmikoBaseConnection._build_ssh_client = _build_ssh_client_with_keyboard_interactive_fallback
 
 
 class CollectionError(Exception):

@@ -3,9 +3,11 @@ import shutil
 import socket
 import subprocess
 import time
+from unittest.mock import Mock
 
 import paramiko
 import pytest
+from paramiko.ssh_exception import AuthenticationException as ParamikoAuthenticationException
 
 from app.services import collector as collector_module
 from app.services.collector import AuthenticationError, CollectionCancelled, collect_device_config
@@ -36,6 +38,75 @@ def test_legacy_rsa_host_key_algorithm_enabled_for_old_devices():
     assert "ssh-rsa" in paramiko.Transport._preferred_keys
     assert "ssh-rsa" in paramiko.Transport._key_info
     assert "ssh-rsa" in paramiko.rsakey.RSAKey.HASHES
+
+
+def test_netmiko_uses_the_keyboard_interactive_fallback_ssh_client():
+    # Regression guard for the fallback itself being wired up - if this
+    # stops being true, every device goes back to plain paramiko.SSHClient
+    # and TACACS+-backed logins that only work over keyboard-interactive
+    # silently lose the fallback again.
+    from netmiko.base_connection import BaseConnection
+
+    assert (
+        BaseConnection._build_ssh_client
+        is collector_module._build_ssh_client_with_keyboard_interactive_fallback
+    )
+
+
+def test_keyboard_interactive_fallback_not_used_when_password_auth_succeeds():
+    # A device that already authenticates fine today (the overwhelming
+    # majority) must see zero behavior change - the fallback should never
+    # even be attempted if plain password auth just works.
+    client = collector_module._SSHClientWithKeyboardInteractiveFallback()
+    transport = Mock()
+    client.get_transport = Mock(return_value=transport)
+
+    client._auth("admin", "cisco123")
+
+    transport.auth_password.assert_called_once_with("admin", "cisco123")
+    transport.auth_interactive.assert_not_called()
+
+
+def test_keyboard_interactive_fallback_used_when_password_auth_is_rejected():
+    # The actual bug this guards against: a TACACS+-backed account (or any
+    # device whose AAA integration only completes over keyboard-interactive)
+    # gets flatly rejected by plain "password" auth even with fully correct
+    # credentials - Paramiko's own SSHClient never retries via
+    # keyboard-interactive once a password was supplied (see
+    # SSHClient._auth), so without this fallback that looks identical to a
+    # wrong password.
+    client = collector_module._SSHClientWithKeyboardInteractiveFallback()
+    transport = Mock()
+    transport.auth_password.side_effect = ParamikoAuthenticationException("Authentication failed.")
+    client.get_transport = Mock(return_value=transport)
+
+    client._auth("ml", "correct-password")
+
+    transport.auth_password.assert_called_once_with("ml", "correct-password")
+    transport.auth_interactive.assert_called_once()
+    username, handler = transport.auth_interactive.call_args.args
+    assert username == "ml"
+    # The device may ask one prompt or several (e.g. a TACACS+ challenge) -
+    # either way, every prompt gets answered with the same password, since
+    # this app only ever has the one credential string to offer.
+    assert handler("title", "instructions", [("Password: ", False)]) == ["correct-password"]
+    assert handler("title", "instructions", [("Password: ", False), ("Again: ", False)]) == [
+        "correct-password",
+        "correct-password",
+    ]
+
+
+def test_keyboard_interactive_fallback_still_raises_if_both_methods_fail():
+    # A genuinely wrong credential must still fail loudly, exactly as before
+    # this fallback existed - it should never mask a real auth failure.
+    client = collector_module._SSHClientWithKeyboardInteractiveFallback()
+    transport = Mock()
+    transport.auth_password.side_effect = ParamikoAuthenticationException("Authentication failed.")
+    transport.auth_interactive.side_effect = ParamikoAuthenticationException("Authentication failed.")
+    client.get_transport = Mock(return_value=transport)
+
+    with pytest.raises(ParamikoAuthenticationException):
+        client._auth("admin", "definitely-wrong")
 
 
 def _start_test_sshd(tmp_path, port: int, extra_config: str) -> subprocess.Popen:
