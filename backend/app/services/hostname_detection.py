@@ -19,6 +19,7 @@ DEVICE_ROLES: dict[str, str] = {
     "wlc": "Wireless LAN controller",
     "pdu": "Power distribution unit",
     "console_server": "Console server",
+    "firewall": "Firewall",
 }
 
 # These tokens don't overlap with one another, so match order doesn't
@@ -31,6 +32,7 @@ _ROLE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("WLC", "wlc"),
     ("PDU", "pdu"),
     ("CON", "console_server"),
+    ("FWL", "firewall"),
 )
 
 _ZONE_PATTERNS: tuple[tuple[str, NetworkZone], ...] = (
@@ -54,6 +56,10 @@ _ROLE_TO_DEVICE_TYPE: dict[str, str] = {
     "core_switch": "cisco_ios",
     "distribution_switch": "cisco_ios",
     "pdu": "apc_pdu",
+    # Unlike "wlc", this org's firewalls are all FortiGate today - if a
+    # non-Fortinet firewall ever shows up, the device type is still just a
+    # suggestion and can be changed on the "Add device" form like any other.
+    "firewall": "fortinet",
 }
 
 

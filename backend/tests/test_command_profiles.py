@@ -37,6 +37,18 @@ async def test_list_command_profiles_defaults_to_registry(client: AsyncClient, u
     assert pdu["commands"] == list(DEVICE_TYPE_REGISTRY["apc_pdu"].default_commands)
     assert pdu["suggested_commands"]  # PDU category suggestions, distinct from its own defaults
 
+    fortinet = by_type["fortinet"]
+    # VDOM-enabled FortiGates need to enter "config vdom" / "edit root"
+    # before per-vdom "get"/"show" commands reflect that vdom's data.
+    assert fortinet["commands"] == [
+        "end",
+        "config vdom",
+        "edit root",
+        "get system arp",
+        "get system status",
+        "show full-configuration",
+    ]
+
 
 async def test_save_and_reset_command_profile(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)

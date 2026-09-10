@@ -19,6 +19,7 @@ def test_detect_device_role_matches_each_code():
     assert detect_device_role("GBGYSP01WLC001") == "wlc"
     assert detect_device_role("GBGYSP01PDU001") == "pdu"
     assert detect_device_role("GBGYSP01CON001") == "console_server"
+    assert detect_device_role("GBGYSP01FWL001") == "firewall"
 
 
 def test_detect_device_role_case_insensitive():
@@ -38,6 +39,7 @@ def test_detect_network_zone():
 def test_device_type_for_role_omits_wlc_and_console_server():
     assert device_type_for_role("access_switch") == "cisco_ios"
     assert device_type_for_role("pdu") == "apc_pdu"
+    assert device_type_for_role("firewall") == "fortinet"
     # Deliberately ambiguous - hostname alone can't tell AireOS from
     # Catalyst 9800, so this always requires an explicit choice.
     assert device_type_for_role("wlc") is None
@@ -53,6 +55,13 @@ def test_detect_combines_role_zone_and_type():
     assert result.device_role_label == DEVICE_ROLES["access_switch"]
     assert result.network_zone == NetworkZone.IT
     assert result.suggested_device_type == "cisco_ios"
+
+
+def test_detect_firewall_from_fwl_code():
+    result = detect("GBGYSP01FWL001")
+    assert result.device_role == "firewall"
+    assert result.device_role_label == DEVICE_ROLES["firewall"]
+    assert result.suggested_device_type == "fortinet"
 
 
 async def _register(client: AsyncClient, email: str, org_name: str = "DetectOrg") -> str:

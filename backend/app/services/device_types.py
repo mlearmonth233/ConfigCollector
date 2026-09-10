@@ -104,6 +104,19 @@ _CISCO_WLC_COMMANDS: tuple[str, ...] = (
     "show client summary",
 )
 
+# VDOM-enabled FortiGates need "config vdom" / "edit root" before the
+# per-vdom "get"/"show" commands actually reflect that vdom's data rather
+# than the global admin domain - the leading "end" is defensive, making
+# sure the session starts from the top-level prompt regardless of context.
+_FORTINET_COMMANDS: tuple[str, ...] = (
+    "end",
+    "config vdom",
+    "edit root",
+    "get system arp",
+    "get system status",
+    "show full-configuration",
+)
+
 # APC's NMC CLI: most of these are section names (typing one alone prints
 # that section's config), not "show" commands.
 _APC_PDU_COMMANDS: tuple[str, ...] = (
@@ -150,7 +163,7 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
         "Palo Alto PAN-OS Firewall", "firewall", "paloalto_panos", ("show config running",), secret_supported=False
     ),
     "fortinet": DeviceTypeSpec(
-        "Fortinet FortiGate", "firewall", "fortinet", ("show full-configuration",), secret_supported=False
+        "Fortinet FortiGate", "firewall", "fortinet", _FORTINET_COMMANDS, secret_supported=False
     ),
     "juniper_srx": DeviceTypeSpec(
         "Juniper SRX Firewall", "firewall", "juniper_junos", ("show configuration | display set",)
