@@ -26,7 +26,7 @@ class Device(Base_):
     host: Mapped[str] = mapped_column(String(255), nullable=False)
     port: Mapped[int] = mapped_column(Integer, default=22, nullable=False)
     # Key into DEVICE_TYPE_REGISTRY (app/services/device_types.py), e.g.
-    # "cisco_ios", "cisco_wlc", "cisco_asa", "paloalto_panos", "apc_pdu".
+    # "cisco_ios", "cisco_wlc", "cisco_asa", "fortinet", "apc_pdu".
     device_type: Mapped[str] = mapped_column(String(64), nullable=False)
     site: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Optional override of the default "show config" command(s) for this

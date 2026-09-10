@@ -138,10 +138,11 @@ _APC_PDU_COMMANDS: tuple[str, ...] = (
 # Trimmed down to exactly what this org actually runs: Cisco switches, both
 # WLC generations, a handful of firewall vendors, and APC PDUs. Previously
 # also had cisco_xe, hp_procurve, juniper_junos, arista_eos, linux,
-# pdu_generic, console_server, and opengear - removed since nothing in this
-# org's environment used them, simplifying the Commands page and the "Add
-# device" type dropdown down to real choices. Add a type back here (mapping
-# to a Netmiko driver name) if a device from one of those vendors shows up.
+# pdu_generic, console_server, opengear, and paloalto_panos - removed since
+# nothing in this org's environment used them, simplifying the Commands page
+# and the "Add device" type dropdown down to real choices. Add a type back
+# here (mapping to a Netmiko driver name) if a device from one of those
+# vendors shows up.
 DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec("Cisco IOS Switch/Router", "switch", "cisco_ios", _CISCO_IOS_COMMANDS),
@@ -158,9 +159,6 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Firewalls ---
     "cisco_asa": DeviceTypeSpec(
         "Cisco ASA Firewall", "firewall", "cisco_asa", ("show running-config",)
-    ),
-    "paloalto_panos": DeviceTypeSpec(
-        "Palo Alto PAN-OS Firewall", "firewall", "paloalto_panos", ("show config running",), secret_supported=False
     ),
     "fortinet": DeviceTypeSpec(
         "Fortinet FortiGate", "firewall", "fortinet", _FORTINET_COMMANDS, secret_supported=False
