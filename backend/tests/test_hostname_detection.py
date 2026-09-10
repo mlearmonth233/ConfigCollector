@@ -1,0 +1,204 @@
+import pytest
+from httpx import AsyncClient
+
+from app.models.device import NetworkZone
+from app.services.hostname_detection import (
+    DEVICE_ROLES,
+    detect,
+    detect_device_role,
+    detect_network_zone,
+    device_type_for_role,
+)
+
+
+def test_detect_device_role_matches_each_code():
+    assert detect_device_role("GBGYSP01SWA001") == "access_switch"
+    assert detect_device_role("GBGYSP01SWS001") == "server_switch"
+    assert detect_device_role("GBGYSP01SWC001") == "core_switch"
+    assert detect_device_role("GBGYSP01SWD001") == "distribution_switch"
+    assert detect_device_role("GBGYSP01WLC001") == "wlc"
+    assert detect_device_role("GBGYSP01PDU001") == "pdu"
+    assert detect_device_role("GBGYSP01CON001") == "console_server"
+
+
+def test_detect_device_role_case_insensitive():
+    assert detect_device_role("gbgysp01swa001") == "access_switch"
+
+
+def test_detect_device_role_none_when_no_code_present():
+    assert detect_device_role("random-hostname-1") is None
+
+
+def test_detect_network_zone():
+    assert detect_network_zone("GBGYSP01SWA001") == NetworkZone.IT
+    assert detect_network_zone("GBGYO01SWA001") == NetworkZone.OT
+    assert detect_network_zone("no-zone-marker-here") is None
+
+
+def test_device_type_for_role_omits_wlc():
+    assert device_type_for_role("access_switch") == "cisco_ios"
+    assert device_type_for_role("pdu") == "pdu_generic"
+    assert device_type_for_role("console_server") == "console_server"
+    # Deliberately ambiguous - hostname alone can't tell AireOS from
+    # Catalyst 9800, so this always requires an explicit choice.
+    assert device_type_for_role("wlc") is None
+    assert device_type_for_role(None) is None
+
+
+def test_detect_combines_role_zone_and_type():
+    result = detect("GBGYSP01SWA001")
+    assert result.device_role == "access_switch"
+    assert result.device_role_label == DEVICE_ROLES["access_switch"]
+    assert result.network_zone == NetworkZone.IT
+    assert result.suggested_device_type == "cisco_ios"
+
+
+async def _register(client: AsyncClient, email: str, org_name: str = "DetectOrg") -> str:
+    resp = await client.post(
+        "/api/auth/register",
+        json={"org_name": org_name, "email": email, "password": "password123"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["access_token"]
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_detect_endpoint(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.get("/api/devices/detect", headers=_auth(token), params={"name": "GBGYSP01SWA001"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["device_role"] == "access_switch"
+    assert body["network_zone"] == "it"
+    assert body["suggested_device_type"] == "cisco_ios"
+
+
+@pytest.mark.asyncio
+async def test_device_roles_endpoint(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.get("/api/device-roles", headers=_auth(token))
+    assert resp.status_code == 200
+    keys = {r["key"] for r in resp.json()}
+    assert keys == set(DEVICE_ROLES)
+
+
+@pytest.mark.asyncio
+async def test_create_device_auto_fills_type_role_zone_from_name(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "GBGYSP01SWA001", "host": "10.0.0.1"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["device_type"] == "cisco_ios"
+    assert body["device_role"] == "access_switch"
+    assert body["network_zone"] == "it"
+
+
+@pytest.mark.asyncio
+async def test_create_device_explicit_values_win_over_detection(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={
+            "name": "GBGYSP01SWA001",
+            "host": "10.0.0.1",
+            "device_type": "arista_eos",
+            "device_role": "core_switch",
+            "network_zone": "ot",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["device_type"] == "arista_eos"
+    assert body["device_role"] == "core_switch"
+    assert body["network_zone"] == "ot"
+
+
+@pytest.mark.asyncio
+async def test_create_device_wlc_without_explicit_type_requires_a_choice(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "GBGYSP01WLC001", "host": "10.0.0.1"},
+    )
+    assert resp.status_code == 400
+    assert "AireOS" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_device_no_recognizable_name_requires_explicit_type(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "totally-generic-name", "host": "10.0.0.1"},
+    )
+    assert resp.status_code == 400
+    assert "could not be determined" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_csv_import_auto_fills_missing_fields(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    csv_content = (
+        "name,host\n"
+        "GBGYSP01SWA001,10.0.0.1\n"
+        "GBGYSP01PDU001,10.0.0.2\n"
+    )
+    resp = await client.post(
+        "/api/devices/import",
+        headers=_auth(token),
+        files={"file": ("devices.csv", csv_content, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["created"] == 2
+    assert body["errors"] == []
+
+    listing = (await client.get("/api/devices", headers=_auth(token))).json()
+    by_name = {d["name"]: d for d in listing}
+    assert by_name["GBGYSP01SWA001"]["device_type"] == "cisco_ios"
+    assert by_name["GBGYSP01SWA001"]["device_role"] == "access_switch"
+    assert by_name["GBGYSP01SWA001"]["network_zone"] == "it"
+    assert by_name["GBGYSP01PDU001"]["device_type"] == "pdu_generic"
+    assert by_name["GBGYSP01PDU001"]["device_role"] == "pdu"
+
+
+@pytest.mark.asyncio
+async def test_csv_import_wlc_row_without_type_is_a_row_error_not_a_guess(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    csv_content = "name,host\nGBGYSP01WLC001,10.0.0.1\n"
+    resp = await client.post(
+        "/api/devices/import",
+        headers=_auth(token),
+        files={"file": ("devices.csv", csv_content, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["created"] == 0
+    assert len(body["errors"]) == 1
+    assert "AireOS" in body["errors"][0]
+
+
+@pytest.mark.asyncio
+async def test_csv_import_rejects_unknown_device_role(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    csv_content = "name,host,device_type,device_role\nsw1,10.0.0.1,cisco_ios,not_a_real_role\n"
+    resp = await client.post(
+        "/api/devices/import",
+        headers=_auth(token),
+        files={"file": ("devices.csv", csv_content, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["created"] == 0
+    assert "unknown device_role" in body["errors"][0]

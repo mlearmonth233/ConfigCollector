@@ -4,7 +4,9 @@ import type {
   Credential,
   CurrentUser,
   Device,
+  DeviceDetection,
   DeviceImportResult,
+  DeviceRole,
   DeviceType,
   Job,
   JobDetail,
@@ -42,6 +44,10 @@ export const deviceTypesApi = {
   list: () => apiClient.get<DeviceType[]>("/api/device-types"),
 };
 
+export const deviceRolesApi = {
+  list: () => apiClient.get<DeviceRole[]>("/api/device-roles"),
+};
+
 export const commandProfilesApi = {
   list: () => apiClient.get<CommandProfile[]>("/api/command-profiles"),
   save: (deviceType: string, commands: string[]) =>
@@ -54,6 +60,7 @@ export const devicesApi = {
   create: (data: Partial<Device>) => apiClient.post<Device>("/api/devices", data),
   update: (id: string, data: Partial<Device>) => apiClient.patch<Device>(`/api/devices/${id}`, data),
   remove: (id: string) => apiClient.delete(`/api/devices/${id}`),
+  detect: (name: string) => apiClient.get<DeviceDetection>("/api/devices/detect", { params: { name } }),
   importCsv: (file: File) => {
     const form = new FormData();
     form.append("file", file);

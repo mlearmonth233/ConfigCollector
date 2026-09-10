@@ -1,15 +1,26 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
-import { credentialsApi, devicesApi, deviceTypesApi } from "../api/resources";
-import type { Credential, Device, DeviceImportResult, DeviceType } from "../api/types";
+import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi } from "../api/resources";
+import type {
+  Credential,
+  Device,
+  DeviceDetection,
+  DeviceImportResult,
+  DeviceRole,
+  DeviceType,
+  NetworkZone,
+} from "../api/types";
 import { StartCollectionModal } from "../components/StartCollectionModal";
+
+const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
 
 export function Devices() {
   const navigate = useNavigate();
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
+  const [deviceRoles, setDeviceRoles] = useState<DeviceRole[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,25 +33,37 @@ export function Devices() {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
   const [deviceType, setDeviceType] = useState("");
+  const [deviceRole, setDeviceRole] = useState("");
+  const [networkZone, setNetworkZone] = useState<"" | NetworkZone>("");
   const [site, setSite] = useState("");
   const [credentialId, setCredentialId] = useState("");
   const [customCommands, setCustomCommands] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [detection, setDetection] = useState<DeviceDetection | null>(null);
+
+  // Auto-detection (from the name typed above) only ever fills a field the
+  // user hasn't touched themselves - once you pick something explicitly,
+  // typing more of the name won't overwrite it.
+  const typeTouched = useRef(false);
+  const roleTouched = useRef(false);
+  const zoneTouched = useRef(false);
 
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
+  const deviceRoleMap = useMemo(() => new Map(deviceRoles.map((r) => [r.key, r])), [deviceRoles]);
 
   async function refresh() {
     setLoading(true);
     try {
-      const [devicesRes, typesRes, credsRes] = await Promise.all([
+      const [devicesRes, typesRes, rolesRes, credsRes] = await Promise.all([
         devicesApi.list(),
         deviceTypesApi.list(),
+        deviceRolesApi.list(),
         credentialsApi.list(),
       ]);
       setDevices(devicesRes.data);
       setDeviceTypes(typesRes.data);
+      setDeviceRoles(rolesRes.data);
       setCredentials(credsRes.data);
-      if (!deviceType && typesRes.data.length > 0) setDeviceType(typesRes.data[0].key);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -50,8 +73,36 @@ export function Devices() {
 
   useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Debounced hostname detection: as the name field settles, ask the
+  // backend what device type/role/zone it suggests (see
+  // app.services.hostname_detection) and pre-fill anything not already
+  // touched by hand.
+  useEffect(() => {
+    if (!showAddForm || !name.trim()) {
+      setDetection(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await devicesApi.detect(name.trim());
+        if (cancelled) return;
+        setDetection(data);
+        if (!typeTouched.current && data.suggested_device_type) setDeviceType(data.suggested_device_type);
+        if (!roleTouched.current) setDeviceRole(data.device_role ?? "");
+        if (!zoneTouched.current) setNetworkZone(data.network_zone ?? "");
+      } catch {
+        // Best-effort only - a failed detection call shouldn't block adding
+        // the device manually.
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [name, showAddForm]);
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -66,6 +117,22 @@ export function Devices() {
     setSelected((prev) => (prev.size === devices.length ? new Set() : new Set(devices.map((d) => d.id))));
   }
 
+  function resetForm() {
+    setName("");
+    setHost("");
+    setPort("22");
+    setDeviceType("");
+    setDeviceRole("");
+    setNetworkZone("");
+    setSite("");
+    setCredentialId("");
+    setCustomCommands("");
+    setDetection(null);
+    typeTouched.current = false;
+    roleTouched.current = false;
+    zoneTouched.current = false;
+  }
+
   async function handleAddDevice(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -75,16 +142,14 @@ export function Devices() {
         name,
         host,
         port: Number(port) || 22,
-        device_type: deviceType,
+        device_type: deviceType || undefined,
+        device_role: deviceRole || undefined,
+        network_zone: (networkZone || undefined) as NetworkZone | undefined,
         site: site || undefined,
         credential_id: credentialId || undefined,
         custom_commands: customCommands || undefined,
       });
-      setName("");
-      setHost("");
-      setPort("22");
-      setSite("");
-      setCustomCommands("");
+      resetForm();
       setShowAddForm(false);
       await refresh();
     } catch (err) {
@@ -124,6 +189,11 @@ export function Devices() {
     setCollectionTarget(targetDevices);
   }
 
+  function toggleAddForm() {
+    if (showAddForm) resetForm();
+    setShowAddForm((v) => !v);
+  }
+
   return (
     <div className="page">
       <div className="page-header-row">
@@ -133,7 +203,7 @@ export function Devices() {
             Import CSV
             <input type="file" accept=".csv" onChange={handleImport} hidden />
           </label>
-          <button onClick={() => setShowAddForm((v) => !v)}>{showAddForm ? "Cancel" : "Add device"}</button>
+          <button onClick={toggleAddForm}>{showAddForm ? "Cancel" : "Add device"}</button>
         </div>
       </div>
 
@@ -157,6 +227,15 @@ export function Devices() {
             <label>
               Name
               <input value={name} onChange={(e) => setName(e.target.value)} required />
+              {detection && (detection.device_role_label || detection.network_zone) && (
+                <span className="field-hint">
+                  Detected from name: {detection.device_role_label ?? "unknown role"}
+                  {detection.network_zone ? ` · ${ZONE_LABELS[detection.network_zone]}` : ""}
+                  {!detection.suggested_device_type &&
+                    detection.device_role_label &&
+                    " — pick a device type below (can't be guessed for this role)."}
+                </span>
+              )}
             </label>
             <label>
               Host / IP
@@ -168,12 +247,50 @@ export function Devices() {
             </label>
             <label>
               Device type
-              <select value={deviceType} onChange={(e) => setDeviceType(e.target.value)} required>
+              <select
+                value={deviceType}
+                onChange={(e) => {
+                  typeTouched.current = true;
+                  setDeviceType(e.target.value);
+                }}
+              >
+                <option value="">— select / auto-detect from name —</option>
                 {deviceTypes.map((t) => (
                   <option key={t.key} value={t.key}>
                     {t.label}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label>
+              Role (optional)
+              <select
+                value={deviceRole}
+                onChange={(e) => {
+                  roleTouched.current = true;
+                  setDeviceRole(e.target.value);
+                }}
+              >
+                <option value="">— none / auto-detect —</option>
+                {deviceRoles.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Network zone (optional)
+              <select
+                value={networkZone}
+                onChange={(e) => {
+                  zoneTouched.current = true;
+                  setNetworkZone(e.target.value as "" | NetworkZone);
+                }}
+              >
+                <option value="">— none / auto-detect —</option>
+                <option value="it">IT</option>
+                <option value="ot">OT</option>
               </select>
             </label>
             <label>
@@ -238,6 +355,8 @@ export function Devices() {
               <th>Host</th>
               <th>Port</th>
               <th>Type</th>
+              <th>Role</th>
+              <th>Zone</th>
               <th>Site</th>
               <th>Credential</th>
               <th></th>
@@ -257,6 +376,8 @@ export function Devices() {
                 <td>{d.host}</td>
                 <td>{d.port}</td>
                 <td>{deviceTypeMap.get(d.device_type)?.label ?? d.device_type}</td>
+                <td>{d.device_role ? (deviceRoleMap.get(d.device_role)?.label ?? d.device_role) : "—"}</td>
+                <td>{d.network_zone ? ZONE_LABELS[d.network_zone] : "—"}</td>
                 <td>{d.site ?? "—"}</td>
                 <td>{credentials.find((c) => c.id === d.credential_id)?.name ?? "—"}</td>
                 <td>
@@ -268,7 +389,7 @@ export function Devices() {
             ))}
             {devices.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-state">
+                <td colSpan={10} className="empty-state">
                   No devices yet. Add one or import a CSV.
                 </td>
               </tr>

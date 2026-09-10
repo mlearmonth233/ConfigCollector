@@ -21,6 +21,8 @@ export interface Credential {
   created_at: string;
 }
 
+export type NetworkZone = "it" | "ot";
+
 export interface Device {
   id: string;
   name: string;
@@ -30,7 +32,21 @@ export interface Device {
   site: string | null;
   credential_id: string | null;
   custom_commands: string | null;
+  device_role: string | null;
+  network_zone: NetworkZone | null;
   created_at: string;
+}
+
+export interface DeviceRole {
+  key: string;
+  label: string;
+}
+
+export interface DeviceDetection {
+  device_role: string | null;
+  device_role_label: string | null;
+  network_zone: NetworkZone | null;
+  suggested_device_type: string | null;
 }
 
 export interface DeviceType {

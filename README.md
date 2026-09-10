@@ -115,10 +115,11 @@ Devices can be added one at a time from the UI, or bulk-imported via CSV
 (`Devices → Import CSV`). Expected columns:
 
 ```csv
-name,host,port,device_type,site,credential_name,custom_commands
-core-sw1,10.0.0.1,22,cisco_ios,DC1,labcred,
-wlc-1,10.0.0.2,22,cisco_wlc,DC1,labcred,
-pdu-1,10.0.0.4,22,pdu_generic,DC1,labcred,"about,show status"
+name,host,port,device_type,site,credential_name,custom_commands,device_role,network_zone
+core-sw1,10.0.0.1,22,cisco_ios,DC1,labcred,,,
+wlc-1,10.0.0.2,22,cisco_wlc,DC1,labcred,,,
+pdu-1,10.0.0.4,22,pdu_generic,DC1,labcred,"about,show status",,
+GBGYSP01SWA001,10.0.0.5,22,,,labcred,,,
 ```
 
 - `credential_name` looks up an existing credential set by name within your
@@ -127,11 +128,47 @@ pdu-1,10.0.0.4,22,pdu_generic,DC1,labcred,"about,show status"
   command(s) for that device type — required for device types with no
   built-in default, like `pdu_generic` and `console_server`, since PDU/console
   server CLIs vary too much per vendor to guess.
+- `device_type`, `device_role`, and `network_zone` are all optional - see
+  "Auto-detecting device type/role/zone from the name" below. An explicit
+  value in any of these columns always wins over a detected one; the last
+  example row above (`GBGYSP01SWA001`) leaves all three blank and relies
+  entirely on detection.
 
 See `GET /api/device-types` (or the "Device type" dropdown in the UI) for
 the full supported list, spanning switches, WLCs, firewalls, PDUs, and
 console servers. New device types are added in
 `backend/app/services/device_types.py` by mapping to a Netmiko driver name.
+
+### Auto-detecting device type/role/zone from the name
+
+Both the "Add device" form and CSV import can infer a device's type, role,
+and network zone from its **name**, based on a short-code naming
+convention (e.g. `GBGYSP01SWA001`):
+
+| Code in name | Role                 | Device type (when unambiguous) |
+| ------------ | -------------------- | ------------------------------- |
+| `SWA`        | Access switch         | `cisco_ios`                     |
+| `SWS`        | Server switch          | `cisco_ios`                     |
+| `SWC`        | Core switch            | `cisco_ios`                     |
+| `SWD`        | Distribution switch    | `cisco_ios`                     |
+| `WLC`        | Wireless LAN controller | *(none - see below)*           |
+| `PDU`        | Power distribution unit | `pdu_generic`                  |
+| `CON`        | Console server          | `console_server`                |
+
+`P0`/`O0` in the name similarly suggest the **network zone**, IT or OT.
+
+This is always just a starting guess, shown live as you type a name in the
+"Add device" form (and applied per-row on CSV import) - every field it
+fills in stays fully editable, and picking something yourself before
+saving always wins. A WLC is deliberately **never** guessed all the way to
+a device type: the naming convention can't tell an older AireOS controller
+from a Catalyst 9800 apart, so that choice is always left to you (both the
+form and CSV import will ask for it explicitly rather than assume). The
+same goes for any name with no recognizable code in it at all - a device
+type must be specified by hand.
+
+`GET /api/devices/detect?name=...` exposes the same detection for scripted
+use, and `GET /api/device-roles` lists the full set of roles.
 
 ## TACACS+/RADIUS and MFA-backed logins
 
