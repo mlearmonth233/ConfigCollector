@@ -313,6 +313,85 @@ a {
   color: #991b1b;
 }
 
+.job-status-summary {
+  margin-bottom: 16px;
+}
+
+.job-status-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 8px;
+}
+
+.job-status-bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.job-status-bar-segment.status-pending {
+  background: #d1d5db;
+}
+
+.job-status-bar-segment.status-authenticating {
+  background: #60a5fa;
+}
+
+.job-status-bar-segment.status-running {
+  background: #facc15;
+}
+
+.job-status-bar-segment.status-completed {
+  background: #4ade80;
+}
+
+.job-status-bar-segment.status-failed {
+  background: #f87171;
+}
+
+.job-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.job-status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.job-status-dot.status-pending {
+  background: #d1d5db;
+}
+
+.job-status-dot.status-authenticating {
+  background: #60a5fa;
+}
+
+.job-status-dot.status-running {
+  background: #facc15;
+}
+
+.job-status-dot.status-completed {
+  background: #4ade80;
+}
+
+.job-status-dot.status-failed {
+  background: #f87171;
+}
+
 .auth-page {
   display: flex;
   align-items: center;

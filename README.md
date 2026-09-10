@@ -237,7 +237,15 @@ device goes through two phases in order:
 
 The job detail page shows each device's current phase live, and a banner
 reminds you to approve any pending push notification while devices are
-authenticating. Click **Console** on any device's row to open a live,
+authenticating. A status bar at the top summarizes the whole job at a
+glance - a segmented progress bar plus a count for each phase present
+(pending, authenticating, running, completed, failed) - so you can tell
+which devices are still queued, logging in, running commands, done, or
+failed without reading every row. A **Retry** button on any failed
+device's row starts a fresh one-device job for just that device (same
+Start collection dialog as anywhere else, so you can fix a command/OTP
+before trying again) - no need to rerun the whole batch for one bad
+device. Click **Console** on any device's row to open a live,
 auto-scrolling transcript - connecting, authenticated, each command sent and
 its output, and (if it fails) which credential failed and why - updating as
 the job progresses via the same polling that drives the status column.

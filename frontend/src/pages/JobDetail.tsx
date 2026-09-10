@@ -1,13 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { apiClient, extractErrorMessage } from "../api/client";
 import { saveBlobResponse } from "../api/download";
-import { jobsApi } from "../api/resources";
-import type { JobDetail as JobDetailType } from "../api/types";
+import { credentialsApi, devicesApi, deviceTypesApi, jobsApi } from "../api/resources";
+import type { Credential, Device, DeviceType, JobDetail as JobDetailType } from "../api/types";
 import { DownloadOptions } from "../components/DownloadOptions";
+import { JobStatusSummary } from "../components/JobStatusSummary";
 import { LiveConsole } from "../components/LiveConsole";
 import { SnapshotModal } from "../components/SnapshotModal";
+import { StartCollectionModal } from "../components/StartCollectionModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { useDownloadPrefs } from "../hooks/useDownloadPrefs";
 
@@ -15,6 +17,7 @@ const ACTIVE_STATUSES = new Set(["pending", "running"]);
 
 export function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>();
+  const navigate = useNavigate();
   const [job, setJob] = useState<JobDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);
@@ -22,6 +25,49 @@ export function JobDetail() {
   const { prefs, updatePrefs } = useDownloadPrefs();
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+
+  // Loaded once (not polled) - only needed so a failed item's "Retry" can
+  // open the same Start collection dialog used elsewhere, for just that
+  // one device.
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [retryTarget, setRetryTarget] = useState<Device[] | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDeviceContext() {
+      try {
+        const [devicesRes, typesRes, credsRes] = await Promise.all([
+          devicesApi.list(),
+          deviceTypesApi.list(),
+          credentialsApi.list(),
+        ]);
+        if (cancelled) return;
+        setDevices(devicesRes.data);
+        setDeviceTypes(typesRes.data);
+        setCredentials(credsRes.data);
+      } catch {
+        // Retry is a bonus action - a failure here shouldn't block viewing
+        // the job itself.
+      }
+    }
+    void loadDeviceContext();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleRetry(deviceId: string) {
+    setRetryError(null);
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) {
+      setRetryError("That device no longer exists, so it can't be retried.");
+      return;
+    }
+    setRetryTarget([device]);
+  }
 
   async function handleDownloadAll() {
     if (!jobId) return;
@@ -108,6 +154,9 @@ export function JobDetail() {
       </p>
 
       {downloadError && <div className="error-banner">{downloadError}</div>}
+      {retryError && <div className="error-banner">{retryError}</div>}
+
+      <JobStatusSummary items={job.items} />
 
       {job.items.length > 1 && (
         <p style={{ marginTop: -8 }}>
@@ -176,6 +225,15 @@ export function JobDetail() {
                       View config
                     </button>
                   )}
+                  {item.status === "failed" && (
+                    <button
+                      className="link-button"
+                      style={{ marginLeft: 12 }}
+                      onClick={() => handleRetry(item.device_id)}
+                    >
+                      Retry
+                    </button>
+                  )}
                 </td>
               </tr>
               {expandedConsoles.has(item.id) && (
@@ -192,6 +250,19 @@ export function JobDetail() {
 
       {openSnapshotId && (
         <SnapshotModal snapshotId={openSnapshotId} onClose={() => setOpenSnapshotId(null)} />
+      )}
+
+      {retryTarget && (
+        <StartCollectionModal
+          devices={retryTarget}
+          deviceTypes={deviceTypes}
+          credentials={credentials}
+          onClose={() => setRetryTarget(null)}
+          onStarted={(newJob) => {
+            setRetryTarget(null);
+            navigate(`/jobs/${newJob.id}`);
+          }}
+        />
       )}
     </div>
   );
