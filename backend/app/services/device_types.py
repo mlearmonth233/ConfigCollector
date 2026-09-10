@@ -76,8 +76,18 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
 
 # Shared between both WLC generations (AireOS and Catalyst 9800) - most of
 # these "show" commands behave the same on either platform.
+#
+# Deliberately doesn't include a paging-disable command: Netmiko's own
+# driver already disables paging automatically during connection setup for
+# both generations (cisco_wlc runs "config paging disable" itself in
+# session_preparation(), cisco_xe runs "terminal length 0") - sending
+# "config paging disable" again here as a first "real" command doesn't just
+# duplicate that, on AireOS it actively confused Netmiko's prompt detection
+# for the command right after it (the device's second response to the same
+# command isn't shaped like its first, so the auto-detected prompt for the
+# next send_command() call keyed off it instead of the actual CLI prompt),
+# breaking that command with "Pattern not detected" errors.
 _CISCO_WLC_COMMANDS: tuple[str, ...] = (
-    "config paging disable",
     "show ap stats ethernet summary",
     "sh cdp nei",
     "sh lldp nei",
