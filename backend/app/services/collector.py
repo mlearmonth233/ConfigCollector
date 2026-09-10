@@ -181,47 +181,41 @@ def collect_device_config(
                             f"Failed to enter enable mode on {host}:{port}: {exc}"
                         ) from exc
                 # "generic_termserver" (most PDUs, Opengear console servers)
-                # is Netmiko's bare-bones fallback for devices with no
-                # dedicated driver - its session_preparation() deliberately
-                # does nothing, so it never learns the device's actual
-                # prompt. send_command()'s pattern-based wait (looking for
-                # that prompt to reappear) then has nothing reliable to
-                # match against and can sit blocked for the full
-                # read_timeout on every single command instead of just the
-                # rare slow one. send_command_timing() sidesteps this
-                # entirely - it just waits for the channel to go quiet for a
-                # couple seconds, regardless of what the prompt looks like -
-                # at the cost of not being able to tell a genuinely slow
-                # command from one that's already finished, so it's only
-                # used here, not for drivers with real prompt detection.
-                use_timing_read = spec.netmiko_driver == "generic_termserver"
-                # Cisco WLCs (both AireOS and Catalyst 9800) are slow/chatty
-                # enough that two different bits of Netmiko's per-command
-                # "figure out what to wait for" logic misfire on them:
+                # and Cisco WLCs (both AireOS and Catalyst 9800) all use
+                # timing-based reads instead of Netmiko's normal pattern-
+                # based send_command():
                 #
-                # 1. cmd_verify (on by default) waits up to a hardcoded 10s
-                #    (not configurable via read_timeout) for the command's
-                #    own text to echo back before it even starts looking for
-                #    real output - can time out with "Pattern not detected:
-                #    '<command>' in output" even though the device is
-                #    working fine and would have answered in time.
+                # - generic_termserver has no vendor-specific prompt
+                #   handling at all (session_preparation() is a no-op), so a
+                #   pattern-based wait has nothing reliable to match against
+                #   and can sit blocked for the full read_timeout on every
+                #   command.
                 #
-                # 2. auto_find_prompt (also on by default) re-probes the
-                #    device's prompt fresh before *every* command by sending
-                #    a bare newline and reading whatever comes back. If the
-                #    previous command's (often large, tabular) output hasn't
-                #    fully finished draining yet, that probe can instead grab
-                #    a trailing fragment of it - e.g. one row of a "show
-                #    interface summary" table - and use *that* as the
-                #    pattern to wait for on the *next* command, which of
-                #    course never reappears, failing the same way.
+                # - WLCs are slow/chatty enough that pattern-based reads
+                #   misfire in more than one way, tried and found lacking in
+                #   turn: cmd_verify's hardcoded 10s command-echo wait can
+                #   time out even though the device would have answered
+                #   fine; disabling just that and leaving auto_find_prompt
+                #   on, its fresh per-command prompt probe can instead grab
+                #   a trailing fragment of the *previous* (often large,
+                #   tabular) command's still-draining output and wait for
+                #   that on the *next* command; and disabling both in favor
+                #   of the one stable prompt captured at connect time still
+                #   risks that same prompt string coincidentally matching
+                #   partway through a large table's own contents, cutting a
+                #   command's output off early and leaving the rest to be
+                #   swept up by the *next* command's read - the exact "each
+                #   command's output is actually the previous command's"
+                #   symptom that combination produced.
                 #
-                # Both are disabled here: cmd_verify entirely (nothing to
-                # skip straight to but waiting for the real prompt), and
-                # auto_find_prompt in favor of the stable prompt Netmiko
-                # already captured once, correctly, via session_preparation()
-                # when the connection was first established.
-                is_wlc = spec.category == "wlc"
+                # send_command_timing() sidesteps all of it - it just waits
+                # for the channel to go quiet for a couple seconds,
+                # regardless of what's been said or what the prompt looks
+                # like - at the cost of not being able to tell a genuinely
+                # slow command apart from one that's already finished, which
+                # is why well-behaved network-OS drivers still use the
+                # normal pattern-based read below instead.
+                use_timing_read = spec.netmiko_driver == "generic_termserver" or spec.category == "wlc"
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
@@ -232,9 +226,7 @@ def collect_device_config(
                     if use_timing_read:
                         output = conn.send_command_timing(command, last_read=2, read_timeout=300)
                     else:
-                        output = conn.send_command(
-                            command, read_timeout=300, cmd_verify=not is_wlc, auto_find_prompt=not is_wlc
-                        )
+                        output = conn.send_command(command, read_timeout=300)
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)

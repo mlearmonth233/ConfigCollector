@@ -316,25 +316,25 @@ def test_wlc_default_commands_do_not_redundantly_disable_paging(device_type):
 
 
 @pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
-def test_wlc_devices_skip_command_echo_verification_and_prompt_reprobing(monkeypatch, device_type):
-    # Both WLC generations are slow/chatty enough that two different bits
-    # of Netmiko's per-command auto-detection misfire on them:
-    # - cmd_verify (a hardcoded 10s wait, unaffected by our own
-    #   read_timeout=300) can time out with "Pattern not detected" waiting
-    #   for the command's own echo, even though the device would have
-    #   answered fine.
-    # - auto_find_prompt re-probes the prompt fresh before every command by
-    #   reading whatever comes back right then - if the previous (often
-    #   large, tabular) command's output hasn't fully drained yet, it can
-    #   grab a trailing fragment of that instead and use it as the pattern
-    #   to wait for on the *next* command, which of course never reappears.
-    # Both are disabled for exactly this category, relying instead on the
-    # stable prompt Netmiko already captured once, correctly, at connect
-    # time.
+def test_wlc_devices_use_timing_based_read(monkeypatch, device_type):
+    # Both WLC generations are slow/chatty enough that Netmiko's normal
+    # pattern-based send_command() misfires on them in more than one way in
+    # turn: cmd_verify's hardcoded 10s command-echo wait can time out even
+    # though the device would have answered fine; disabling just that and
+    # leaving auto_find_prompt on, its fresh per-command prompt probe can
+    # instead grab a trailing fragment of the *previous* (often large,
+    # tabular) command's still-draining output and wait for that on the
+    # *next* command; and disabling both in favor of the one stable prompt
+    # captured at connect time still risks that same prompt string
+    # coincidentally matching partway through a large table's own contents,
+    # cutting a command's output off early and leaving the rest to be swept
+    # up by the *next* command's read. send_command_timing() (the same
+    # channel-quiet-based, prompt-agnostic read already used for
+    # generic_termserver devices) sidesteps all of it at once.
     fake = _FakeConnection()
     monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
 
-    collect_device_config(
+    output = collect_device_config(
         host="10.0.0.7",
         port=22,
         device_type=device_type,
@@ -346,19 +346,20 @@ def test_wlc_devices_skip_command_echo_verification_and_prompt_reprobing(monkeyp
         commands_override=["show cdp neighbors"],
     )
 
-    assert fake.cmd_verify_values == [False]
-    assert fake.auto_find_prompt_values == [False]
+    assert fake.timing_based_calls == ["show cdp neighbors"]
+    assert fake.pattern_based_calls == []
+    assert "timing-output:show cdp neighbors" in output
 
 
-def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_normal_prompt_handling(monkeypatch):
+def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_pattern_based_read(monkeypatch):
     # A plain IOS-XE switch/router uses the exact same Netmiko driver
     # ("cisco_xe") as the Catalyst 9800 WLC type, but isn't itself a WLC -
-    # the cmd_verify/auto_find_prompt skip must key off the device *type*'s
+    # the timing-based-read switch must key off the device *type*'s
     # category, not the underlying driver name, or a perfectly well-behaved
-    # switch would lose these safety checks too. No such switch type is in
-    # the registry right now (this org's environment is Cisco IOS + APC
-    # only), so one is inserted temporarily just to prove the category-
-    # based keying.
+    # switch would lose the more precise pattern-based read too. No such
+    # switch type is in the registry right now (this org's environment is
+    # Cisco IOS + APC only), so one is inserted temporarily just to prove
+    # the category-based keying.
     monkeypatch.setitem(
         DEVICE_TYPE_REGISTRY,
         "test_cisco_xe_switch",
