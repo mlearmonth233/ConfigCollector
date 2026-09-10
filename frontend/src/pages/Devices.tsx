@@ -13,6 +13,7 @@ import type {
   DeviceType,
   NetworkZone,
 } from "../api/types";
+import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 
 const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
@@ -40,6 +41,7 @@ export function Devices() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [collectionTarget, setCollectionTarget] = useState<Device[] | null>(null);
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -290,6 +292,9 @@ export function Devices() {
             Import CSV
             <input type="file" accept=".csv" onChange={handleImport} hidden />
           </label>
+          <button className="button-like" onClick={() => setShowBulkAdd(true)}>
+            Bulk add from hostnames
+          </button>
           <button onClick={toggleAddForm}>{showAddForm ? "Cancel" : "Add device"}</button>
         </div>
       </div>
@@ -509,6 +514,20 @@ export function Devices() {
           onStarted={(job) => {
             setCollectionTarget(null);
             navigate(`/jobs/${job.id}`);
+          }}
+        />
+      )}
+
+      {showBulkAdd && (
+        <BulkAddDevicesModal
+          deviceTypes={deviceTypes}
+          deviceRoles={deviceRoles}
+          credentials={credentials}
+          onClose={() => setShowBulkAdd(false)}
+          onDone={(result) => {
+            setShowBulkAdd(false);
+            setImportResult(result);
+            void refresh();
           }}
         />
       )}

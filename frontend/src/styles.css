@@ -43,13 +43,19 @@ button:disabled {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 14px;
   background: white;
   color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+  width: 100%;
 }
 
 label {
