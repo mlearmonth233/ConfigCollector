@@ -42,6 +42,7 @@ export function Devices() {
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
@@ -143,6 +144,7 @@ export function Devices() {
   }
 
   function resetForm() {
+    setEditingId(null);
     setName("");
     setHost("");
     setPort("22");
@@ -159,6 +161,7 @@ export function Devices() {
   }
 
   function handleDuplicate(device: Device) {
+    setEditingId(null);
     setName(incrementTrailingNumber(device.name));
     setHost(device.host);
     setPort(String(device.port));
@@ -179,12 +182,32 @@ export function Devices() {
     setShowAddForm(true);
   }
 
-  async function handleAddDevice(e: FormEvent) {
+  function handleEdit(device: Device) {
+    setEditingId(device.id);
+    setName(device.name);
+    setHost(device.host);
+    setPort(String(device.port));
+    setDeviceType(device.device_type);
+    setDeviceRole(device.device_role ?? "");
+    setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
+    setSite(device.site ?? "");
+    setCredentialId(device.credential_id ?? "");
+    setCustomCommands(device.custom_commands ?? "");
+    setDetection(null);
+    // Editing an existing device shouldn't have typing in the name field
+    // re-trigger auto-detection and clobber its current type/role/zone.
+    typeTouched.current = true;
+    roleTouched.current = true;
+    zoneTouched.current = true;
+    setShowAddForm(true);
+  }
+
+  async function handleSubmitDevice(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await devicesApi.create({
+      const payload = {
         name,
         host,
         port: Number(port) || 22,
@@ -194,7 +217,12 @@ export function Devices() {
         site: site || undefined,
         credential_id: credentialId || undefined,
         custom_commands: customCommands || undefined,
-      });
+      };
+      if (editingId) {
+        await devicesApi.update(editingId, payload);
+      } else {
+        await devicesApi.create(payload);
+      }
       resetForm();
       setShowAddForm(false);
       await refresh();
@@ -281,7 +309,8 @@ export function Devices() {
       )}
 
       {showAddForm && (
-        <form className="card-form" onSubmit={handleAddDevice}>
+        <form className="card-form" onSubmit={handleSubmitDevice}>
+          {editingId && <p className="field-hint" style={{ marginTop: 0 }}>Editing {name || "device"}</p>}
           <div className="form-grid">
             <label>
               Name
@@ -378,7 +407,7 @@ export function Devices() {
             </label>
           </div>
           <button type="submit" disabled={submitting}>
-            {submitting ? "Saving…" : "Save device"}
+            {submitting ? "Saving…" : editingId ? "Save changes" : "Save device"}
           </button>
         </form>
       )}
@@ -440,7 +469,14 @@ export function Devices() {
                 <td>{d.site ?? "—"}</td>
                 <td>{credentials.find((c) => c.id === d.credential_id)?.name ?? "—"}</td>
                 <td>
-                  <button className="link-button" onClick={() => handleDuplicate(d)}>
+                  <button className="link-button" onClick={() => handleEdit(d)}>
+                    Edit
+                  </button>
+                  <button
+                    className="link-button"
+                    style={{ marginLeft: 12 }}
+                    onClick={() => handleDuplicate(d)}
+                  >
                     Duplicate
                   </button>
                   <button

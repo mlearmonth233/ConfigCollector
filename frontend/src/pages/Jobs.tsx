@@ -89,7 +89,11 @@ export function Jobs() {
       const details = await Promise.all(jobIds.map((id) => jobsApi.get(id)));
       const deviceIds = new Set<string>();
       for (const { data } of details) {
-        for (const item of data.items) deviceIds.add(item.device_id);
+        for (const item of data.items) {
+          // Null for an item whose device was since deleted - already
+          // handled below via the same "no longer exist" skip logic.
+          if (item.device_id) deviceIds.add(item.device_id);
+        }
       }
 
       const deviceMap = new Map(devices.map((d) => [d.id, d]));

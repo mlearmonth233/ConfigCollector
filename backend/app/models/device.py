@@ -43,4 +43,12 @@ class Device(Base_):
 
     organization: Mapped["Organization"] = relationship(back_populates="devices")
     credential: Mapped["Credential | None"] = relationship(back_populates="devices")
-    job_items: Mapped[list["CollectionJobItem"]] = relationship(back_populates="device")
+    # passive_deletes=True: don't lazy-load every job_item just to null out
+    # its device_id when this device is deleted (that lazy-load-then-UPDATE
+    # dance is also what used to fail outright back when device_id was
+    # NOT NULL). devices.py's delete_device already nulls these out itself
+    # via a plain UPDATE before deleting, so there's nothing left for the
+    # ORM to manage here.
+    job_items: Mapped[list["CollectionJobItem"]] = relationship(
+        back_populates="device", passive_deletes=True
+    )

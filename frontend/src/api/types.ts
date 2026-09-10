@@ -77,7 +77,9 @@ export type JobStatus = "pending" | "authenticating" | "running" | "completed" |
 
 export interface JobItem {
   id: string;
-  device_id: string;
+  // Null if the device was later deleted - the item's history (status,
+  // error, live output, any snapshot) is kept either way.
+  device_id: string | null;
   device_name: string;
   status: JobStatus;
   error_message: string | null;
@@ -103,13 +105,13 @@ export interface JobDetail extends Job {
 
 export interface Snapshot {
   id: string;
-  device_id: string;
+  device_id: string | null;
   collected_at: string;
   content: string;
 }
 
 export interface SnapshotSummary {
   id: string;
-  device_id: string;
+  device_id: string | null;
   collected_at: string;
 }

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class SnapshotOut(BaseModel):
     id: UUID
-    device_id: UUID
+    device_id: UUID | None
     collected_at: datetime
     content: str
 
@@ -15,7 +15,7 @@ class SnapshotOut(BaseModel):
 
 class SnapshotSummaryOut(BaseModel):
     id: UUID
-    device_id: UUID
+    device_id: UUID | None
     collected_at: datetime
 
     model_config = {"from_attributes": True}

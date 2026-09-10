@@ -94,3 +94,76 @@ async def test_download_snapshot_filename_options(client: AsyncClient, unique_em
         f"/api/snapshots/{snapshot_id}/download", headers=_auth(token), params={"ext": "exe"}
     )
     assert bad_ext_resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_deleting_device_orphans_job_history_instead_of_failing(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "core-sw2", "host": "192.0.2.98", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id = me.json()["org_id"]
+    user_id = me.json()["id"]
+
+    async with async_session_factory() as db:
+        job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.COMPLETED)
+        db.add(job)
+        await db.flush()
+        item = CollectionJobItem(job_id=job.id, device_id=device_id, status=JobStatus.COMPLETED)
+        db.add(item)
+        await db.flush()
+        snapshot = ConfigSnapshot(device_id=device_id, job_item_id=item.id, content="hostname core-sw2\n")
+        db.add(snapshot)
+        await db.commit()
+        job_id, item_id, snapshot_id = str(job.id), str(item.id), str(snapshot.id)
+
+    delete_resp = await client.delete(f"/api/devices/{device_id}", headers=_auth(token))
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    # The job/item/snapshot are all still there - only the device is gone.
+    job_detail = await client.get(f"/api/jobs/{job_id}", headers=_auth(token))
+    assert job_detail.status_code == 200, job_detail.text
+    item_out = next(i for i in job_detail.json()["items"] if i["id"] == item_id)
+    assert item_out["device_id"] is None
+    assert item_out["status"] == "completed"
+
+    # A snapshot's ownership no longer depends on its device existing.
+    snap_resp = await client.get(f"/api/snapshots/{snapshot_id}", headers=_auth(token))
+    assert snap_resp.status_code == 200, snap_resp.text
+    assert snap_resp.json()["device_id"] is None
+
+    download_resp = await client.get(f"/api/snapshots/{snapshot_id}/download", headers=_auth(token))
+    assert download_resp.status_code == 200, download_resp.text
+    assert 'filename="deleted-device.txt"' in download_resp.headers["content-disposition"]
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_device_with_a_collection_job_in_progress(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "core-sw3", "host": "192.0.2.97", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    async with async_session_factory() as db:
+        job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.RUNNING)
+        db.add(job)
+        await db.flush()
+        db.add(CollectionJobItem(job_id=job.id, device_id=device_id, status=JobStatus.AUTHENTICATING))
+        await db.commit()
+
+    resp = await client.delete(f"/api/devices/{device_id}", headers=_auth(token))
+    assert resp.status_code == 400
+    assert "in progress" in resp.json()["detail"]
+
+    # Untouched - still there to retry/cancel/finish.
+    still_there = await client.get("/api/devices", headers=_auth(token))
+    assert any(d["id"] == device_id for d in still_there.json())

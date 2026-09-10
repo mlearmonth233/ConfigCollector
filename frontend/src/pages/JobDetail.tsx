@@ -257,11 +257,11 @@ export function JobDetail() {
                       View config
                     </button>
                   )}
-                  {(item.status === "failed" || item.status === "cancelled") && (
+                  {(item.status === "failed" || item.status === "cancelled") && item.device_id && (
                     <button
                       className="link-button"
                       style={{ marginLeft: 12 }}
-                      onClick={() => handleRetry(item.device_id)}
+                      onClick={() => handleRetry(item.device_id!)}
                     >
                       Retry
                     </button>

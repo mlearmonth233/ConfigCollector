@@ -3,13 +3,15 @@ import io
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.credential import Credential
 from app.models.device import Device, NetworkZone
+from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
+from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.schemas.device import DeviceCreate, DeviceDetectionOut, DeviceImportResult, DeviceOut, DeviceUpdate
 from app.services.device_types import DEVICE_TYPE_REGISTRY
@@ -140,6 +142,26 @@ async def delete_device(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     device = await _get_owned_device(db, device_id, user.org_id)
+
+    in_progress = await db.scalar(
+        select(CollectionJobItem.id)
+        .where(CollectionJobItem.device_id == device_id, CollectionJobItem.status.in_(ACTIVE_JOB_STATUSES))
+        .limit(1)
+    )
+    if in_progress is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This device has a collection job in progress - wait for it to finish (or cancel it) before deleting",
+        )
+
+    # Past job items/snapshots reference this device but should outlive it -
+    # they're history, not a live pointer - so this device_id is nulled out
+    # rather than deleting (or blocking on) those rows. Done as plain UPDATEs
+    # rather than through the ORM relationship, which would otherwise need
+    # to load every job_item just to null each one individually.
+    await db.execute(update(CollectionJobItem).where(CollectionJobItem.device_id == device_id).values(device_id=None))
+    await db.execute(update(ConfigSnapshot).where(ConfigSnapshot.device_id == device_id).values(device_id=None))
+
     await db.delete(device)
     await db.commit()
 

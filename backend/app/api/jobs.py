@@ -239,7 +239,7 @@ async def download_job_configs(
     used_filenames: dict[str, int] = {}
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in completed_items:
-            device_name = item.device.name if item.device else str(item.device_id)
+            device_name = item.device.name if item.device else "deleted-device"
             filename = build_snapshot_filename(
                 device_name,
                 collected_at=item.snapshot.collected_at,

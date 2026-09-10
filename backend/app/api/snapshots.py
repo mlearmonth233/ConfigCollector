@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.device import Device
+from app.models.job import CollectionJob, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.schemas.snapshot import SnapshotOut, SnapshotSummaryOut
@@ -50,9 +51,9 @@ async def download_snapshot(
     db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
     snapshot = await _get_owned_snapshot(db, snapshot_id, user.org_id)
-    device = await db.get(Device, snapshot.device_id)
+    device = await db.get(Device, snapshot.device_id) if snapshot.device_id else None
     filename = build_snapshot_filename(
-        device.name if device else str(snapshot.device_id),
+        device.name if device else "deleted-device",
         collected_at=snapshot.collected_at,
         ext=ext,
         include_timestamp=include_timestamp,
@@ -74,5 +75,14 @@ async def _get_owned_snapshot(db: AsyncSession, snapshot_id: UUID, org_id: UUID)
     snapshot = await db.get(ConfigSnapshot, snapshot_id)
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
-    await _get_owned_device(db, snapshot.device_id, org_id)
+    # Ownership is checked via the job that collected this snapshot, not via
+    # its device - a snapshot must stay viewable/downloadable even after its
+    # device is later deleted (device_id gets nulled, not the snapshot).
+    job_org_id = await db.scalar(
+        select(CollectionJob.org_id)
+        .join(CollectionJobItem, CollectionJobItem.job_id == CollectionJob.id)
+        .where(CollectionJobItem.id == snapshot.job_item_id)
+    )
+    if job_org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
     return snapshot

@@ -23,7 +23,7 @@ class JobCreate(BaseModel):
 
 class JobItemOut(BaseModel):
     id: UUID
-    device_id: UUID
+    device_id: UUID | None
     device_name: str
     status: JobStatus
     error_message: str | None

@@ -5,7 +5,7 @@ from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
 from app.models.credential import Credential
 from app.models.device import Device
-from app.models.job import CollectionJob, CollectionJobItem, JobStatus
+from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
 from app.services.collector import AuthenticationError, CollectionError, EnableModeError, collect_device_config
 
@@ -237,7 +237,7 @@ def _finalize_job_if_done(db, job_id) -> None:
         return
 
     items = db.query(CollectionJobItem).filter(CollectionJobItem.job_id == job.id).all()
-    if any(i.status in (JobStatus.PENDING, JobStatus.AUTHENTICATING, JobStatus.RUNNING) for i in items):
+    if any(i.status in ACTIVE_JOB_STATUSES for i in items):
         return
 
     # CANCELLED takes priority over FAILED: it's the most relevant top-level

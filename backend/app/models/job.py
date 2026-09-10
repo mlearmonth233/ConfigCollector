@@ -24,6 +24,12 @@ class JobStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+# An item still in one of these hasn't reached a terminal outcome yet -
+# shared between tasks.py's job-finalization check and devices.py's guard
+# against deleting a device mid-collection.
+ACTIVE_JOB_STATUSES = (JobStatus.PENDING, JobStatus.AUTHENTICATING, JobStatus.RUNNING)
+
+
 class CollectionJob(Base_):
     """One bulk 'go collect configs' request, fanning out to one
     CollectionJobItem per target device."""
@@ -48,7 +54,12 @@ class CollectionJobItem(Base_):
     __tablename__ = "collection_job_items"
 
     job_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("collection_jobs.id"), nullable=False)
-    device_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("devices.id"), nullable=False)
+    # Nullable so a device can be deleted without dragging its job history
+    # down with it - see devices.py's delete_device, which nulls this out
+    # (rather than deleting the item) for exactly that reason.
+    device_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # True if the primary credential's login failed and this device only
@@ -66,5 +77,5 @@ class CollectionJobItem(Base_):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     job: Mapped["CollectionJob"] = relationship(back_populates="items")
-    device: Mapped["Device"] = relationship(back_populates="job_items")
+    device: Mapped["Device | None"] = relationship(back_populates="job_items")
     snapshot: Mapped["ConfigSnapshot | None"] = relationship(back_populates="job_item", uselist=False)
