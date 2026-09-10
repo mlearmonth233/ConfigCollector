@@ -5,7 +5,7 @@ from app.api.command_profiles import get_org_command_overrides
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.user import User
-from app.services.device_types import DEVICE_TYPE_REGISTRY, get_suggested_commands, parse_command_list
+from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list
 
 router = APIRouter(prefix="/api/device-types", tags=["device-types"])
 
@@ -32,7 +32,6 @@ async def list_device_types(
                 "requires_custom_command": not commands,
                 "default_commands": commands,
                 "is_custom_default": override is not None,
-                "suggested_commands": list(get_suggested_commands(spec.category)),
             }
         )
     return result

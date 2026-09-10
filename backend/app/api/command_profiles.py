@@ -7,12 +7,7 @@ from app.database import get_db
 from app.models.command_profile import CommandProfile
 from app.models.user import User
 from app.schemas.command_profile import CommandProfileOut, CommandProfileUpdate
-from app.services.device_types import (
-    DEVICE_TYPE_REGISTRY,
-    get_device_type_spec,
-    get_suggested_commands,
-    parse_command_list,
-)
+from app.services.device_types import DEVICE_TYPE_REGISTRY, get_device_type_spec, parse_command_list
 
 router = APIRouter(prefix="/api/command-profiles", tags=["command-profiles"])
 
@@ -33,7 +28,6 @@ def _to_out(device_type: str, override: CommandProfile | None) -> CommandProfile
         label=spec.label,
         category=spec.category,
         commands=commands,
-        suggested_commands=list(get_suggested_commands(spec.category)),
         is_custom=override is not None,
     )
 

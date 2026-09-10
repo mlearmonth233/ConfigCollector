@@ -595,21 +595,3 @@ a {
   font-size: 15px;
 }
 
-.command-checklist {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-}
-
-.command-checklist .checkbox-label {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  font-weight: 400;
-  color: var(--text);
-  width: auto;
-}
-
-.command-checklist code {
-  font-size: 13px;
-}

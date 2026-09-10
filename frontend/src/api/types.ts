@@ -59,7 +59,6 @@ export interface DeviceType {
   requires_custom_command: boolean;
   default_commands: string[];
   is_custom_default: boolean;
-  suggested_commands: string[];
 }
 
 export interface CommandProfile {
@@ -67,7 +66,6 @@ export interface CommandProfile {
   label: string;
   category: string;
   commands: string[];
-  suggested_commands: string[];
   is_custom: boolean;
 }
 

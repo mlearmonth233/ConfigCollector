@@ -18,7 +18,6 @@ class CommandProfileOut(BaseModel):
     label: str
     category: str
     commands: list[str]
-    suggested_commands: list[str]
     # True once an org has saved its own override for this device type -
     # `commands` is then that override rather than the built-in default.
     is_custom: bool

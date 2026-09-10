@@ -173,55 +173,6 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
 }
 
 
-# Common "show" (read-only) commands offered as checkboxes on the Commands
-# page, grouped by category rather than exact device type since most vendors
-# within a category share enough CLI syntax for these to be useful starting
-# points - the user can always add anything else as free text. These are
-# shorter, vendor-neutral starting points; a device type's own
-# default_commands above (e.g. cisco_ios's full audit-style command set)
-# can be considerably more specific/extensive than what's suggested here.
-CATEGORY_SUGGESTED_COMMANDS: dict[str, tuple[str, ...]] = {
-    "switch": (
-        "show tech-support",
-        "show running-config",
-        "show version",
-        "show inventory",
-        "show interfaces status",
-        "show ip interface brief",
-        "show vlan brief",
-        "show mac address-table",
-        "show cdp neighbors detail",
-        "show spanning-tree",
-        "show ip route",
-    ),
-    "wlc": (
-        "show run-config",
-        "show tech-support",
-        "show ap summary",
-        "show wlan summary",
-        "show client summary",
-    ),
-    "firewall": (
-        "show running-config",
-        "show tech-support",
-        "show version",
-        "show interface",
-        "show route",
-        "show nat",
-    ),
-    "pdu": (
-        "about",
-        "show status",
-        "show inlet",
-        "show outlets",
-    ),
-}
-
-
-def get_suggested_commands(category: str) -> tuple[str, ...]:
-    return CATEGORY_SUGGESTED_COMMANDS.get(category, ())
-
-
 def get_device_type_spec(device_type: str) -> DeviceTypeSpec:
     try:
         return DEVICE_TYPE_REGISTRY[device_type]

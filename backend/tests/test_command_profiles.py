@@ -30,12 +30,9 @@ async def test_list_command_profiles_defaults_to_registry(client: AsyncClient, u
     cisco_ios = by_type["cisco_ios"]
     assert cisco_ios["commands"] == CISCO_IOS_DEFAULT
     assert cisco_ios["is_custom"] is False
-    assert "show running-config" in cisco_ios["suggested_commands"]
-    assert "show tech-support" in cisco_ios["suggested_commands"]
 
     pdu = by_type["apc_pdu"]
     assert pdu["commands"] == list(DEVICE_TYPE_REGISTRY["apc_pdu"].default_commands)
-    assert pdu["suggested_commands"]  # PDU category suggestions, distinct from its own defaults
 
     fortinet = by_type["fortinet"]
     # VDOM-enabled FortiGates need to enter "config vdom" / "edit root"
