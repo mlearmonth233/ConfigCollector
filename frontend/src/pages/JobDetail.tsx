@@ -34,6 +34,8 @@ export function JobDetail() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [retryTarget, setRetryTarget] = useState<Device[] | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +69,28 @@ export function JobDetail() {
       return;
     }
     setRetryTarget([device]);
+  }
+
+  async function handleCancel() {
+    if (!jobId) return;
+    if (
+      !confirm(
+        "Cancel this job? Devices that haven't started yet will be skipped; a device already " +
+          "connecting or running commands will finish normally."
+      )
+    ) {
+      return;
+    }
+    setCancelError(null);
+    setCancelling(true);
+    try {
+      const { data } = await jobsApi.cancel(jobId);
+      setJob(data);
+    } catch (err) {
+      setCancelError(extractErrorMessage(err));
+    } finally {
+      setCancelling(false);
+    }
   }
 
   async function handleDownloadAll() {
@@ -146,7 +170,14 @@ export function JobDetail() {
       </p>
       <div className="page-header-row">
         <h1>Job {job.id.slice(0, 8)}</h1>
-        <StatusBadge status={job.status} />
+        <div className="page-actions">
+          <StatusBadge status={job.status} />
+          {ACTIVE_STATUSES.has(job.status) && (
+            <button className="link-button danger" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? "Cancelling…" : "Cancel job"}
+            </button>
+          )}
+        </div>
       </div>
       <p className="page-subtitle">
         Started {new Date(job.created_at).toLocaleString()}
@@ -155,6 +186,7 @@ export function JobDetail() {
 
       {downloadError && <div className="error-banner">{downloadError}</div>}
       {retryError && <div className="error-banner">{retryError}</div>}
+      {cancelError && <div className="error-banner">{cancelError}</div>}
 
       <JobStatusSummary items={job.items} />
 
@@ -225,7 +257,7 @@ export function JobDetail() {
                       View config
                     </button>
                   )}
-                  {item.status === "failed" && (
+                  {(item.status === "failed" || item.status === "cancelled") && (
                     <button
                       className="link-button"
                       style={{ marginLeft: 12 }}

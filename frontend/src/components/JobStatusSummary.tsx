@@ -1,12 +1,20 @@
 import type { JobItem, JobStatus } from "../api/types";
 
-const STATUS_ORDER: JobStatus[] = ["pending", "authenticating", "running", "completed", "failed"];
+const STATUS_ORDER: JobStatus[] = [
+  "pending",
+  "authenticating",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+];
 const STATUS_LABELS: Record<JobStatus, string> = {
   pending: "Pending",
   authenticating: "Authenticating",
   running: "Running",
   completed: "Completed",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 /** A segmented progress bar + legend showing, at a glance, how many

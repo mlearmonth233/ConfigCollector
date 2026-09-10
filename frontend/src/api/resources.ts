@@ -89,6 +89,7 @@ export const jobsApi = {
       credential_otps: credentialOtps,
     }),
   get: (id: string) => apiClient.get<JobDetail>(`/api/jobs/${id}`),
+  cancel: (id: string) => apiClient.post<JobDetail>(`/api/jobs/${id}/cancel`),
 };
 
 export const snapshotsApi = {

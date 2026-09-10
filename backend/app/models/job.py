@@ -18,6 +18,10 @@ class JobStatus(str, enum.Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    # A device the user cancelled before it got a chance to start (still
+    # PENDING at cancel time). A device already AUTHENTICATING/RUNNING at
+    # cancel time is left to finish naturally - see jobs.py's cancel_job.
+    CANCELLED = "cancelled"
 
 
 class CollectionJob(Base_):

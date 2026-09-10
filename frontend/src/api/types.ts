@@ -73,7 +73,7 @@ export interface DeviceImportResult {
   errors: string[];
 }
 
-export type JobStatus = "pending" | "authenticating" | "running" | "completed" | "failed";
+export type JobStatus = "pending" | "authenticating" | "running" | "completed" | "failed" | "cancelled";
 
 export interface JobItem {
   id: string;

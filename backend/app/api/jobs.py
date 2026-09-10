@@ -180,6 +180,34 @@ async def create_job(
     return await _fetch_job_detail(db, job.id, user.org_id)
 
 
+@router.post("/{job_id}/cancel", response_model=JobDetailOut)
+async def cancel_job(
+    job_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobDetailOut:
+    """Cancels every device in this job that hasn't started yet (still
+    PENDING - either queued behind another device or its task just hasn't
+    been picked up by the worker yet). A device already AUTHENTICATING or
+    RUNNING can't be safely interrupted mid-SSH-session, so it's left to
+    finish naturally; no *further* device past it will be dispatched once
+    the whole remaining chain is cancelled (see tasks.py's terminal-status
+    guard, which skips - rather than resurrects - an already-cancelled
+    item when its turn in the chain comes up)."""
+    job = await _get_owned_job(db, job_id, user.org_id)
+    if job.status != JobStatus.RUNNING:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job has already finished")
+
+    now = datetime.now(timezone.utc)
+    for item in job.items:
+        if item.status == JobStatus.PENDING:
+            item.status = JobStatus.CANCELLED
+            item.finished_at = now
+    await db.commit()
+
+    return await _fetch_job_detail(db, job_id, user.org_id)
+
+
 @router.get("/{job_id}", response_model=JobDetailOut)
 async def get_job(
     job_id: UUID,

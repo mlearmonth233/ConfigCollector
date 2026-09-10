@@ -151,3 +151,92 @@ async def test_job_continues_after_unexpected_exception_mid_chain(
     crashed = next(i for i in items if i["device_id"] == created[0]["id"])
     assert "Unexpected error during collection" in crashed["error_message"]
     assert "simulated unexpected crash" in crashed["error_message"]
+
+
+async def test_cancel_endpoint_rejects_already_finished_job(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        # No credential assigned - fails instantly, so under eager dispatch
+        # the job is already finished by the time the create call returns.
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
+    )
+    assert device.status_code == 201, device.text
+
+    job = await client.post(
+        "/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]}
+    )
+    assert job.status_code == 201, job.text
+    assert job.json()["status"] == "failed"
+
+    cancel = await client.post(f"/api/jobs/{job.json()['id']}/cancel", headers=_auth(token))
+    assert cancel.status_code == 400, cancel.text
+    assert "already finished" in cancel.json()["detail"]
+
+
+async def test_cancelling_mid_chain_skips_remaining_devices_without_resurrecting_them(
+    client: AsyncClient, unique_email, monkeypatch
+):
+    token = await _register(client, unique_email)
+    cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "lab", "username": "admin", "password": "cisco123"},
+    )
+    cred_id = cred.json()["id"]
+
+    created = []
+    for name, host in [("sw1", "10.0.1.1"), ("sw2", "10.0.1.2"), ("sw3", "10.0.1.3")]:
+        device = await client.post(
+            "/api/devices",
+            headers=_auth(token),
+            json={"name": name, "host": host, "device_type": "cisco_ios", "credential_id": cred_id},
+        )
+        assert device.status_code == 201, device.text
+        created.append(device.json())
+
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output):
+        if device.host == "10.0.1.1":
+            # Simulate a cancel request arriving (via jobs.py's cancel_job)
+            # while sw2/sw3 are still queued (PENDING) behind sw1 - that
+            # endpoint does exactly this update to their rows.
+            db = tasks_module.SyncSessionLocal()
+            try:
+                items = (
+                    db.query(tasks_module.CollectionJobItem)
+                    .filter(
+                        tasks_module.CollectionJobItem.device_id.in_(
+                            [created[1]["id"], created[2]["id"]]
+                        )
+                    )
+                    .all()
+                )
+                for item in items:
+                    item.status = tasks_module.JobStatus.CANCELLED
+                    item.finished_at = tasks_module.datetime.now(tasks_module.timezone.utc)
+                db.commit()
+            finally:
+                db.close()
+        on_authenticated()
+        return f"hostname {device.host}\n"
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
+
+    job = await client.post(
+        "/api/jobs", headers=_auth(token), json={"device_ids": [d["id"] for d in created]}
+    )
+    assert job.status_code == 201, job.text
+
+    detail = await client.get(f"/api/jobs/{job.json()['id']}", headers=_auth(token))
+    body = detail.json()
+    items = {i["device_id"]: i for i in body["items"]}
+    assert items[created[0]["id"]]["status"] == "completed"
+    assert items[created[1]["id"]]["status"] == "cancelled"
+    assert items[created[2]["id"]]["status"] == "cancelled"
+    assert items[created[1]["id"]]["finished_at"] is not None
+    assert items[created[2]["id"]]["finished_at"] is not None
+
+    # CANCELLED takes priority in the job's overall status, even though sw1
+    # itself completed fine.
+    assert body["status"] == "cancelled"

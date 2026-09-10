@@ -313,6 +313,11 @@ a {
   color: #991b1b;
 }
 
+.status-cancelled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
 .job-status-summary {
   margin-bottom: 16px;
 }
@@ -349,6 +354,10 @@ a {
 
 .job-status-bar-segment.status-failed {
   background: #f87171;
+}
+
+.job-status-bar-segment.status-cancelled {
+  background: #9ca3af;
 }
 
 .job-status-legend {
@@ -390,6 +399,10 @@ a {
 
 .job-status-dot.status-failed {
   background: #f87171;
+}
+
+.job-status-dot.status-cancelled {
+  background: #9ca3af;
 }
 
 .auth-page {

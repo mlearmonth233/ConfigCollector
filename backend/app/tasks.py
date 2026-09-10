@@ -55,6 +55,16 @@ def collect_device_task(
             dispatch_next()
             return
 
+        if item.status == JobStatus.CANCELLED:
+            # Cancelled (by the user, while this device was still queued
+            # behind another one - see jobs.py's cancel_job) before this
+            # task even started. Don't resurrect it back to AUTHENTICATING -
+            # just pass the baton on so the rest of the chain still gets a
+            # chance to run (or, if they're cancelled too, to skip in turn).
+            dispatch_next()
+            _finalize_job_if_done(db, item.job_id)
+            return
+
         try:
             _collect_one_device(db, item, commands_override, otp, fallback_otp, dispatch_next)
         except Exception as exc:  # noqa: BLE001
@@ -230,6 +240,14 @@ def _finalize_job_if_done(db, job_id) -> None:
     if any(i.status in (JobStatus.PENDING, JobStatus.AUTHENTICATING, JobStatus.RUNNING) for i in items):
         return
 
-    job.status = JobStatus.FAILED if any(i.status == JobStatus.FAILED for i in items) else JobStatus.COMPLETED
+    # CANCELLED takes priority over FAILED: it's the most relevant top-level
+    # fact once the user has stepped in, even if another device happened to
+    # fail on its own before/after the cancel request.
+    if any(i.status == JobStatus.CANCELLED for i in items):
+        job.status = JobStatus.CANCELLED
+    elif any(i.status == JobStatus.FAILED for i in items):
+        job.status = JobStatus.FAILED
+    else:
+        job.status = JobStatus.COMPLETED
     job.finished_at = datetime.now(timezone.utc)
     db.commit()
