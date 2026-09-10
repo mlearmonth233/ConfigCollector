@@ -90,6 +90,8 @@ export const jobsApi = {
     }),
   get: (id: string) => apiClient.get<JobDetail>(`/api/jobs/${id}`),
   cancel: (id: string) => apiClient.post<JobDetail>(`/api/jobs/${id}/cancel`),
+  remove: (id: string) => apiClient.delete(`/api/jobs/${id}`),
+  clearFinished: () => apiClient.delete<{ deleted: number }>("/api/jobs"),
 };
 
 export const snapshotsApi = {

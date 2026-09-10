@@ -49,3 +49,7 @@ class JobOut(BaseModel):
 
 class JobDetailOut(JobOut):
     items: list[JobItemOut]
+
+
+class JobClearResult(BaseModel):
+    deleted: int

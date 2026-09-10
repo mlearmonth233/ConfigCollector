@@ -19,6 +19,8 @@ export function Jobs() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [collectionTarget, setCollectionTarget] = useState<Device[] | null>(null);
   const [rerunning, setRerunning] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +121,51 @@ export function Jobs() {
     }
   }
 
+  async function handleDelete(jobId: string) {
+    if (!confirm("Delete this job? Its history and any collected configs go with it.")) return;
+    setError(null);
+    setDeletingId(jobId);
+    try {
+      await jobsApi.remove(jobId);
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      setSelected((prev) => {
+        if (!prev.has(jobId)) return prev;
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleClearFinished() {
+    if (
+      !confirm(
+        "Clear all finished jobs? This deletes every job that isn't still running, along with its " +
+          "history and any collected configs - a job still in progress is left alone."
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setClearing(true);
+    try {
+      const { data } = await jobsApi.clearFinished();
+      const { data: refreshed } = await jobsApi.list();
+      setJobs(refreshed);
+      setSelected(new Set());
+      setNotice(`Cleared ${data.deleted} finished job(s).`);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div className="page">
       <h1>Collection Jobs</h1>
@@ -135,6 +182,9 @@ export function Jobs() {
               {rerunning ? "Preparing…" : `Rerun selected (${selected.size})`}
             </button>
           </div>
+          <button className="link-button danger" disabled={clearing} onClick={handleClearFinished}>
+            {clearing ? "Clearing…" : "Clear all finished jobs"}
+          </button>
         </div>
       )}
 
@@ -182,6 +232,16 @@ export function Jobs() {
                   >
                     Rerun
                   </button>
+                  {j.status !== "running" && (
+                    <button
+                      className="link-button danger"
+                      style={{ marginLeft: 12 }}
+                      disabled={deletingId === j.id}
+                      onClick={() => handleDelete(j.id)}
+                    >
+                      {deletingId === j.id ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

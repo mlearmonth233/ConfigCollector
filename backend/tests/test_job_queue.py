@@ -2,6 +2,9 @@ import pytest
 from httpx import AsyncClient
 
 from app import tasks as tasks_module
+from app.database import async_session_factory
+from app.models.job import CollectionJob, CollectionJobItem, JobStatus
+from app.models.snapshot import ConfigSnapshot
 
 pytestmark = pytest.mark.asyncio
 
@@ -240,3 +243,84 @@ async def test_cancelling_mid_chain_skips_remaining_devices_without_resurrecting
     # CANCELLED takes priority in the job's overall status, even though sw1
     # itself completed fine.
     assert body["status"] == "cancelled"
+
+
+async def test_delete_job_removes_it_and_its_snapshot(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    async with async_session_factory() as db:
+        job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.COMPLETED)
+        db.add(job)
+        await db.flush()
+        item = CollectionJobItem(job_id=job.id, device_id=device_id, status=JobStatus.COMPLETED)
+        db.add(item)
+        await db.flush()
+        snapshot = ConfigSnapshot(device_id=device_id, job_item_id=item.id, content="hostname sw1\n")
+        db.add(snapshot)
+        await db.commit()
+        job_id, snapshot_id = str(job.id), str(snapshot.id)
+
+    delete_resp = await client.delete(f"/api/jobs/{job_id}", headers=_auth(token))
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    assert (await client.get(f"/api/jobs/{job_id}", headers=_auth(token))).status_code == 404
+    # The snapshot went with it - it has no reason to exist once its job does.
+    assert (await client.get(f"/api/snapshots/{snapshot_id}", headers=_auth(token))).status_code == 404
+
+
+async def test_cannot_delete_a_job_still_in_progress(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    async with async_session_factory() as db:
+        job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.RUNNING)
+        db.add(job)
+        await db.commit()
+        job_id = str(job.id)
+
+    resp = await client.delete(f"/api/jobs/{job_id}", headers=_auth(token))
+    assert resp.status_code == 400
+    assert "in progress" in resp.json()["detail"]
+
+    # Untouched.
+    assert (await client.get(f"/api/jobs/{job_id}", headers=_auth(token))).status_code == 200
+
+
+async def test_clear_finished_jobs_leaves_running_ones_alone(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    async with async_session_factory() as db:
+        finished_ids = []
+        for finished_status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            job = CollectionJob(org_id=org_id, created_by_id=user_id, status=finished_status)
+            db.add(job)
+            await db.flush()
+            finished_ids.append(str(job.id))
+        running_job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.RUNNING)
+        db.add(running_job)
+        await db.commit()
+        running_id = str(running_job.id)
+
+    resp = await client.delete("/api/jobs", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 3
+
+    for job_id in finished_ids:
+        assert (await client.get(f"/api/jobs/{job_id}", headers=_auth(token))).status_code == 404
+    assert (await client.get(f"/api/jobs/{running_id}", headers=_auth(token))).status_code == 200
+
+    # Calling it again with nothing left to clear is a no-op, not an error.
+    resp2 = await client.delete("/api/jobs", headers=_auth(token))
+    assert resp2.status_code == 200
+    assert resp2.json()["deleted"] == 0

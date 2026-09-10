@@ -16,7 +16,7 @@ from app.models.credential import Credential, MfaMode
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.user import User
-from app.schemas.job import JobCreate, JobDetailOut, JobItemOut, JobOut
+from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut
 from app.services.device_types import parse_command_list, resolve_commands
 from app.services.filenames import build_snapshot_filename
 from app.tasks import collect_device_task
@@ -36,6 +36,26 @@ async def list_jobs(
         .order_by(CollectionJob.created_at.desc())
     )
     return [_to_job_out(job) for job in result]
+
+
+@router.delete("", response_model=JobClearResult)
+async def clear_finished_jobs(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobClearResult:
+    """Bulk 'clear all old jobs': deletes every job for this org that isn't
+    still running (its items/snapshots go with it via cascade - see
+    CollectionJob.items and CollectionJobItem.snapshot). A job still in
+    progress is left alone rather than erroring, so this is safe to call
+    even while something else is collecting."""
+    result = await db.scalars(
+        select(CollectionJob).where(CollectionJob.org_id == user.org_id, CollectionJob.status != JobStatus.RUNNING)
+    )
+    jobs = list(result)
+    for job in jobs:
+        await db.delete(job)
+    await db.commit()
+    return JobClearResult(deleted=len(jobs))
 
 
 @router.post("", response_model=JobDetailOut, status_code=status.HTTP_201_CREATED)
@@ -215,6 +235,22 @@ async def get_job(
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
     return await _fetch_job_detail(db, job_id, user.org_id)
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(
+    job_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    job = await _get_owned_job(db, job_id, user.org_id)
+    if job.status == JobStatus.RUNNING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This job is still in progress - wait for it to finish (or cancel it) before deleting",
+        )
+    await db.delete(job)
+    await db.commit()
 
 
 @router.get("/{job_id}/download")

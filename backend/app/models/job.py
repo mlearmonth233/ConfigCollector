@@ -78,4 +78,11 @@ class CollectionJobItem(Base_):
 
     job: Mapped["CollectionJob"] = relationship(back_populates="items")
     device: Mapped["Device | None"] = relationship(back_populates="job_items")
-    snapshot: Mapped["ConfigSnapshot | None"] = relationship(back_populates="job_item", uselist=False)
+    # cascade: deleting a job (and so its items, per CollectionJob.items'
+    # own cascade above) should take each item's snapshot with it too - a
+    # snapshot's only reason to exist is as that item's collected result,
+    # unlike a device (which the snapshot deliberately outlives - see
+    # devices.py's delete_device).
+    snapshot: Mapped["ConfigSnapshot | None"] = relationship(
+        back_populates="job_item", uselist=False, cascade="all, delete-orphan"
+    )
