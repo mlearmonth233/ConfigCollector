@@ -195,16 +195,19 @@ needed. Each **credential** (`Devices → Credentials`) has:
   the TACACS+/RADIUS round trip + any MFA challenge/approval) before giving
   up. Plain local-auth devices are fine with the default (45s); push-MFA
   credentials often need 60–90s to give a human time to approve.
-- **Fallback credential** — tried if this credential's login fails outright
-  (TACACS+/RADIUS unreachable, account locked, etc.) — typically a device's
-  local/default account, or some other break-glass login. Point it at
-  another credential you've already created; a credential can only be
-  picked as a fallback if it has no fallback of its own (one level deep,
-  so a device tries at most two credentials). If the primary succeeds, the
-  fallback is never touched; if both are tried and both fail, the job item's
-  error message says so for each. When the fallback is what actually got a
-  device in, its job item is marked "fallback used" — worth a look, since it
-  usually means the primary AAA path is degraded.
+- **Fallback credential** — tried if this credential fails outright, either
+  at login (TACACS+/RADIUS unreachable, account locked, etc.) or afterward
+  while entering enable/privileged mode (wrong or missing enable secret) —
+  typically a device's local/default account, or some other break-glass
+  login. Point it at another credential you've already created; a
+  credential can only be picked as a fallback if it has no fallback of its
+  own (one level deep, so a device tries at most two credentials). If the
+  primary succeeds all the way through, the fallback is never touched; if
+  both are tried and both fail, the job item's error message says so for
+  each. When the fallback is what actually got a device in, its job item is
+  marked "fallback used" — worth a look, since it usually means the
+  primary AAA path is degraded (or, for an enable-mode fallback, that the
+  primary credential's enable secret needs attention).
 
 ### Queued, two-phase collection
 

@@ -79,6 +79,16 @@ class CommandExecutionError(CollectionError):
     against the device (e.g. a command timed out or was rejected)."""
 
 
+class EnableModeError(CommandExecutionError):
+    """Login succeeded, but entering privileged/enable mode failed - most
+    often a wrong (or missing) enable secret, or a device/device_type
+    mismatch (e.g. an AireOS WLC misconfigured as a 9800, which does
+    expect enable mode). A CommandExecutionError subclass since login
+    itself did succeed, but distinguished from a plain one so callers can
+    retry with a fallback credential's own enable secret, the same way an
+    AuthenticationError triggers a fallback login attempt."""
+
+
 def collect_device_config(
     *,
     host: str,
@@ -164,7 +174,12 @@ def collect_device_config(
 
             try:
                 if secret and spec.secret_supported:
-                    conn.enable()
+                    try:
+                        conn.enable()
+                    except Exception as exc:  # noqa: BLE001
+                        raise EnableModeError(
+                            f"Failed to enter enable mode on {host}:{port}: {exc}"
+                        ) from exc
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
@@ -176,6 +191,8 @@ def collect_device_config(
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)
+            except EnableModeError:
+                raise
             except Exception as exc:  # noqa: BLE001 - reported as a job failure, not a crash
                 raise CommandExecutionError(
                     f"Authenticated to {host}:{port} but failed while running commands: {exc}"

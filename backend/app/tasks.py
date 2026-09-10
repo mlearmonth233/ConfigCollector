@@ -7,7 +7,7 @@ from app.models.credential import Credential
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
-from app.services.collector import AuthenticationError, CollectionError, collect_device_config
+from app.services.collector import AuthenticationError, CollectionError, EnableModeError, collect_device_config
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -113,15 +113,17 @@ def _collect_one_device(
                     device, credential, otp, commands_override, on_authenticated, on_output
                 )
                 used_fallback = False
-            except AuthenticationError as primary_exc:
+            except (AuthenticationError, EnableModeError) as primary_exc:
                 fallback = credential.fallback_credential
                 if fallback is None:
                     raise
-                # Reset to AUTHENTICATING (the callback may have already
-                # flipped it to RUNNING had the primary attempt somehow
-                # gotten further - it can't have, since AuthenticationError
-                # only ever comes from a failed/timed-out login, but this
-                # keeps the displayed phase honest regardless).
+                # Reset to AUTHENTICATING for the fallback attempt. For a
+                # plain AuthenticationError the callback can't have flipped
+                # this to RUNNING yet (login itself failed); for an
+                # EnableModeError it genuinely was RUNNING already (login
+                # succeeded, only enable mode failed afterward) - either
+                # way, retrying with a full alternate credential starts
+                # over from authenticating.
                 item.status = JobStatus.AUTHENTICATING
                 db.commit()
                 on_output(
@@ -135,9 +137,8 @@ def _collect_one_device(
                     used_fallback = True
                 except CollectionError as fallback_exc:
                     raise CollectionError(
-                        f"Primary credential '{credential.name}' failed to authenticate: "
-                        f"{primary_exc} | Fallback credential '{fallback.name}' also failed: "
-                        f"{fallback_exc}"
+                        f"Primary credential '{credential.name}' failed: {primary_exc} | "
+                        f"Fallback credential '{fallback.name}' also failed: {fallback_exc}"
                     ) from fallback_exc
 
             db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
@@ -161,9 +162,10 @@ def _attempt_collection(
     on_output,
 ) -> str:
     """One connection attempt with one credential. Raises AuthenticationError
-    if login itself fails, CommandExecutionError if login succeeds but
-    running commands doesn't - callers use that distinction to decide
-    whether falling back to another credential makes sense."""
+    if login itself fails, EnableModeError if login succeeds but entering
+    enable mode doesn't, or a plain CommandExecutionError if login and
+    enable both succeed but running commands doesn't - callers retry with a
+    fallback credential for the first two, never the last."""
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
     return collect_device_config(
