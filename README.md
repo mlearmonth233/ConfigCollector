@@ -146,7 +146,7 @@ example rows (`GET /api/devices/import-template` for scripted access):
 name,host,port,device_type,site,credential_name,custom_commands,device_role,network_zone
 core-sw1,10.0.0.1,22,cisco_ios,DC1,labcred,,,
 wlc-1,10.0.0.2,22,cisco_wlc,DC1,labcred,,,
-pdu-1,10.0.0.4,22,pdu_generic,DC1,labcred,"about,show status",,
+pdu-1,10.0.0.4,22,apc_pdu,DC1,labcred,,,
 GBGYSP01SWA001,10.0.0.5,22,,,labcred,,,
 ```
 
@@ -159,9 +159,8 @@ verbatim for you to adjust before saving).
 - `credential_name` looks up an existing credential set by name within your
   org; leave blank to add the device without one.
 - `custom_commands` (comma-separated) overrides the default "show config"
-  command(s) for that device type — required for device types with no
-  built-in default, like `pdu_generic` and `console_server`, since PDU/console
-  server CLIs vary too much per vendor to guess.
+  command(s) for that device type — required for any device type with no
+  built-in default (vendor CLIs vary too much to guess a universal command).
 - `device_type`, `device_role`, and `network_zone` are all optional - see
   "Auto-detecting device type/role/zone from the name" below. An explicit
   value in any of these columns always wins over a detected one; the last
@@ -169,9 +168,11 @@ verbatim for you to adjust before saving).
   entirely on detection.
 
 See `GET /api/device-types` (or the "Device type" dropdown in the UI) for
-the full supported list, spanning switches, WLCs, firewalls, PDUs, and
-console servers. New device types are added in
-`backend/app/services/device_types.py` by mapping to a Netmiko driver name.
+the full supported list. This is intentionally trimmed down to what this
+app's own environment actually runs (Cisco switches, both WLC generations,
+a few firewall vendors, APC PDUs) rather than every vendor Netmiko can
+speak - add another in `backend/app/services/device_types.py` by mapping
+to a Netmiko driver name if a new one shows up.
 
 ### Auto-detecting device type/role/zone from the name
 
@@ -186,8 +187,8 @@ convention (e.g. `GBGYSP01SWA001`):
 | `SWC`        | Core switch            | `cisco_ios`                     |
 | `SWD`        | Distribution switch    | `cisco_ios`                     |
 | `WLC`        | Wireless LAN controller | *(none - see below)*           |
-| `PDU`        | Power distribution unit | `pdu_generic`                  |
-| `CON`        | Console server          | `console_server`                |
+| `PDU`        | Power distribution unit | `apc_pdu`                       |
+| `CON`        | Console server          | *(none - no console-server device type is configured)* |
 
 `P0`/`O0` in the name similarly suggest the **network zone**, IT or OT.
 
@@ -197,9 +198,11 @@ fills in stays fully editable, and picking something yourself before
 saving always wins. A WLC is deliberately **never** guessed all the way to
 a device type: the naming convention can't tell an older AireOS controller
 from a Catalyst 9800 apart, so that choice is always left to you (both the
-form and CSV import will ask for it explicitly rather than assume). The
-same goes for any name with no recognizable code in it at all - a device
-type must be specified by hand.
+form and CSV import will ask for it explicitly rather than assume). A
+`CON` name doesn't reach a device type either, but for a different reason -
+there's currently no console-server device type in the registry at all to
+suggest. The same goes for any name with no recognizable code in it at
+all - a device type must be specified by hand.
 
 `GET /api/devices/detect?name=...` exposes the same detection for scripted
 use, and `GET /api/device-roles` lists the full set of roles.
@@ -285,8 +288,8 @@ finished.
 The **Commands** page (`Commands` in the nav) lets you change what runs by
 default for each device type, org-wide - no more editing every device or
 re-typing commands on every run. Each device type shows a checklist of
-common `show` commands for its category (switch, WLC, firewall, PDU,
-console server) plus a free-text field for anything not on the list.
+common `show` commands for its category (switch, WLC, firewall, PDU)
+plus a free-text field for anything not on the list.
 Several device types default to a full audit-style command set out of the
 box - Cisco IOS switches/routers collect interfaces, neighbors, VLANs/port-
 channels, routing, QoS, and hardware/environmentals in one pass; both WLC
@@ -307,7 +310,7 @@ Priority when a device is actually collected, most specific wins:
 
 When you start a collection (`Collect all`/`Collect selected`), a dialog
 lists every device type among the targeted devices (grouped by category —
-switch, WLC, firewall, PDU, console server) with its default command(s)
+switch, WLC, firewall, PDU) with its default command(s)
 pre-filled and editable, plus a one-time-passcode field for any credential
 in use that requires one — including a passcode-mode fallback credential,
 since which one ends up authenticating a device isn't known until it's

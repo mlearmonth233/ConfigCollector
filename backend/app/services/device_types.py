@@ -122,23 +122,18 @@ _APC_PDU_COMMANDS: tuple[str, ...] = (
 )
 
 
+# Trimmed down to exactly what this org actually runs: Cisco switches, both
+# WLC generations, a handful of firewall vendors, and APC PDUs. Previously
+# also had cisco_xe, hp_procurve, juniper_junos, arista_eos, linux,
+# pdu_generic, console_server, and opengear - removed since nothing in this
+# org's environment used them, simplifying the Commands page and the "Add
+# device" type dropdown down to real choices. Add a type back here (mapping
+# to a Netmiko driver name) if a device from one of those vendors shows up.
 DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec("Cisco IOS Switch/Router", "switch", "cisco_ios", _CISCO_IOS_COMMANDS),
-    "cisco_xe": DeviceTypeSpec(
-        "Cisco IOS-XE Switch/Router", "switch", "cisco_xe", ("show running-config",)
-    ),
     "cisco_nxos": DeviceTypeSpec(
         "Cisco Nexus (NX-OS)", "switch", "cisco_nxos", ("show running-config",)
-    ),
-    "arista_eos": DeviceTypeSpec(
-        "Arista EOS Switch", "switch", "arista_eos", ("show running-config",)
-    ),
-    "juniper_junos": DeviceTypeSpec(
-        "Juniper Junos", "switch", "juniper_junos", ("show configuration | display set",)
-    ),
-    "hp_procurve": DeviceTypeSpec(
-        "HP/Aruba ProCurve Switch", "switch", "hp_procurve", ("show running-config",)
     ),
     # --- Wireless LAN controllers ---
     "cisco_wlc": DeviceTypeSpec(
@@ -161,30 +156,8 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
         "Juniper SRX Firewall", "firewall", "juniper_junos", ("show configuration | display set",)
     ),
     # --- Power distribution units ---
-    "pdu_generic": DeviceTypeSpec(
-        "Generic PDU (SSH CLI)",
-        "pdu",
-        "generic_termserver",
-        (),  # no universal command - vendor CLIs vary too much; require custom_commands
-        secret_supported=False,
-    ),
     "apc_pdu": DeviceTypeSpec(
         "APC Switched PDU", "pdu", "generic_termserver", _APC_PDU_COMMANDS, secret_supported=False
-    ),
-    # --- Console / terminal servers ---
-    "console_server": DeviceTypeSpec(
-        "Generic Console/Terminal Server",
-        "console_server",
-        "generic_termserver",
-        (),  # vendor-specific - require custom_commands
-        secret_supported=False,
-    ),
-    "opengear": DeviceTypeSpec(
-        "Opengear Console Server", "console_server", "generic_termserver", ("show configuration",), secret_supported=False
-    ),
-    # --- Generic Linux host (jump boxes, appliances) ---
-    "linux": DeviceTypeSpec(
-        "Generic Linux Host", "server", "linux", ("cat /etc/network/interfaces",), secret_supported=False
     ),
 }
 
@@ -230,16 +203,6 @@ CATEGORY_SUGGESTED_COMMANDS: dict[str, tuple[str, ...]] = {
         "show status",
         "show inlet",
         "show outlets",
-    ),
-    "console_server": (
-        "show configuration",
-        "show version",
-        "show ports",
-    ),
-    "server": (
-        "cat /etc/network/interfaces",
-        "uname -a",
-        "df -h",
     ),
 }
 

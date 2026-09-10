@@ -39,16 +39,21 @@ _ZONE_PATTERNS: tuple[tuple[str, NetworkZone], ...] = (
 )
 
 # A role maps straight to a Netmiko device_type only when the role alone
-# determines it. "wlc" deliberately has no entry: the naming convention
-# can't distinguish an older AireOS controller from a Catalyst 9800, so
-# that choice is always left to the user rather than guessed.
+# determines it, *and* there's still a matching entry in
+# DEVICE_TYPE_REGISTRY. Two roles deliberately have no entry:
+# - "wlc": the naming convention can't distinguish an older AireOS
+#   controller from a Catalyst 9800, so that choice is always left to the
+#   user rather than guessed.
+# - "console_server": DEVICE_TYPE_REGISTRY no longer has any console-server
+#   device type (none were in use), so there's nothing left to suggest -
+#   the role itself is still detected and shown (useful for organizing/
+#   reporting), just with no device_type guess attached.
 _ROLE_TO_DEVICE_TYPE: dict[str, str] = {
     "access_switch": "cisco_ios",
     "server_switch": "cisco_ios",
     "core_switch": "cisco_ios",
     "distribution_switch": "cisco_ios",
-    "pdu": "pdu_generic",
-    "console_server": "console_server",
+    "pdu": "apc_pdu",
 }
 
 

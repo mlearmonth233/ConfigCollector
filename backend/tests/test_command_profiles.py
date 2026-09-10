@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from app.services.device_types import DEVICE_TYPE_REGISTRY
+from app.services.device_types import DEVICE_TYPE_REGISTRY, DeviceTypeSpec
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,9 +33,9 @@ async def test_list_command_profiles_defaults_to_registry(client: AsyncClient, u
     assert "show running-config" in cisco_ios["suggested_commands"]
     assert "show tech-support" in cisco_ios["suggested_commands"]
 
-    pdu = by_type["pdu_generic"]
-    assert pdu["commands"] == []
-    assert pdu["suggested_commands"]  # still offers suggestions even with no default
+    pdu = by_type["apc_pdu"]
+    assert pdu["commands"] == list(DEVICE_TYPE_REGISTRY["apc_pdu"].default_commands)
+    assert pdu["suggested_commands"]  # PDU category suggestions, distinct from its own defaults
 
 
 async def test_save_and_reset_command_profile(client: AsyncClient, unique_email):
@@ -68,11 +68,23 @@ async def test_save_and_reset_command_profile(client: AsyncClient, unique_email)
     assert reset_body["is_custom"] is False
 
 
-async def test_save_command_profile_for_type_with_no_default_makes_it_resolvable(client: AsyncClient, unique_email):
+async def test_save_command_profile_for_type_with_no_default_makes_it_resolvable(
+    client: AsyncClient, unique_email, monkeypatch
+):
+    # No real device type in the registry has an empty default_commands
+    # list anymore (pdu_generic and console_server, the two that used to,
+    # were both removed once every device in this org's actual environment
+    # turned out to be Cisco or APC) - insert a temporary one so this org-
+    # level "fill the gap" behavior still gets exercised.
+    monkeypatch.setitem(
+        DEVICE_TYPE_REGISTRY,
+        "test_no_default_commands",
+        DeviceTypeSpec("Test type with no default", "pdu", "generic_termserver", (), secret_supported=False),
+    )
     token = await _register(client, unique_email)
 
     resp = await client.put(
-        "/api/command-profiles/pdu_generic",
+        "/api/command-profiles/test_no_default_commands",
         headers=_auth(token),
         json={"commands": ["about", "show status"]},
     )
@@ -82,7 +94,7 @@ async def test_save_command_profile_for_type_with_no_default_makes_it_resolvable
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
-        json={"name": "pdu1", "host": "192.0.2.5", "device_type": "pdu_generic"},
+        json={"name": "pdu1", "host": "192.0.2.5", "device_type": "test_no_default_commands"},
     )
     assert device.status_code == 201, device.text
 

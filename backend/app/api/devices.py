@@ -43,7 +43,7 @@ CSV_COLUMNS = [
 _CSV_TEMPLATE_ROWS = [
     ["core-sw1", "10.0.0.1", "22", "cisco_ios", "DC1", "labcred", "", "", ""],
     ["wlc-1", "10.0.0.2", "22", "cisco_wlc", "DC1", "labcred", "", "", ""],
-    ["pdu-1", "10.0.0.4", "22", "pdu_generic", "DC1", "labcred", "about,show status", "", ""],
+    ["pdu-1", "10.0.0.4", "22", "apc_pdu", "DC1", "labcred", "", "", ""],
     ["GBGYSP01SWA001", "10.0.0.5", "22", "", "", "labcred", "", "", ""],
 ]
 
@@ -275,8 +275,12 @@ def _resolve_detected_fields(
     if not effective_type:
         if effective_role == "wlc":
             hint = " - a WLC could be AireOS ('cisco_wlc') or Catalyst 9800 ('cisco_wlc_9800')"
+        elif effective_role == "console_server":
+            hint = " - no console-server device type is currently configured; pick one manually"
+        elif effective_role:
+            hint = f" - '{effective_role}' has no device type mapped to it"
         else:
-            hint = " - no recognizable role (access/core/distribution/server switch, WLC, PDU, console server) was found in the name either"
+            hint = " - no recognizable role (access/core/distribution/server switch, WLC, PDU) was found in the name either"
         raise ValueError(f"device_type could not be determined automatically for '{name}'{hint} - specify one")
 
     _check_device_type(effective_type)

@@ -35,13 +35,15 @@ def test_detect_network_zone():
     assert detect_network_zone("no-zone-marker-here") is None
 
 
-def test_device_type_for_role_omits_wlc():
+def test_device_type_for_role_omits_wlc_and_console_server():
     assert device_type_for_role("access_switch") == "cisco_ios"
-    assert device_type_for_role("pdu") == "pdu_generic"
-    assert device_type_for_role("console_server") == "console_server"
+    assert device_type_for_role("pdu") == "apc_pdu"
     # Deliberately ambiguous - hostname alone can't tell AireOS from
     # Catalyst 9800, so this always requires an explicit choice.
     assert device_type_for_role("wlc") is None
+    # No console-server device type is in the registry at all anymore -
+    # nothing to suggest, so this also requires an explicit choice.
+    assert device_type_for_role("console_server") is None
     assert device_type_for_role(None) is None
 
 
@@ -110,14 +112,14 @@ async def test_create_device_explicit_values_win_over_detection(client: AsyncCli
         json={
             "name": "GBGYSP01SWA001",
             "host": "10.0.0.1",
-            "device_type": "arista_eos",
+            "device_type": "cisco_nxos",
             "device_role": "core_switch",
             "network_zone": "ot",
         },
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["device_type"] == "arista_eos"
+    assert body["device_type"] == "cisco_nxos"
     assert body["device_role"] == "core_switch"
     assert body["network_zone"] == "ot"
 
@@ -169,7 +171,7 @@ async def test_csv_import_auto_fills_missing_fields(client: AsyncClient, unique_
     assert by_name["GBGYSP01SWA001"]["device_type"] == "cisco_ios"
     assert by_name["GBGYSP01SWA001"]["device_role"] == "access_switch"
     assert by_name["GBGYSP01SWA001"]["network_zone"] == "it"
-    assert by_name["GBGYSP01PDU001"]["device_type"] == "pdu_generic"
+    assert by_name["GBGYSP01PDU001"]["device_type"] == "apc_pdu"
     assert by_name["GBGYSP01PDU001"]["device_role"] == "pdu"
 
 

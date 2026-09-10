@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from app.services.device_types import DEVICE_TYPE_REGISTRY
+from app.services.device_types import DEVICE_TYPE_REGISTRY, DeviceTypeSpec
 
 pytestmark = pytest.mark.asyncio
 
@@ -272,7 +272,7 @@ async def test_job_command_override_is_accepted(client: AsyncClient, unique_emai
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
-        json={"name": "pdu1", "host": "192.0.2.40", "device_type": "pdu_generic", "credential_id": cred_id},
+        json={"name": "pdu1", "host": "192.0.2.40", "device_type": "apc_pdu", "credential_id": cred_id},
     )
     device_id = device.json()["id"]
 
@@ -281,13 +281,13 @@ async def test_job_command_override_is_accepted(client: AsyncClient, unique_emai
         headers=_auth(token),
         json={
             "device_ids": [device_id],
-            "commands_by_device_type": {"pdu_generic": "about,show status"},
+            "commands_by_device_type": {"apc_pdu": "about,show status"},
         },
     )
     assert resp.status_code == 201, resp.text
 
 
-async def test_job_rejects_device_type_with_no_resolvable_command(client: AsyncClient, unique_email):
+async def test_job_rejects_device_type_with_no_resolvable_command(client: AsyncClient, unique_email, monkeypatch):
     token = await _register(client, unique_email)
     cred = await client.post(
         "/api/credentials",
@@ -295,12 +295,22 @@ async def test_job_rejects_device_type_with_no_resolvable_command(client: AsyncC
         json={"name": "lab", "username": "admin", "password": "cisco123"},
     )
     cred_id = cred.json()["id"]
-    # pdu_generic has no default command and no custom_commands set here -
-    # this must be rejected up front, not crash a worker task later.
+
+    # No real device type in the registry has an empty default_commands
+    # list anymore (the two that used to - pdu_generic, console_server -
+    # were both removed once every device in this org's actual environment
+    # turned out to be Cisco or APC) - insert a temporary one so this guard
+    # (must supply a command up front for a type with no default, rather
+    # than let it fail later inside a worker task) still gets exercised.
+    monkeypatch.setitem(
+        DEVICE_TYPE_REGISTRY,
+        "test_no_default_commands",
+        DeviceTypeSpec("Test type with no default", "test", "generic_termserver", (), secret_supported=False),
+    )
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
-        json={"name": "pdu1", "host": "192.0.2.41", "device_type": "pdu_generic", "credential_id": cred_id},
+        json={"name": "pdu1", "host": "192.0.2.41", "device_type": "test_no_default_commands", "credential_id": cred_id},
     )
     device_id = device.json()["id"]
 
@@ -315,8 +325,8 @@ async def test_device_types_expose_default_commands(client: AsyncClient, unique_
     assert resp.status_code == 200
     by_key = {t["key"]: t for t in resp.json()}
     assert by_key["cisco_ios"]["default_commands"] == list(DEVICE_TYPE_REGISTRY["cisco_ios"].default_commands)
-    assert by_key["pdu_generic"]["requires_custom_command"] is True
-    assert by_key["pdu_generic"]["default_commands"] == []
+    assert by_key["apc_pdu"]["requires_custom_command"] is False
+    assert by_key["apc_pdu"]["default_commands"] == list(DEVICE_TYPE_REGISTRY["apc_pdu"].default_commands)
 
 
 async def test_credential_fallback_roundtrip(client: AsyncClient, unique_email):

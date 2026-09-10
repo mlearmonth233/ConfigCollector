@@ -9,7 +9,7 @@ import pytest
 
 from app.services import collector as collector_module
 from app.services.collector import AuthenticationError, collect_device_config
-from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list, resolve_commands
+from app.services.device_types import DEVICE_TYPE_REGISTRY, DeviceTypeSpec, parse_command_list, resolve_commands
 
 _SSHD = shutil.which("sshd") or "/usr/sbin/sshd"
 _HOST_KEY = "/etc/ssh/ssh_host_rsa_key"
@@ -85,7 +85,7 @@ def test_can_negotiate_with_a_server_offering_only_legacy_kex(tmp_path):
             collect_device_config(
                 host="127.0.0.1",
                 port=2222,
-                device_type="linux",
+                device_type="apc_pdu",
                 username="root",
                 password="definitely-wrong-password",
                 secret=None,
@@ -111,7 +111,7 @@ def test_can_negotiate_with_a_server_offering_only_legacy_rsa_host_key(tmp_path)
             collect_device_config(
                 host="127.0.0.1",
                 port=2224,
-                device_type="linux",
+                device_type="apc_pdu",
                 username="root",
                 password="definitely-wrong-password",
                 secret=None,
@@ -132,9 +132,19 @@ def test_resolve_commands_uses_registry_default():
     assert resolve_commands("cisco_ios", None) == list(DEVICE_TYPE_REGISTRY["cisco_ios"].default_commands)
 
 
-def test_resolve_commands_requires_custom_for_types_with_no_default():
+def test_resolve_commands_requires_custom_for_types_with_no_default(monkeypatch):
+    # No real registry entry has an empty default_commands list anymore
+    # (pdu_generic and console_server, the two that used to, were both
+    # removed once every device in this org's actual environment turned
+    # out to be Cisco or APC) - insert a temporary one to keep exercising
+    # this guard.
+    monkeypatch.setitem(
+        DEVICE_TYPE_REGISTRY,
+        "test_no_default_commands",
+        DeviceTypeSpec("Test type with no default", "test", "generic_termserver", (), secret_supported=False),
+    )
     with pytest.raises(ValueError, match="no default command"):
-        resolve_commands("pdu_generic", None)
+        resolve_commands("test_no_default_commands", None)
 
 
 def test_unreachable_device_raises_authentication_error_not_command_error():
@@ -328,18 +338,25 @@ def test_wlc_devices_skip_command_echo_verification(monkeypatch, device_type):
 
 
 def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_command_echo_verification(monkeypatch):
-    # cisco_xe (plain IOS-XE switch/router) uses the exact same Netmiko
-    # driver as the Catalyst 9800 WLC type, but isn't itself a WLC - the
-    # cmd_verify skip must key off the device *type*'s category, not the
-    # underlying driver name, or a perfectly well-behaved switch would lose
-    # this safety check too.
+    # A plain IOS-XE switch/router uses the exact same Netmiko driver
+    # ("cisco_xe") as the Catalyst 9800 WLC type, but isn't itself a WLC -
+    # the cmd_verify skip must key off the device *type*'s category, not
+    # the underlying driver name, or a perfectly well-behaved switch would
+    # lose this safety check too. No such switch type is in the registry
+    # right now (this org's environment is Cisco IOS + APC only), so one is
+    # inserted temporarily just to prove the category-based keying.
+    monkeypatch.setitem(
+        DEVICE_TYPE_REGISTRY,
+        "test_cisco_xe_switch",
+        DeviceTypeSpec("Test IOS-XE switch", "switch", "cisco_xe", ("show running-config",)),
+    )
     fake = _FakeConnection()
     monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
 
     collect_device_config(
         host="10.0.0.8",
         port=22,
-        device_type="cisco_xe",
+        device_type="test_cisco_xe_switch",
         username="admin",
         password="cisco123",
         secret=None,
