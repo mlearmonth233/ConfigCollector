@@ -136,13 +136,13 @@ _APC_PDU_COMMANDS: tuple[str, ...] = (
 
 
 # Trimmed down to exactly what this org actually runs: Cisco switches, both
-# WLC generations, a handful of firewall vendors, and APC PDUs. Previously
-# also had cisco_xe, hp_procurve, juniper_junos, arista_eos, linux,
-# pdu_generic, console_server, opengear, and paloalto_panos - removed since
-# nothing in this org's environment used them, simplifying the Commands page
-# and the "Add device" type dropdown down to real choices. Add a type back
-# here (mapping to a Netmiko driver name) if a device from one of those
-# vendors shows up.
+# WLC generations, FortiGate firewalls, and APC PDUs. Previously also had
+# cisco_xe, hp_procurve, juniper_junos, arista_eos, linux, pdu_generic,
+# console_server, opengear, paloalto_panos, cisco_asa, and juniper_srx -
+# removed since nothing in this org's environment used them, simplifying the
+# Commands page and the "Add device" type dropdown down to real choices. Add
+# a type back here (mapping to a Netmiko driver name) if a device from one
+# of those vendors shows up.
 DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec("Cisco IOS Switch/Router", "switch", "cisco_ios", _CISCO_IOS_COMMANDS),
@@ -157,14 +157,8 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
         "Cisco Catalyst 9800 WLC (IOS-XE)", "wlc", "cisco_xe", _CISCO_WLC_COMMANDS
     ),
     # --- Firewalls ---
-    "cisco_asa": DeviceTypeSpec(
-        "Cisco ASA Firewall", "firewall", "cisco_asa", ("show running-config",)
-    ),
     "fortinet": DeviceTypeSpec(
         "Fortinet FortiGate", "firewall", "fortinet", _FORTINET_COMMANDS, secret_supported=False
-    ),
-    "juniper_srx": DeviceTypeSpec(
-        "Juniper SRX Firewall", "firewall", "juniper_junos", ("show configuration | display set",)
     ),
     # --- Power distribution units ---
     "apc_pdu": DeviceTypeSpec(
