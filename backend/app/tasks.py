@@ -1,13 +1,17 @@
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
 from app.celery_app import celery_app
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
+from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.device import Device
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
+from app.models.organization import Organization
+from app.models.schedule import Schedule, ScheduleFrequency
 from app.models.snapshot import ConfigSnapshot
 from app.services.collector import (
     AuthenticationError,
@@ -16,6 +20,7 @@ from app.services.collector import (
     EnableModeError,
     collect_device_config,
 )
+from app.services.device_types import parse_command_list
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -295,3 +300,159 @@ def _finalize_job_if_done(db, job_id) -> None:
         job.status = JobStatus.COMPLETED
     job.finished_at = datetime.now(timezone.utc)
     db.commit()
+
+
+def _parse_schedule_device_ids(raw: str | None) -> list[uuid.UUID] | None:
+    if not raw:
+        return None
+    return [uuid.UUID(x) for x in raw.split(",") if x.strip()]
+
+
+def _compute_next_run_at(
+    frequency: ScheduleFrequency,
+    interval_hours: int | None,
+    run_at_hour: int | None,
+    run_at_minute: int | None,
+    *,
+    after: datetime,
+) -> datetime:
+    # Kept in sync with (but not imported from) api/schedules.py's identical
+    # helper - that module imports from this one (collect_device_task), so
+    # importing back here would be circular. Both are tiny, pure, and
+    # covered by their own tests.
+    if frequency == ScheduleFrequency.EVERY_N_HOURS:
+        assert interval_hours is not None
+        return after + timedelta(hours=interval_hours)
+    assert run_at_hour is not None and run_at_minute is not None
+    candidate = after.replace(hour=run_at_hour, minute=run_at_minute, second=0, microsecond=0)
+    if candidate <= after:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+@celery_app.task(name="app.tasks.run_due_schedules")
+def run_due_schedules() -> None:
+    """Invoked periodically by Celery beat (see celery_app.py's
+    beat_schedule) - every enabled Schedule whose next_run_at has passed
+    gets its own ordinary CollectionJob, dispatched the exact same
+    pipelined way as a manual one (see collect_device_task), so it shows
+    up in the Jobs page like any other. Unattended, so a device whose
+    effective credential needs a one-time passcode just fails that one
+    item (no human is present to supply one) rather than blocking the
+    rest of the schedule's devices."""
+    db = SyncSessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        due = db.query(Schedule).filter(Schedule.enabled.is_(True), Schedule.next_run_at <= now).all()
+        for schedule in due:
+            try:
+                _run_one_schedule(db, schedule, now)
+            except Exception:  # noqa: BLE001
+                # One schedule's failure (a DB hiccup, an unreachable
+                # broker) shouldn't stop the others due on this same tick,
+                # or get stuck retrying the same failure forever - it's
+                # still advanced to its next occurrence.
+                db.rollback()
+                schedule.next_run_at = _compute_next_run_at(
+                    schedule.frequency, schedule.interval_hours, schedule.run_at_hour, schedule.run_at_minute,
+                    after=now,
+                )
+                db.commit()
+    finally:
+        db.close()
+
+
+def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
+    device_ids = _parse_schedule_device_ids(schedule.device_ids)
+    device_query = db.query(Device).filter(Device.org_id == schedule.org_id)
+    if device_ids:
+        device_query = device_query.filter(Device.id.in_(device_ids))
+    devices = device_query.order_by(Device.created_at).all()
+
+    if devices:
+        job = CollectionJob(
+            org_id=schedule.org_id,
+            created_by_id=schedule.created_by_id,
+            status=JobStatus.RUNNING,
+            started_at=now,
+        )
+        db.add(job)
+        db.flush()
+
+        items = [CollectionJobItem(job_id=job.id, device_id=d.id) for d in devices]
+        db.add_all(items)
+        db.commit()
+        for item in items:
+            db.refresh(item)
+
+        # Same org-saved-default-per-device-type behavior as a manual run
+        # (see api/jobs.py's create_and_dispatch_job) - a schedule has no
+        # per-run command override of its own to offer.
+        org_overrides = {
+            row.device_type: parse_command_list(row.commands)
+            for row in db.query(CommandProfile).filter(CommandProfile.org_id == schedule.org_id).all()
+        }
+
+        dispatch_specs = []
+        for item, device in zip(items, devices):
+            commands_override = None
+            if not device.custom_commands and device.device_type in org_overrides:
+                commands_override = org_overrides[device.device_type]
+            dispatch_specs.append(
+                {
+                    "item_id": str(item.id),
+                    "commands_override": commands_override,
+                    # No human is present to supply a one-time passcode for
+                    # an unattended run - a device whose credential needs
+                    # one just fails with that clear message instead.
+                    "otp": None,
+                    "fallback_otp": None,
+                }
+            )
+
+        first, *rest = dispatch_specs
+        collect_device_task.apply_async(
+            args=[first["item_id"]],
+            kwargs={
+                "commands_override": first["commands_override"],
+                "otp": first["otp"],
+                "fallback_otp": first["fallback_otp"],
+                "remaining": rest,
+            },
+        )
+
+        schedule.last_run_at = now
+        schedule.last_job_id = job.id
+
+    schedule.next_run_at = _compute_next_run_at(
+        schedule.frequency, schedule.interval_hours, schedule.run_at_hour, schedule.run_at_minute, after=now
+    )
+    db.commit()
+
+
+@celery_app.task(name="app.tasks.purge_expired_snapshots")
+def purge_expired_snapshots() -> None:
+    """Invoked periodically by Celery beat - deletes a device's collected
+    config snapshots older than its org's snapshot_retention_days (see
+    Organization.snapshot_retention_days), for every org that has opted
+    into a retention limit. An org with no limit set (the default) is
+    skipped entirely - nothing is ever silently purged unless an admin
+    explicitly turns this on."""
+    db = SyncSessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        orgs = db.query(Organization).filter(Organization.snapshot_retention_days.isnot(None)).all()
+        for org in orgs:
+            cutoff = now - timedelta(days=org.snapshot_retention_days)
+            stale_item_ids = (
+                db.query(CollectionJobItem.id)
+                .join(CollectionJob, CollectionJob.id == CollectionJobItem.job_id)
+                .filter(CollectionJob.org_id == org.id)
+            )
+            db.query(ConfigSnapshot).filter(
+                ConfigSnapshot.job_item_id.in_(stale_item_ids),
+                ConfigSnapshot.collected_at < cutoff,
+            ).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()

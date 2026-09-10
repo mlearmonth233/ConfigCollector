@@ -141,6 +141,93 @@ async def test_deleting_device_orphans_job_history_instead_of_failing(client: As
     assert 'filename="deleted-device.txt"' in download_resp.headers["content-disposition"]
 
 
+async def _seed_snapshot(org_id, user_id, device_id: str, content: str) -> str:
+    async with async_session_factory() as db:
+        job = CollectionJob(org_id=org_id, created_by_id=user_id, status=JobStatus.COMPLETED)
+        db.add(job)
+        await db.flush()
+        item = CollectionJobItem(job_id=job.id, device_id=device_id, status=JobStatus.COMPLETED)
+        db.add(item)
+        await db.flush()
+        snapshot = ConfigSnapshot(device_id=device_id, job_item_id=item.id, content=content)
+        db.add(snapshot)
+        await db.commit()
+        return str(snapshot.id)
+
+
+@pytest.mark.asyncio
+async def test_diff_snapshots_shows_added_and_removed_lines(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "diff-sw1", "host": "192.0.2.90", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    old_id = await _seed_snapshot(org_id, user_id, device_id, "hostname sw1\nline vty 0 4\n")
+    new_id = await _seed_snapshot(org_id, user_id, device_id, "hostname sw1\nntp server 10.0.0.1\n")
+
+    resp = await client.get(
+        "/api/snapshots/diff", headers=_auth(token), params={"from_id": old_id, "to_id": new_id}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["from_id"] == old_id
+    assert body["to_id"] == new_id
+    diff_text = "\n".join(body["diff"])
+    assert "-line vty 0 4" in diff_text
+    assert "+ntp server 10.0.0.1" in diff_text
+    assert "hostname sw1" not in "\n".join(
+        line for line in body["diff"] if line.startswith("+") or line.startswith("-")
+    )
+
+
+@pytest.mark.asyncio
+async def test_diff_identical_snapshots_is_empty(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "diff-sw2", "host": "192.0.2.91", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+
+    id_a = await _seed_snapshot(org_id, user_id, device_id, "hostname sw2\n")
+    id_b = await _seed_snapshot(org_id, user_id, device_id, "hostname sw2\n")
+
+    resp = await client.get(
+        "/api/snapshots/diff", headers=_auth(token), params={"from_id": id_a, "to_id": id_b}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["diff"] == []
+
+
+@pytest.mark.asyncio
+async def test_diff_404s_for_a_snapshot_from_another_org(client: AsyncClient, unique_email):
+    token_a = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token_a),
+        json={"name": "diff-sw3", "host": "192.0.2.92", "device_type": "cisco_ios"},
+    )
+    device_id = device.json()["id"]
+    me = await client.get("/api/auth/me", headers=_auth(token_a))
+    org_id, user_id = me.json()["org_id"], me.json()["id"]
+    snapshot_id = await _seed_snapshot(org_id, user_id, device_id, "hostname sw3\n")
+
+    other_email = f"other-{unique_email}"
+    token_b = await _register(client, other_email)
+    resp = await client.get(
+        "/api/snapshots/diff", headers=_auth(token_b), params={"from_id": snapshot_id, "to_id": snapshot_id}
+    )
+    assert resp.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_cannot_delete_device_with_a_collection_job_in_progress(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)

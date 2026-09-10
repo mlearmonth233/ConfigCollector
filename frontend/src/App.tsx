@@ -10,6 +10,8 @@ import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { Schedules } from "./pages/Schedules";
+import { Settings } from "./pages/Settings";
 
 export function App() {
   return (
@@ -55,6 +57,22 @@ export function App() {
           element={
             <ProtectedRoute>
               <JobDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/schedules"
+          element={
+            <ProtectedRoute>
+              <Schedules />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
             </ProtectedRoute>
           }
         />

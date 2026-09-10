@@ -54,6 +54,23 @@ services:
       redis:
         condition: service_healthy
 
+  beat:
+    build: ./backend
+    # Drives schedules (recurring collection runs) and snapshot retention -
+    # doesn't run any collection itself, just periodically enqueues work
+    # for the `worker` service above to pick up.
+    command: celery -A app.celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontend

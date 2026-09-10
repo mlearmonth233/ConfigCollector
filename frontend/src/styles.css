@@ -569,6 +569,34 @@ a {
   word-break: break-word;
 }
 
+.diff-view {
+  padding: 0 18px 18px;
+  max-height: 60vh;
+}
+
+.diff-line {
+  padding: 1px 6px;
+}
+
+.diff-line-add {
+  background: #e6ffed;
+  color: #166534;
+}
+
+.diff-line-remove {
+  background: #ffeef0;
+  color: #991b1b;
+}
+
+.diff-line-hunk {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.diff-line-file {
+  color: var(--text-muted);
+}
+
 .live-console {
   max-height: 260px;
   background: #0b1020;

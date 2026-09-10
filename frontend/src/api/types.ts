@@ -116,3 +116,33 @@ export interface SnapshotSummary {
   device_id: string | null;
   collected_at: string;
 }
+
+export interface SnapshotDiff {
+  from_id: string;
+  to_id: string;
+  from_collected_at: string;
+  to_collected_at: string;
+  diff: string[];
+}
+
+export type ScheduleFrequency = "every_n_hours" | "daily";
+
+export interface Schedule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  device_ids: string[] | null; // null = every device in the org
+  frequency: ScheduleFrequency;
+  interval_hours: number | null;
+  run_at_hour: number | null;
+  run_at_minute: number | null;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_job_id: string | null;
+  created_at: string;
+}
+
+export interface OrganizationSettings {
+  name: string;
+  snapshot_retention_days: number | null;
+}

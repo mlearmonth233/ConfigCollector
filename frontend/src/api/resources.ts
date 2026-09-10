@@ -11,7 +11,11 @@ import type {
   Job,
   JobDetail,
   MfaMode,
+  OrganizationSettings,
+  Schedule,
+  ScheduleFrequency,
   Snapshot,
+  SnapshotDiff,
   SnapshotSummary,
 } from "./types";
 
@@ -97,4 +101,40 @@ export const jobsApi = {
 
 export const snapshotsApi = {
   get: (id: string) => apiClient.get<Snapshot>(`/api/snapshots/${id}`),
+  diff: (fromId: string, toId: string) =>
+    apiClient.get<SnapshotDiff>("/api/snapshots/diff", { params: { from_id: fromId, to_id: toId } }),
+};
+
+export interface ScheduleCreatePayload {
+  name: string;
+  device_ids?: string[];
+  frequency: ScheduleFrequency;
+  interval_hours?: number;
+  run_at_hour?: number;
+  run_at_minute?: number;
+}
+
+export interface ScheduleUpdatePayload {
+  name?: string;
+  enabled?: boolean;
+  device_ids?: string[];
+  clear_device_ids?: boolean;
+  frequency?: ScheduleFrequency;
+  interval_hours?: number;
+  run_at_hour?: number;
+  run_at_minute?: number;
+}
+
+export const schedulesApi = {
+  list: () => apiClient.get<Schedule[]>("/api/schedules"),
+  create: (data: ScheduleCreatePayload) => apiClient.post<Schedule>("/api/schedules", data),
+  update: (id: string, data: ScheduleUpdatePayload) => apiClient.patch<Schedule>(`/api/schedules/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/api/schedules/${id}`),
+  runNow: (id: string) => apiClient.post<JobDetail>(`/api/schedules/${id}/run-now`),
+};
+
+export const organizationApi = {
+  get: () => apiClient.get<OrganizationSettings>("/api/organization"),
+  update: (data: { snapshot_retention_days?: number; clear_retention?: boolean }) =>
+    apiClient.patch<OrganizationSettings>("/api/organization", data),
 };

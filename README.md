@@ -61,6 +61,16 @@ testing without standing up the full stack. Omit it (and run `celery -A
 app.celery_app worker --loglevel=info` alongside uvicorn, with Redis
 running) to exercise the real async job queue.
 
+Schedules (recurring collection runs) and snapshot retention (auto-deleting
+old configs) are both driven by Celery beat, a separate process from the
+worker above - it doesn't do any work itself, just periodically enqueues
+`run_due_schedules`/`purge_expired_snapshots` for the worker to pick up.
+Without it running, schedules just sit there and nothing ever gets purged:
+
+```bash
+celery -A app.celery_app beat --loglevel=info
+```
+
 Run the test suite:
 
 ```bash

@@ -19,3 +19,15 @@ class SnapshotSummaryOut(BaseModel):
     collected_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SnapshotDiffOut(BaseModel):
+    from_id: UUID
+    to_id: UUID
+    from_collected_at: datetime
+    to_collected_at: datetime
+    # Unified diff lines (as produced by difflib.unified_diff), one per
+    # array entry - "+"/"-"-prefixed lines are additions/removals, " "
+    # (space) prefixed lines are unchanged context, "@@ ... @@" lines mark
+    # hunk boundaries. Empty when the two snapshots are identical.
+    diff: list[str]

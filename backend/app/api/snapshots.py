@@ -1,3 +1,4 @@
+import difflib
 from typing import Literal
 from uuid import UUID
 
@@ -12,7 +13,7 @@ from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
-from app.schemas.snapshot import SnapshotOut, SnapshotSummaryOut
+from app.schemas.snapshot import SnapshotDiffOut, SnapshotOut, SnapshotSummaryOut
 from app.services.filenames import build_snapshot_filename
 
 router = APIRouter(prefix="/api", tags=["snapshots"])
@@ -31,6 +32,40 @@ async def list_device_snapshots(
         .order_by(ConfigSnapshot.collected_at.desc())
     )
     return list(result)
+
+
+@router.get("/snapshots/diff", response_model=SnapshotDiffOut)
+async def diff_snapshots(
+    from_id: UUID,
+    to_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SnapshotDiffOut:
+    """A unified diff between two snapshots - normally two collections of
+    the same device, showing what changed in its config over time, but
+    nothing here actually requires that (comparing across devices is
+    allowed too, e.g. checking a new switch's config against a known-good
+    template). Registered before the "/{snapshot_id}" route below so
+    "diff" doesn't get swallowed as a snapshot id."""
+    from_snapshot = await _get_owned_snapshot(db, from_id, user.org_id)
+    to_snapshot = await _get_owned_snapshot(db, to_id, user.org_id)
+
+    diff_lines = list(
+        difflib.unified_diff(
+            from_snapshot.content.splitlines(),
+            to_snapshot.content.splitlines(),
+            fromfile=f"{from_snapshot.collected_at.isoformat()}",
+            tofile=f"{to_snapshot.collected_at.isoformat()}",
+            lineterm="",
+        )
+    )
+    return SnapshotDiffOut(
+        from_id=from_snapshot.id,
+        to_id=to_snapshot.id,
+        from_collected_at=from_snapshot.collected_at,
+        to_collected_at=to_snapshot.collected_at,
+        diff=diff_lines,
+    )
 
 
 @router.get("/snapshots/{snapshot_id}", response_model=SnapshotOut)

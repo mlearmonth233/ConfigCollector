@@ -14,6 +14,7 @@ import type {
   NetworkZone,
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
+import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 
 const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
@@ -40,6 +41,7 @@ export function Devices() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [collectionTarget, setCollectionTarget] = useState<Device[] | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<Device | null>(null);
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
 
@@ -467,6 +469,13 @@ export function Devices() {
                     Duplicate
                   </button>
                   <button
+                    className="link-button"
+                    style={{ marginLeft: 12 }}
+                    onClick={() => setHistoryTarget(d)}
+                  >
+                    History
+                  </button>
+                  <button
                     className="link-button danger"
                     style={{ marginLeft: 12 }}
                     onClick={() => handleDelete(d.id)}
@@ -485,6 +494,10 @@ export function Devices() {
             )}
           </tbody>
         </table>
+      )}
+
+      {historyTarget && (
+        <DeviceHistoryModal device={historyTarget} onClose={() => setHistoryTarget(null)} />
       )}
 
       {collectionTarget && (

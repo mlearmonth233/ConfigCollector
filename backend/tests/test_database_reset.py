@@ -19,7 +19,7 @@ def test_reset_leaves_up_to_date_schema_untouched():
         conn = sqlite3.connect(db_path)
         conn.execute(
             "CREATE TABLE organizations (id CHAR(36) PRIMARY KEY NOT NULL, name VARCHAR NOT NULL, "
-            "created_at DATETIME NOT NULL)"
+            "created_at DATETIME NOT NULL, snapshot_retention_days INTEGER)"
         )
         conn.commit()
         conn.close()

@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +15,7 @@ from app.database import get_db
 from app.models.credential import Credential, MfaMode
 from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
+from app.models.schedule import Schedule
 from app.models.user import User
 from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut
 from app.services.device_types import parse_command_list, resolve_commands
@@ -52,6 +53,13 @@ async def clear_finished_jobs(
         select(CollectionJob).where(CollectionJob.org_id == user.org_id, CollectionJob.status != JobStatus.RUNNING)
     )
     jobs = list(result)
+    if jobs:
+        # A schedule's last_job_id is purely informational (its "last run"
+        # link) - it shouldn't keep a finished job from being cleared, so
+        # null it out here rather than leaving a dangling reference.
+        await db.execute(
+            update(Schedule).where(Schedule.last_job_id.in_([job.id for job in jobs])).values(last_job_id=None)
+        )
     for job in jobs:
         await db.delete(job)
     await db.commit()
@@ -64,28 +72,53 @@ async def create_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
+    job = await create_and_dispatch_job(
+        db,
+        org_id=user.org_id,
+        created_by_id=user.id,
+        device_ids=payload.device_ids,
+        commands_by_device_type=payload.commands_by_device_type,
+        credential_otps=payload.credential_otps,
+    )
+    return await fetch_job_detail(db, job.id, user.org_id)
+
+
+async def create_and_dispatch_job(
+    db: AsyncSession,
+    *,
+    org_id,
+    created_by_id,
+    device_ids: list | None,
+    commands_by_device_type: dict[str, str] | None = None,
+    credential_otps: dict[str, str] | None = None,
+) -> CollectionJob:
+    """Shared by the POST /api/jobs endpoint and a schedule's "run now"
+    action (see api/schedules.py) - everything create_job used to do
+    itself, minus turning the result into a response body, so both callers
+    get the exact same device/credential/OTP/command validation and
+    pipelined dispatch."""
     device_query = (
         select(Device)
         .options(selectinload(Device.credential).selectinload(Credential.fallback_credential))
-        .where(Device.org_id == user.org_id)
+        .where(Device.org_id == org_id)
     )
-    if payload.device_ids:
-        device_query = device_query.where(Device.id.in_(payload.device_ids))
+    if device_ids:
+        device_query = device_query.where(Device.id.in_(device_ids))
         devices_by_id = {d.id: d for d in await db.scalars(device_query)}
-        if len(devices_by_id) != len(set(payload.device_ids)):
+        if len(devices_by_id) != len(set(device_ids)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more devices not found")
         # `IN (...)` doesn't preserve the given order (it can come back in
         # primary-key/index order) - devices are collected one at a time in
         # this order (see dispatch below), so it needs to actually match
         # what was requested rather than something incidental.
-        devices = [devices_by_id[device_id] for device_id in payload.device_ids]
+        devices = [devices_by_id[device_id] for device_id in device_ids]
     else:
         devices = list(await db.scalars(device_query.order_by(Device.created_at)))
 
     if not devices:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No devices to collect from")
 
-    credential_otps = payload.credential_otps or {}
+    credential_otps = credential_otps or {}
 
     # Devices don't need a credential picked per-device anymore - a device
     # with no credential_id of its own uses the org's one default
@@ -93,7 +126,7 @@ async def create_job(
     org_default_credential = await db.scalar(
         select(Credential)
         .options(selectinload(Credential.fallback_credential))
-        .where(Credential.org_id == user.org_id, Credential.is_default.is_(True))
+        .where(Credential.org_id == org_id, Credential.is_default.is_(True))
     )
 
     def _effective_credential(d: Device) -> Credential | None:
@@ -140,12 +173,12 @@ async def create_job(
     # device's own custom_commands and the hardcoded registry default: it
     # applies whenever a device has no custom_commands of its own and this
     # run doesn't supply a commands_by_device_type override for its type.
-    org_overrides = await get_org_command_overrides(db, user.org_id)
+    org_overrides = await get_org_command_overrides(db, org_id)
     org_default_commands = {
         device_type: parse_command_list(profile.commands) for device_type, profile in org_overrides.items()
     }
 
-    commands_by_type = payload.commands_by_device_type or {}
+    commands_by_type = commands_by_device_type or {}
     missing_command_devices = sorted(
         d.name
         for d in devices
@@ -163,8 +196,8 @@ async def create_job(
         )
 
     job = CollectionJob(
-        org_id=user.org_id,
-        created_by_id=user.id,
+        org_id=org_id,
+        created_by_id=created_by_id,
         status=JobStatus.RUNNING,
         started_at=datetime.now(timezone.utc),
     )
@@ -219,10 +252,11 @@ async def create_job(
     )
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
-    # in tests/dev without a broker) via a separate sync session, so re-fetch
-    # through this async session with eager-loaded relationships rather than
-    # touching potentially-stale lazy attributes on `job`/`items`.
-    return await _fetch_job_detail(db, job.id, user.org_id)
+    # in tests/dev without a broker) via a separate sync session - the
+    # caller is responsible for re-fetching through its own session with
+    # eager-loaded relationships rather than touching potentially-stale
+    # lazy attributes on this `job`/`items`.
+    return job
 
 
 @router.post("/{job_id}/cancel", response_model=JobDetailOut)
@@ -252,7 +286,7 @@ async def cancel_job(
             item.finished_at = now
     await db.commit()
 
-    return await _fetch_job_detail(db, job_id, user.org_id)
+    return await fetch_job_detail(db, job_id, user.org_id)
 
 
 @router.get("/{job_id}", response_model=JobDetailOut)
@@ -261,7 +295,7 @@ async def get_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
-    return await _fetch_job_detail(db, job_id, user.org_id)
+    return await fetch_job_detail(db, job_id, user.org_id)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -276,6 +310,7 @@ async def delete_job(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This job is still in progress - wait for it to finish (or cancel it) before deleting",
         )
+    await db.execute(update(Schedule).where(Schedule.last_job_id == job.id).values(last_job_id=None))
     await db.delete(job)
     await db.commit()
 
@@ -357,7 +392,7 @@ async def _get_owned_job(db: AsyncSession, job_id: UUID, org_id: UUID) -> Collec
     return job
 
 
-async def _fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> JobDetailOut:
+async def fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> JobDetailOut:
     job = await _get_owned_job(db, job_id, org_id)
     return _to_job_detail_out(job)
 
