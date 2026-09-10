@@ -7,6 +7,7 @@ import time
 import paramiko
 import pytest
 
+from app.services import collector as collector_module
 from app.services.collector import AuthenticationError, collect_device_config
 from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list, resolve_commands
 
@@ -207,3 +208,78 @@ def test_passcode_mfa_without_otp_raises_before_connecting():
             mfa_mode="passcode",
             otp=None,
         )
+
+
+class _FakeConnection:
+    """Stands in for Netmiko's ConnectHandler context manager - just records
+    which read method collect_device_config actually called, since that's
+    the only thing these two tests care about."""
+
+    def __init__(self):
+        self.pattern_based_calls: list[str] = []
+        self.timing_based_calls: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def send_command(self, command, read_timeout=None):
+        self.pattern_based_calls.append(command)
+        return f"pattern-output:{command}"
+
+    def send_command_timing(self, command, last_read=None, read_timeout=None):
+        self.timing_based_calls.append(command)
+        return f"timing-output:{command}"
+
+
+def test_generic_termserver_devices_use_timing_based_read(monkeypatch):
+    # apc_pdu (like every "generic_termserver" device type - most PDUs and
+    # console servers) has no Netmiko driver support for its actual prompt,
+    # so pattern-based send_command() has nothing reliable to wait for and
+    # can block for the full read_timeout on every command. It should use
+    # send_command_timing() (channel-quiet-based, prompt-agnostic) instead.
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    output = collect_device_config(
+        host="10.0.0.5",
+        port=22,
+        device_type="apc_pdu",
+        username="apc",
+        password="apc",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["about"],
+    )
+
+    assert fake.timing_based_calls == ["about"]
+    assert fake.pattern_based_calls == []
+    assert "timing-output:about" in output
+
+
+def test_network_os_devices_still_use_pattern_based_read(monkeypatch):
+    # A real Netmiko driver (cisco_ios here) knows the device's actual
+    # prompt, so the normal pattern-based send_command() - which can tell a
+    # genuinely slow command apart from one that's already finished - is
+    # still used, not the timing-based fallback.
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    output = collect_device_config(
+        host="10.0.0.6",
+        port=22,
+        device_type="cisco_ios",
+        username="admin",
+        password="cisco123",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["show version"],
+    )
+
+    assert fake.pattern_based_calls == ["show version"]
+    assert fake.timing_based_calls == []
+    assert "pattern-output:show version" in output

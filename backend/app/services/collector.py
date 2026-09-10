@@ -180,6 +180,21 @@ def collect_device_config(
                         raise EnableModeError(
                             f"Failed to enter enable mode on {host}:{port}: {exc}"
                         ) from exc
+                # "generic_termserver" (most PDUs, Opengear console servers)
+                # is Netmiko's bare-bones fallback for devices with no
+                # dedicated driver - its session_preparation() deliberately
+                # does nothing, so it never learns the device's actual
+                # prompt. send_command()'s pattern-based wait (looking for
+                # that prompt to reappear) then has nothing reliable to
+                # match against and can sit blocked for the full
+                # read_timeout on every single command instead of just the
+                # rare slow one. send_command_timing() sidesteps this
+                # entirely - it just waits for the channel to go quiet for a
+                # couple seconds, regardless of what the prompt looks like -
+                # at the cost of not being able to tell a genuinely slow
+                # command from one that's already finished, so it's only
+                # used here, not for drivers with real prompt detection.
+                use_timing_read = spec.netmiko_driver == "generic_termserver"
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
@@ -187,7 +202,10 @@ def collect_device_config(
                     # A handful of these (show tech-support, show run on a
                     # large config, etc.) can routinely take minutes on real
                     # hardware, well past a 60s timeout.
-                    output = conn.send_command(command, read_timeout=300)
+                    if use_timing_read:
+                        output = conn.send_command_timing(command, last_read=2, read_timeout=300)
+                    else:
+                        output = conn.send_command(command, read_timeout=300)
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)
