@@ -1,6 +1,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.device_types import DEVICE_TYPE_REGISTRY
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -286,7 +288,7 @@ async def test_device_types_expose_default_commands(client: AsyncClient, unique_
     resp = await client.get("/api/device-types", headers=_auth(token))
     assert resp.status_code == 200
     by_key = {t["key"]: t for t in resp.json()}
-    assert by_key["cisco_ios"]["default_commands"] == ["show tech-support"]
+    assert by_key["cisco_ios"]["default_commands"] == list(DEVICE_TYPE_REGISTRY["cisco_ios"].default_commands)
     assert by_key["pdu_generic"]["requires_custom_command"] is True
     assert by_key["pdu_generic"]["default_commands"] == []
 

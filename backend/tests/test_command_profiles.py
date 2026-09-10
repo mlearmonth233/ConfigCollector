@@ -1,7 +1,11 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.device_types import DEVICE_TYPE_REGISTRY
+
 pytestmark = pytest.mark.asyncio
+
+CISCO_IOS_DEFAULT = list(DEVICE_TYPE_REGISTRY["cisco_ios"].default_commands)
 
 
 async def _register(client: AsyncClient, email: str, org_name: str = "CommandsOrg") -> str:
@@ -24,7 +28,7 @@ async def test_list_command_profiles_defaults_to_registry(client: AsyncClient, u
     by_type = {p["device_type"]: p for p in resp.json()}
 
     cisco_ios = by_type["cisco_ios"]
-    assert cisco_ios["commands"] == ["show tech-support"]
+    assert cisco_ios["commands"] == CISCO_IOS_DEFAULT
     assert cisco_ios["is_custom"] is False
     assert "show running-config" in cisco_ios["suggested_commands"]
     assert "show tech-support" in cisco_ios["suggested_commands"]
@@ -60,7 +64,7 @@ async def test_save_and_reset_command_profile(client: AsyncClient, unique_email)
     reset_resp = await client.delete("/api/command-profiles/cisco_ios", headers=_auth(token))
     assert reset_resp.status_code == 200
     reset_body = reset_resp.json()
-    assert reset_body["commands"] == ["show tech-support"]
+    assert reset_body["commands"] == CISCO_IOS_DEFAULT
     assert reset_body["is_custom"] is False
 
 
@@ -115,7 +119,7 @@ async def test_command_profiles_are_scoped_per_org(client: AsyncClient, unique_e
     token_b = await _register(client, other_email, org_name="OtherCommandsOrg")
     resp = await client.get("/api/command-profiles", headers=_auth(token_b))
     by_type = {p["device_type"]: p for p in resp.json()}
-    assert by_type["cisco_ios"]["commands"] == ["show tech-support"]
+    assert by_type["cisco_ios"]["commands"] == CISCO_IOS_DEFAULT
     assert by_type["cisco_ios"]["is_custom"] is False
 
 

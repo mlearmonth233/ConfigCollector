@@ -8,7 +8,7 @@ import paramiko
 import pytest
 
 from app.services.collector import AuthenticationError, collect_device_config
-from app.services.device_types import parse_command_list, resolve_commands
+from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list, resolve_commands
 
 _SSHD = shutil.which("sshd") or "/usr/sbin/sshd"
 _HOST_KEY = "/etc/ssh/ssh_host_rsa_key"
@@ -87,7 +87,7 @@ def test_parse_command_list_strips_and_drops_blanks():
 
 
 def test_resolve_commands_uses_registry_default():
-    assert resolve_commands("cisco_ios", None) == ["show tech-support"]
+    assert resolve_commands("cisco_ios", None) == list(DEVICE_TYPE_REGISTRY["cisco_ios"].default_commands)
 
 
 def test_resolve_commands_requires_custom_for_types_with_no_default():

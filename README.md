@@ -245,8 +245,12 @@ The **Commands** page (`Commands` in the nav) lets you change what runs by
 default for each device type, org-wide - no more editing every device or
 re-typing commands on every run. Each device type shows a checklist of
 common `show` commands for its category (switch, WLC, firewall, PDU,
-console server) plus a free-text field for anything not on the list; Cisco
-IOS switches/routers default to `show tech-support` out of the box. **Save**
+console server) plus a free-text field for anything not on the list.
+Several device types default to a full audit-style command set out of the
+box - Cisco IOS switches/routers collect interfaces, neighbors, VLANs/port-
+channels, routing, QoS, and hardware/environmentals in one pass; both WLC
+generations and APC PDUs have their own equivalent built-in sets too (see
+`backend/app/services/device_types.py` for the exact commands). **Save**
 persists your choice for the whole org; **Reset to default** discards a
 customization and goes back to the built-in default.
 
@@ -256,7 +260,7 @@ Priority when a device is actually collected, most specific wins:
    that run only.
 2. The device's own `custom_commands` (set on the device itself).
 3. The org's saved Commands-page default for that device type.
-4. The built-in registry default (`show tech-support` for Cisco IOS, etc.).
+4. The built-in registry default.
 
 ### Choosing commands per run
 
