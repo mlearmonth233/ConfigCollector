@@ -313,14 +313,16 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
   Redis like any other piece of internal infrastructure that shouldn't be
   exposed publicly.
 - Legacy SSH support: some still-deployed switches/WLCs only offer
-  `diffie-hellman-group14-sha1` for key exchange, which recent Paramiko
-  releases dropped entirely. `collector.py` reimplements just that one
-  algorithm (same well-vetted 2048-bit group as its still-supported SHA-256
-  sibling, only the transcript hash differs) and appends it to the *end* of
-  Paramiko's preferred list, so it's only ever used when a device offers
-  nothing stronger — never at the expense of a better algorithm a device
-  does support. The weaker, dynamically-negotiated
-  `diffie-hellman-group-exchange-sha1` is deliberately not re-enabled.
+  `diffie-hellman-group14-sha1` for key exchange and/or `ssh-rsa` (RSA host
+  key, SHA-1 signature) for the host key, both of which recent Paramiko
+  releases dropped entirely. `collector.py` reimplements just these two
+  (the kex algorithm shares its well-vetted 2048-bit group with its still-
+  supported SHA-256 sibling; the host key is an ordinary RSA key, just
+  verified with the older signature scheme) and appends each to the *end*
+  of Paramiko's preferred list, so either is only ever used when a device
+  offers nothing stronger — never at the expense of a better algorithm a
+  device does support. The weaker, dynamically-negotiated
+  `diffie-hellman-group-exchange-sha1` kex is deliberately not re-enabled.
 
 ## Known limitations / next steps
 

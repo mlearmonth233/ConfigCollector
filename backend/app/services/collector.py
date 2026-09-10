@@ -11,9 +11,11 @@ from collections.abc import Callable
 from hashlib import sha1
 
 import paramiko
+from cryptography.hazmat.primitives import hashes
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
 from paramiko.kex_group14 import KexGroup14SHA256
+from paramiko.rsakey import RSAKey
 
 from app.services.device_types import get_device_type_spec, resolve_commands
 
@@ -42,6 +44,22 @@ class _KexGroup14SHA1(KexGroup14SHA256):
 if _KexGroup14SHA1.name not in paramiko.Transport._preferred_kex:
     paramiko.Transport._preferred_kex = paramiko.Transport._preferred_kex + (_KexGroup14SHA1.name,)
     paramiko.Transport._kex_info[_KexGroup14SHA1.name] = _KexGroup14SHA1
+
+# Same story for the *host key* side: Paramiko also dropped the legacy
+# "ssh-rsa" (RSA key, SHA-1 signature) server host key algorithm, which is
+# the only kind of RSA host key many older devices' SSH servers ever
+# learned to sign with (they predate the newer rsa-sha2-256/512 signature
+# scheme, even though the underlying key itself is still a perfectly
+# ordinary RSA key). Without this, a device offering only "ssh-rsa" fails
+# with "Incompatible ssh peer (no acceptable host key)" - the host-key
+# equivalent of the kex failure above, and the next thing an old device
+# hits once kex itself succeeds. Same last-resort placement: appended to
+# the end of the preferred list, so a device offering a modern host key
+# algorithm is unaffected.
+if "ssh-rsa" not in paramiko.Transport._preferred_keys:
+    paramiko.Transport._preferred_keys = paramiko.Transport._preferred_keys + ("ssh-rsa",)
+    paramiko.Transport._key_info["ssh-rsa"] = RSAKey
+    RSAKey.HASHES["ssh-rsa"] = hashes.SHA1
 
 
 class CollectionError(Exception):

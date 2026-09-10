@@ -26,41 +26,56 @@ def test_legacy_kex_algorithm_enabled_for_old_devices():
     assert "diffie-hellman-group14-sha1" in paramiko.Transport._kex_info
 
 
-@_REQUIRES_SSHD
-def test_can_negotiate_with_a_server_offering_only_legacy_kex(tmp_path):
-    # Regression test for the real failure this was built to fix: a device
-    # whose SSH implementation only offers diffie-hellman-group14-sha1 used
-    # to fail here with "no acceptable kex algorithm" (surfacing to users as
-    # a misleading NetmikoTimeoutException) even though collector.py claims
-    # to support it - re-adding the algorithm's *name* without a working
-    # implementation behind it would look fixed but still fail exactly like
-    # this, so this spins up a real, restricted sshd rather than trusting
-    # the registration alone.
-    port = 2222
+def test_legacy_rsa_host_key_algorithm_enabled_for_old_devices():
+    # Some still-deployed switches only ever learned to sign their (RSA)
+    # host key the old way ("ssh-rsa", SHA-1), predating the newer
+    # rsa-sha2-256/512 signature scheme Paramiko now prefers exclusively -
+    # collector.py re-enables the legacy name, its class mapping, and the
+    # SHA-1 hash needed to actually verify such a signature.
+    assert "ssh-rsa" in paramiko.Transport._preferred_keys
+    assert "ssh-rsa" in paramiko.Transport._key_info
+    assert "ssh-rsa" in paramiko.rsakey.RSAKey.HASHES
+
+
+def _start_test_sshd(tmp_path, port: int, extra_config: str) -> subprocess.Popen:
+    """Starts a real, restricted sshd on localhost for a collector.py
+    end-to-end test - regression tests for these SSH-compatibility fixes
+    spin up an actual server rather than just checking that a name got
+    registered, since re-adding an algorithm's *name* without a working
+    implementation behind it would look fixed but still fail the same way
+    a real device does."""
     pid_file = tmp_path / "sshd.pid"
     config = tmp_path / "sshd_config"
     config.write_text(
         f"Port {port}\n"
         "ListenAddress 127.0.0.1\n"
         f"HostKey {_HOST_KEY}\n"
-        "KexAlgorithms diffie-hellman-group14-sha1\n"
         "PasswordAuthentication yes\n"
         "UsePAM no\n"
-        f"PidFile {pid_file}\n"
+        f"PidFile {pid_file}\n" + extra_config
     )
     os.makedirs("/run/sshd", exist_ok=True)
 
     proc = subprocess.Popen([_SSHD, "-f", str(config), "-D"], stderr=subprocess.PIPE)
-    try:
-        for _ in range(20):
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-                break
-            except OSError:
-                time.sleep(0.25)
-        else:
-            pytest.fail("test sshd never started listening")
+    for _ in range(20):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+            return proc
+        except OSError:
+            time.sleep(0.25)
+    proc.terminate()
+    proc.wait(timeout=5)
+    pytest.fail("test sshd never started listening")
 
+
+@_REQUIRES_SSHD
+def test_can_negotiate_with_a_server_offering_only_legacy_kex(tmp_path):
+    # Regression test for the real failure this was built to fix: a device
+    # whose SSH implementation only offers diffie-hellman-group14-sha1 used
+    # to fail here with "no acceptable kex algorithm" (surfacing to users as
+    # a misleading NetmikoTimeoutException).
+    proc = _start_test_sshd(tmp_path, 2222, "KexAlgorithms diffie-hellman-group14-sha1\n")
+    try:
         # Wrong credentials on purpose - the point is proving the SSH
         # session/key-exchange itself succeeds. A credentials rejection
         # (NetmikoAuthenticationException) means it got past kex; the bug
@@ -68,7 +83,33 @@ def test_can_negotiate_with_a_server_offering_only_legacy_kex(tmp_path):
         with pytest.raises(AuthenticationError) as excinfo:
             collect_device_config(
                 host="127.0.0.1",
-                port=port,
+                port=2222,
+                device_type="linux",
+                username="root",
+                password="definitely-wrong-password",
+                secret=None,
+                custom_commands=None,
+                auth_timeout=5,
+            )
+        assert "rejected" in str(excinfo.value)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+@_REQUIRES_SSHD
+def test_can_negotiate_with_a_server_offering_only_legacy_rsa_host_key(tmp_path):
+    # Regression test for the follow-on failure once kex itself succeeds: a
+    # device offering only the legacy "ssh-rsa" host key algorithm used to
+    # fail with "no acceptable host key".
+    proc = _start_test_sshd(
+        tmp_path, 2224, "HostKeyAlgorithms ssh-rsa\nPubkeyAcceptedAlgorithms +ssh-rsa\n"
+    )
+    try:
+        with pytest.raises(AuthenticationError) as excinfo:
+            collect_device_config(
+                host="127.0.0.1",
+                port=2224,
                 device_type="linux",
                 username="root",
                 password="definitely-wrong-password",
