@@ -116,7 +116,9 @@ rather not use the debugger.
 ## Adding devices
 
 Devices can be added one at a time from the UI, or bulk-imported via CSV
-(`Devices → Import CSV`). Expected columns:
+(`Devices → Import CSV`). **Download CSV template** next to it gets you a
+ready-to-edit starting file with the exact columns expected and a few
+example rows (`GET /api/devices/import-template` for scripted access):
 
 ```csv
 name,host,port,device_type,site,credential_name,custom_commands,device_role,network_zone
@@ -125,6 +127,12 @@ wlc-1,10.0.0.2,22,cisco_wlc,DC1,labcred,,,
 pdu-1,10.0.0.4,22,pdu_generic,DC1,labcred,"about,show status",,
 GBGYSP01SWA001,10.0.0.5,22,,,labcred,,,
 ```
+
+**Duplicate**, on any device's row, opens the "Add device" form pre-filled
+with that device's fields - handy for a batch that's identical except for
+a sequence number (a trailing number in the name, e.g. `SWA001`, is bumped
+to `SWA002` automatically; every other field, including host, copies over
+verbatim for you to adjust before saving).
 
 - `credential_name` looks up an existing credential set by name within your
   org; leave blank to add the device without one.
@@ -276,6 +284,16 @@ since which one ends up authenticating a device isn't known until it's
 actually contacted, so its code has to be supplied up front just in case.
 These command overrides apply to that run only — they don't change a
 device's own saved `custom_commands`.
+
+### Rerunning old jobs
+
+On the **Jobs** page, **Rerun** (per job row) or **Rerun selected** (after
+checking several) starts a fresh collection against the same devices as
+before - it opens the same "Start collection" dialog you'd get from
+Devices, letting you adjust commands/OTPs for this run same as any other.
+Rerunning several jobs at once combines their devices into a single new
+job (duplicates only counted once); any device since deleted is silently
+skipped (with a note if that happens to be all of them).
 
 ### Downloading a collected config
 

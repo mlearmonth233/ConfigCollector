@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
+import { saveBlobResponse } from "../api/download";
 import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi } from "../api/resources";
 import type {
   Credential,
@@ -15,6 +16,18 @@ import type {
 import { StartCollectionModal } from "../components/StartCollectionModal";
 
 const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
+
+/** Bumps a trailing number in a name by one, preserving zero-padding (e.g.
+ * "GBGYSP01SWA001" -> "GBGYSP01SWA002") - the common case when duplicating
+ * a device to add the next one in a numbered sequence. Names with no
+ * trailing number are returned unchanged, left for manual editing. */
+function incrementTrailingNumber(name: string): string {
+  const match = /^(.*?)(\d+)$/.exec(name);
+  if (!match) return name;
+  const [, prefix, digits] = match;
+  const incremented = String(Number(digits) + 1).padStart(digits.length, "0");
+  return prefix + incremented;
+}
 
 export function Devices() {
   const navigate = useNavigate();
@@ -47,6 +60,7 @@ export function Devices() {
   const typeTouched = useRef(false);
   const roleTouched = useRef(false);
   const zoneTouched = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const deviceRoleMap = useMemo(() => new Map(deviceRoles.map((r) => [r.key, r])), [deviceRoles]);
@@ -74,6 +88,17 @@ export function Devices() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  // Focus the name field (cursor at the end) whenever the add form opens,
+  // so duplicating a device drops you straight into editing the part that
+  // actually needs to change (e.g. the trailing "001" -> "002").
+  useEffect(() => {
+    const el = nameInputRef.current;
+    if (showAddForm && el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [showAddForm]);
 
   // Debounced hostname detection: as the name field settles, ask the
   // backend what device type/role/zone it suggests (see
@@ -133,6 +158,27 @@ export function Devices() {
     zoneTouched.current = false;
   }
 
+  function handleDuplicate(device: Device) {
+    setName(incrementTrailingNumber(device.name));
+    setHost(device.host);
+    setPort(String(device.port));
+    setDeviceType(device.device_type);
+    setDeviceRole(device.device_role ?? "");
+    setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
+    setSite(device.site ?? "");
+    setCredentialId(device.credential_id ?? "");
+    setCustomCommands(device.custom_commands ?? "");
+    setDetection(null);
+    // Every field just came from an existing device, not a fresh
+    // auto-detect guess - mark them all touched so editing the name
+    // afterward (e.g. bumping "001" further) can't silently overwrite
+    // type/role/zone with a differing detection result.
+    typeTouched.current = true;
+    roleTouched.current = true;
+    zoneTouched.current = true;
+    setShowAddForm(true);
+  }
+
   async function handleAddDevice(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -169,6 +215,16 @@ export function Devices() {
     }
   }
 
+  async function handleDownloadTemplate() {
+    setError(null);
+    try {
+      const response = await devicesApi.downloadImportTemplate();
+      saveBlobResponse(response, "device_import_template.csv");
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
+  }
+
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -199,6 +255,9 @@ export function Devices() {
       <div className="page-header-row">
         <h1>Devices</h1>
         <div className="page-actions">
+          <button className="link-button" onClick={handleDownloadTemplate}>
+            Download CSV template
+          </button>
           <label className="button-like">
             Import CSV
             <input type="file" accept=".csv" onChange={handleImport} hidden />
@@ -226,7 +285,7 @@ export function Devices() {
           <div className="form-grid">
             <label>
               Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
+              <input ref={nameInputRef} value={name} onChange={(e) => setName(e.target.value)} required />
               {detection && (detection.device_role_label || detection.network_zone) && (
                 <span className="field-hint">
                   Detected from name: {detection.device_role_label ?? "unknown role"}
@@ -381,7 +440,14 @@ export function Devices() {
                 <td>{d.site ?? "—"}</td>
                 <td>{credentials.find((c) => c.id === d.credential_id)?.name ?? "—"}</td>
                 <td>
-                  <button className="link-button danger" onClick={() => handleDelete(d.id)}>
+                  <button className="link-button" onClick={() => handleDuplicate(d)}>
+                    Duplicate
+                  </button>
+                  <button
+                    className="link-button danger"
+                    style={{ marginLeft: 12 }}
+                    onClick={() => handleDelete(d.id)}
+                  >
                     Delete
                   </button>
                 </td>

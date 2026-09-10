@@ -118,6 +118,32 @@ async def test_device_csv_import_partial_success(client: AsyncClient, unique_ema
     assert len(listing.json()) == 1
 
 
+async def test_import_template_round_trips_through_import(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "labcred", "username": "admin", "password": "cisco123"},
+    )
+
+    template = await client.get("/api/devices/import-template", headers=_auth(token))
+    assert template.status_code == 200
+    assert template.headers["content-type"].startswith("text/csv")
+    assert 'filename="device_import_template.csv"' in template.headers["content-disposition"]
+
+    # The template itself must actually import cleanly - a stale example
+    # (e.g. a typo'd device_type) would otherwise go unnoticed.
+    resp = await client.post(
+        "/api/devices/import",
+        headers=_auth(token),
+        files={"file": ("device_import_template.csv", template.content, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["errors"] == []
+    assert body["created"] == 4
+
+
 async def test_job_lifecycle_with_unreachable_device(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
     cred = await client.post(

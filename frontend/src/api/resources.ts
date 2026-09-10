@@ -68,6 +68,8 @@ export const devicesApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+  downloadImportTemplate: () =>
+    apiClient.get("/api/devices/import-template", { responseType: "blob" }),
   listSnapshots: (deviceId: string) =>
     apiClient.get<SnapshotSummary[]>(`/api/devices/${deviceId}/snapshots`),
 };

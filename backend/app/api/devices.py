@@ -2,7 +2,7 @@ import csv
 import io
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,17 @@ CSV_COLUMNS = [
     "network_zone",
 ]
 
+# Example rows for the downloadable template - mirrors the README's own CSV
+# example so the two never drift apart. Blank device_type/device_role/
+# network_zone (the last row) demonstrates leaving them to be auto-detected
+# from the name (see app.services.hostname_detection).
+_CSV_TEMPLATE_ROWS = [
+    ["core-sw1", "10.0.0.1", "22", "cisco_ios", "DC1", "labcred", "", "", ""],
+    ["wlc-1", "10.0.0.2", "22", "cisco_wlc", "DC1", "labcred", "", "", ""],
+    ["pdu-1", "10.0.0.4", "22", "pdu_generic", "DC1", "labcred", "about,show status", "", ""],
+    ["GBGYSP01SWA001", "10.0.0.5", "22", "", "", "labcred", "", "", ""],
+]
+
 
 @router.get("", response_model=list[DeviceOut])
 async def list_devices(
@@ -42,6 +53,22 @@ async def list_devices(
 ) -> list[Device]:
     result = await db.scalars(select(Device).where(Device.org_id == user.org_id))
     return list(result)
+
+
+@router.get("/import-template")
+async def download_import_template(user: User = Depends(get_current_user)) -> Response:
+    """A ready-to-edit CSV matching CSV_COLUMNS, with a few example rows -
+    the last one leaves device_type/device_role/network_zone blank to show
+    off name-based auto-detection."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(CSV_COLUMNS)
+    writer.writerows(_CSV_TEMPLATE_ROWS)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="device_import_template.csv"'},
+    )
 
 
 @router.get("/detect", response_model=DeviceDetectionOut)
