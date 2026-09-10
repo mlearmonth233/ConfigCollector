@@ -90,6 +90,15 @@ export function Credentials() {
     }
   }
 
+  async function handleSetDefault(id: string) {
+    try {
+      await credentialsApi.setDefault(id);
+      await refresh();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
+  }
+
   return (
     <div className="page">
       <h1>Credentials</h1>
@@ -97,6 +106,8 @@ export function Credentials() {
         Reusable username/password sets for logging into devices. Secrets are encrypted at rest and
         never shown again after creation. TACACS+/RADIUS AAA (and any MFA on top of it) is configured
         on the device itself - here you just tell ConfigCollector how to log in and how long to wait.
+        The default credential is used automatically for any device that doesn't have one of its own
+        assigned, so most devices never need a credential picked individually.
       </p>
       {error && <div className="error-banner">{error}</div>}
 
@@ -195,6 +206,7 @@ export function Credentials() {
               <th>MFA / AAA</th>
               <th>Auth timeout</th>
               <th>Fallback</th>
+              <th>Default</th>
               <th></th>
             </tr>
           </thead>
@@ -208,6 +220,15 @@ export function Credentials() {
                 <td>{c.auth_timeout_seconds}s</td>
                 <td>{c.fallback_credential_name ?? "—"}</td>
                 <td>
+                  {c.is_default ? (
+                    <span className="badge">Default</span>
+                  ) : (
+                    <button className="link-button" onClick={() => handleSetDefault(c.id)}>
+                      Set as default
+                    </button>
+                  )}
+                </td>
+                <td>
                   <button className="link-button danger" onClick={() => handleDelete(c.id)}>
                     Delete
                   </button>
@@ -216,7 +237,7 @@ export function Credentials() {
             ))}
             {credentials.length === 0 && (
               <tr>
-                <td colSpan={7} className="empty-state">
+                <td colSpan={8} className="empty-state">
                   No credentials yet.
                 </td>
               </tr>

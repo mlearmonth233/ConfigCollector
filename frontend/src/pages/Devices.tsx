@@ -52,7 +52,6 @@ export function Devices() {
   const [deviceRole, setDeviceRole] = useState("");
   const [networkZone, setNetworkZone] = useState<"" | NetworkZone>("");
   const [site, setSite] = useState("");
-  const [credentialId, setCredentialId] = useState("");
   const [customCommands, setCustomCommands] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [detection, setDetection] = useState<DeviceDetection | null>(null);
@@ -154,7 +153,6 @@ export function Devices() {
     setDeviceRole("");
     setNetworkZone("");
     setSite("");
-    setCredentialId("");
     setCustomCommands("");
     setDetection(null);
     typeTouched.current = false;
@@ -171,7 +169,6 @@ export function Devices() {
     setDeviceRole(device.device_role ?? "");
     setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
-    setCredentialId(device.credential_id ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setDetection(null);
     // Every field just came from an existing device, not a fresh
@@ -193,7 +190,6 @@ export function Devices() {
     setDeviceRole(device.device_role ?? "");
     setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
-    setCredentialId(device.credential_id ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setDetection(null);
     // Editing an existing device shouldn't have typing in the name field
@@ -217,7 +213,6 @@ export function Devices() {
         device_role: deviceRole || undefined,
         network_zone: (networkZone || undefined) as NetworkZone | undefined,
         site: site || undefined,
-        credential_id: credentialId || undefined,
         custom_commands: customCommands || undefined,
       };
       if (editingId) {
@@ -387,17 +382,6 @@ export function Devices() {
               </select>
             </label>
             <label>
-              Credential
-              <select value={credentialId} onChange={(e) => setCredentialId(e.target.value)}>
-                <option value="">— none —</option>
-                {credentials.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
               Site (optional)
               <input value={site} onChange={(e) => setSite(e.target.value)} />
             </label>
@@ -451,7 +435,6 @@ export function Devices() {
               <th>Role</th>
               <th>Zone</th>
               <th>Site</th>
-              <th>Credential</th>
               <th></th>
             </tr>
           </thead>
@@ -472,7 +455,6 @@ export function Devices() {
                 <td>{d.device_role ? (deviceRoleMap.get(d.device_role)?.label ?? d.device_role) : "—"}</td>
                 <td>{d.network_zone ? ZONE_LABELS[d.network_zone] : "—"}</td>
                 <td>{d.site ?? "—"}</td>
-                <td>{credentials.find((c) => c.id === d.credential_id)?.name ?? "—"}</td>
                 <td>
                   <button className="link-button" onClick={() => handleEdit(d)}>
                     Edit
@@ -496,7 +478,7 @@ export function Devices() {
             ))}
             {devices.length === 0 && (
               <tr>
-                <td colSpan={10} className="empty-state">
+                <td colSpan={9} className="empty-state">
                   No devices yet. Add one or import a CSV.
                 </td>
               </tr>
@@ -522,7 +504,6 @@ export function Devices() {
         <BulkAddDevicesModal
           deviceTypes={deviceTypes}
           deviceRoles={deviceRoles}
-          credentials={credentials}
           onClose={() => setShowBulkAdd(false)}
           onDone={(result) => {
             setShowBulkAdd(false);

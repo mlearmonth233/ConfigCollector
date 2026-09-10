@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base_
@@ -33,6 +33,13 @@ class Credential(Base_):
     __tablename__ = "credentials"
 
     org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False)
+    # The credential used for any device that doesn't have its own
+    # credential_id set - i.e. nearly all of them, since devices no longer
+    # need one picked per-device. Exactly one credential per org should
+    # have this set at a time - enforced in code (credentials.py), not a DB
+    # constraint, since SQLite/Postgres don't both support a clean partial-
+    # unique-index syntax for "at most one row where is_default is true".
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     encrypted_password: Mapped[str] = mapped_column(String(512), nullable=False)

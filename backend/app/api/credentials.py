@@ -25,6 +25,7 @@ def _to_out(c: Credential, fallback_name: str | None) -> CredentialOut:
         auth_timeout_seconds=c.auth_timeout_seconds,
         fallback_credential_id=c.fallback_credential_id,
         fallback_credential_name=fallback_name,
+        is_default=c.is_default,
         created_at=c.created_at,
     )
 
@@ -59,6 +60,14 @@ async def create_credential(
                 ),
             )
 
+    # The first credential an org ever adds becomes its default automatically
+    # - devices don't need one picked per-device, so there should always be
+    # an obvious answer for "which credential do untouched devices use" as
+    # soon as there's anything to use at all.
+    is_first_credential = (
+        await db.scalar(select(Credential.id).where(Credential.org_id == admin.org_id).limit(1))
+    ) is None
+
     credential = Credential(
         org_id=admin.org_id,
         name=payload.name,
@@ -69,11 +78,43 @@ async def create_credential(
         otp_delimiter=payload.otp_delimiter,
         auth_timeout_seconds=payload.auth_timeout_seconds,
         fallback_credential_id=payload.fallback_credential_id,
+        is_default=is_first_credential,
     )
     db.add(credential)
     await db.commit()
     await db.refresh(credential)
     return _to_out(credential, fallback.name if fallback else None)
+
+
+@router.post("/{credential_id}/set-default", response_model=CredentialOut)
+async def set_default_credential(
+    credential_id: UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> CredentialOut:
+    """Makes this the org's one default credential - used for any device
+    that doesn't have its own credential_id set. Only one credential per
+    org is ever default; making a new one default un-defaults whichever
+    one held it before."""
+    credential = await db.get(Credential, credential_id)
+    if credential is None or credential.org_id != admin.org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+
+    others = await db.scalars(
+        select(Credential).where(Credential.org_id == admin.org_id, Credential.id != credential_id)
+    )
+    for other in others:
+        if other.is_default:
+            other.is_default = False
+    credential.is_default = True
+    await db.commit()
+    await db.refresh(credential)
+
+    fallback_name = None
+    if credential.fallback_credential_id is not None:
+        fallback = await db.get(Credential, credential.fallback_credential_id)
+        fallback_name = fallback.name if fallback else None
+    return _to_out(credential, fallback_name)
 
 
 @router.delete("/{credential_id}", status_code=status.HTTP_204_NO_CONTENT)

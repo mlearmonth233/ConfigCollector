@@ -18,6 +18,9 @@ export interface Credential {
   auth_timeout_seconds: number;
   fallback_credential_id: string | null;
   fallback_credential_name: string | null;
+  // Used for any device with no credential_id of its own - at most one
+  // per org.
+  is_default: boolean;
   created_at: string;
 }
 

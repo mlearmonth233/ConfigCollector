@@ -34,6 +34,11 @@ class CredentialOut(BaseModel):
     auth_timeout_seconds: int
     fallback_credential_id: UUID | None
     fallback_credential_name: str | None
+    # The credential used for any device with no credential_id of its own -
+    # at most one per org. Set on creation (the first credential an org
+    # ever adds becomes the default automatically) or via
+    # POST /api/credentials/{id}/set-default.
+    is_default: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

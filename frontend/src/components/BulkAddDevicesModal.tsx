@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { extractErrorMessage } from "../api/client";
 import { devicesApi } from "../api/resources";
-import type { Credential, DeviceImportResult, DeviceRole, DeviceType, NetworkZone } from "../api/types";
+import type { DeviceImportResult, DeviceRole, DeviceType, NetworkZone } from "../api/types";
 
 interface BulkRow {
   key: string;
@@ -13,13 +13,11 @@ interface BulkRow {
   device_role: string;
   network_zone: "" | NetworkZone;
   site: string;
-  credential_id: string;
 }
 
 interface Props {
   deviceTypes: DeviceType[];
   deviceRoles: DeviceRole[];
-  credentials: Credential[];
   onClose: () => void;
   onDone: (result: DeviceImportResult) => void;
 }
@@ -29,13 +27,12 @@ interface Props {
  * zone from the name) -> reviewed/adjusted in an editable table -> saved
  * all at once. Host defaults to the hostname itself, since this only
  * makes sense for a network where switch/WLC/PDU names actually resolve. */
-export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onClose, onDone }: Props) {
+export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone }: Props) {
   const [text, setText] = useState("");
   const [rows, setRows] = useState<BulkRow[] | null>(null);
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [applyCredentialId, setApplyCredentialId] = useState("");
 
   async function handleParse() {
     setError(null);
@@ -77,7 +74,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
             device_role: d?.device_role ?? "",
             network_zone: (d?.network_zone ?? "") as "" | NetworkZone,
             site: "",
-            credential_id: "",
           };
         })
       );
@@ -92,11 +88,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
 
   function removeRow(index: number) {
     setRows((prev) => prev && prev.filter((_, i) => i !== index));
-  }
-
-  function applyCredentialToAll(credentialId: string) {
-    setApplyCredentialId(credentialId);
-    setRows((prev) => prev && prev.map((r) => ({ ...r, credential_id: credentialId })));
   }
 
   async function handleSubmit() {
@@ -114,7 +105,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
             device_role: r.device_role || undefined,
             network_zone: (r.network_zone || undefined) as NetworkZone | undefined,
             site: r.site || undefined,
-            credential_id: r.credential_id || undefined,
           })
         )
       );
@@ -164,17 +154,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
                 Host defaults to the hostname itself (assumes it resolves on your network) - change it
                 to an IP for any that don't.
               </p>
-              <label className="inline-label" style={{ marginBottom: 14 }}>
-                Apply credential to all rows
-                <select value={applyCredentialId} onChange={(e) => applyCredentialToAll(e.target.value)}>
-                  <option value="">— none —</option>
-                  {credentials.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <table className="data-table">
                 <thead>
                   <tr>
@@ -185,7 +164,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
                     <th>Role</th>
                     <th>Zone</th>
                     <th>Site</th>
-                    <th>Credential</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -241,19 +219,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
                         <input value={r.site} onChange={(e) => updateRow(i, { site: e.target.value })} />
                       </td>
                       <td>
-                        <select
-                          value={r.credential_id}
-                          onChange={(e) => updateRow(i, { credential_id: e.target.value })}
-                        >
-                          <option value="">—</option>
-                          {credentials.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
                         <button className="link-button danger" onClick={() => removeRow(i)}>
                           Remove
                         </button>
@@ -262,7 +227,7 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, credentials, onC
                   ))}
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="empty-state">
+                      <td colSpan={8} className="empty-state">
                         No rows left - go back and paste some hostnames.
                       </td>
                     </tr>

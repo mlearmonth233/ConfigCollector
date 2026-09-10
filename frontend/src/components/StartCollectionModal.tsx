@@ -15,6 +15,7 @@ interface Props {
 export function StartCollectionModal({ devices, deviceTypes, credentials, onClose, onStarted }: Props) {
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const credentialMap = useMemo(() => new Map(credentials.map((c) => [c.id, c])), [credentials]);
+  const orgDefaultCredential = useMemo(() => credentials.find((c) => c.is_default), [credentials]);
 
   // Group the target devices by device type so we can ask "which command(s)
   // for each device (switch, pdu, wlc, firewall...)" - grouped by category
@@ -40,11 +41,13 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
   // passcode needs it supplied fresh for this run - it's never stored.
   // This includes fallback credentials: which one ends up authenticating a
   // device isn't known until it's actually contacted, so a passcode-based
-  // fallback needs its code up front too, just in case it's needed.
+  // fallback needs its code up front too, just in case it's needed. A
+  // device with no credential_id of its own falls back to the org's
+  // default credential, so that counts too.
   const credentialsNeedingOtp = useMemo(() => {
     const ids = new Set<string>();
     for (const d of devices) {
-      const primary = d.credential_id ? credentialMap.get(d.credential_id) : undefined;
+      const primary = (d.credential_id ? credentialMap.get(d.credential_id) : undefined) ?? orgDefaultCredential;
       if (primary) {
         ids.add(primary.id);
         if (primary.fallback_credential_id) ids.add(primary.fallback_credential_id);
@@ -53,7 +56,7 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
     return Array.from(ids)
       .map((id) => credentialMap.get(id))
       .filter((c): c is Credential => !!c && c.mfa_mode === "passcode");
-  }, [devices, credentialMap]);
+  }, [devices, credentialMap, orgDefaultCredential]);
 
   const [otps, setOtps] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);

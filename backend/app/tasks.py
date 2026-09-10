@@ -101,6 +101,15 @@ def collect_device_task(
         db.close()
 
 
+def _resolve_credential(db, device: Device) -> Credential | None:
+    """A device's own credential_id, if it has one, otherwise the org's one
+    default credential (Credential.is_default) - devices no longer need a
+    credential picked per-device, so this is the common case."""
+    if device.credential is not None:
+        return device.credential
+    return db.query(Credential).filter(Credential.org_id == device.org_id, Credential.is_default.is_(True)).first()
+
+
 def _collect_one_device(
     db,
     item: CollectionJobItem,
@@ -117,7 +126,7 @@ def _collect_one_device(
     db.commit()
 
     device = item.device
-    credential = device.credential
+    credential = _resolve_credential(db, device)
 
     if credential is None:
         item.status = JobStatus.FAILED

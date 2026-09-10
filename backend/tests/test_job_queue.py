@@ -5,6 +5,7 @@ from app import tasks as tasks_module
 from app.database import async_session_factory
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
+from app.services.collector import AuthenticationError
 
 pytestmark = pytest.mark.asyncio
 
@@ -22,17 +23,28 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_job_devices_processed_strictly_one_at_a_time(client: AsyncClient, unique_email):
+async def test_job_devices_processed_strictly_one_at_a_time(client: AsyncClient, unique_email, monkeypatch):
     token = await _register(client, unique_email)
+    # A credential now covers every device in the org automatically (the
+    # org's one default) - it just needs to exist for job creation's
+    # precheck. The instant, deterministic, no-real-network-call failure
+    # the ordering assertion below relies on instead comes from
+    # monkeypatching _attempt_collection directly.
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
     for name in ["sw1", "sw2", "sw3"]:
         resp = await client.post(
             "/api/devices",
             headers=_auth(token),
-            # No credential assigned - each item fails instantly with no
-            # network call, making the ordering assertion below reliable.
             json={"name": name, "host": "192.0.2.1", "device_type": "cisco_ios"},
         )
         assert resp.status_code == 201, resp.text
+
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        raise AuthenticationError(f"simulated unreachable device {device.host}")
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
 
     devices = await client.get("/api/devices", headers=_auth(token))
     device_ids = [d["id"] for d in devices.json()]
@@ -44,7 +56,7 @@ async def test_job_devices_processed_strictly_one_at_a_time(client: AsyncClient,
     items = detail.json()["items"]
     assert len(items) == 3
     assert all(i["status"] == "failed" for i in items)
-    assert all(i["error_message"] == "Device has no credential assigned" for i in items)
+    assert all("simulated unreachable device" in i["error_message"] for i in items)
 
     # None of these devices ever authenticates (no credential assigned), so
     # the next device is only ever dispatched via the end-of-task fallback
@@ -156,16 +168,24 @@ async def test_job_continues_after_unexpected_exception_mid_chain(
     assert "simulated unexpected crash" in crashed["error_message"]
 
 
-async def test_cancel_endpoint_rejects_already_finished_job(client: AsyncClient, unique_email):
+async def test_cancel_endpoint_rejects_already_finished_job(client: AsyncClient, unique_email, monkeypatch):
     token = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
-        # No credential assigned - fails instantly, so under eager dispatch
-        # the job is already finished by the time the create call returns.
         json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
     )
     assert device.status_code == 201, device.text
+
+    # Fails instantly with no real network call, so under eager dispatch
+    # the job is already finished by the time the create call returns.
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        raise AuthenticationError(f"simulated unreachable device {device.host}")
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
 
     job = await client.post(
         "/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]}

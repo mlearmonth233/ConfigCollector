@@ -4,9 +4,11 @@ import zipfile
 import pytest
 from httpx import AsyncClient
 
+from app import tasks as tasks_module
 from app.database import async_session_factory
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
+from app.services.collector import AuthenticationError
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,14 +102,27 @@ async def test_download_job_configs_dedupes_colliding_filenames(client: AsyncCli
     assert sorted(zf.namelist()) == ["sw1.txt", "sw1_1.txt"]
 
 
-async def test_download_job_configs_400_when_nothing_collected_yet(client: AsyncClient, unique_email):
+async def test_download_job_configs_400_when_nothing_collected_yet(
+    client: AsyncClient, unique_email, monkeypatch
+):
     token = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
         json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
     )
     device_id = device.json()["id"]
+
+    # Fails instantly with no real network call - this test only cares that
+    # nothing was collected, not why.
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        raise AuthenticationError(f"simulated unreachable device {device.host}")
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
+
     job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device_id]})
     job_id = job.json()["id"]
 

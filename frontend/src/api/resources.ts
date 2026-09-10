@@ -37,6 +37,7 @@ export interface CredentialCreatePayload {
 export const credentialsApi = {
   list: () => apiClient.get<Credential[]>("/api/credentials"),
   create: (data: CredentialCreatePayload) => apiClient.post<Credential>("/api/credentials", data),
+  setDefault: (id: string) => apiClient.post<Credential>(`/api/credentials/${id}/set-default`),
   remove: (id: string) => apiClient.delete(`/api/credentials/${id}`),
 };
 

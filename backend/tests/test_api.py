@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
+from app import tasks as tasks_module
 from app.services.device_types import DEVICE_TYPE_REGISTRY, DeviceTypeSpec
 
 pytestmark = pytest.mark.asyncio
@@ -352,6 +353,136 @@ async def test_credential_fallback_roundtrip(client: AsyncClient, unique_email):
     body = primary.json()
     assert body["fallback_credential_id"] == local_admin_id
     assert body["fallback_credential_name"] == "local-admin"
+
+
+async def test_first_credential_becomes_org_default_automatically(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    first = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "first", "username": "admin", "password": "pass1"},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["is_default"] is True
+
+    second = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "second", "username": "admin", "password": "pass2"},
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["is_default"] is False
+
+
+async def test_set_default_credential_switches_which_one_is_default(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    first = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "first", "username": "admin", "password": "pass1"},
+    )
+    first_id = first.json()["id"]
+    second = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "second", "username": "admin", "password": "pass2"},
+    )
+    second_id = second.json()["id"]
+
+    resp = await client.post(f"/api/credentials/{second_id}/set-default", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_default"] is True
+
+    listing = await client.get("/api/credentials", headers=_auth(token))
+    by_id = {c["id"]: c for c in listing.json()}
+    assert by_id[second_id]["is_default"] is True
+    assert by_id[first_id]["is_default"] is False
+
+
+async def test_device_with_no_credential_uses_org_default(client: AsyncClient, unique_email, monkeypatch):
+    token = await _register(client, unique_email)
+    default_cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "org-default", "username": "admin", "password": "cisco123"},
+    )
+    default_cred_id = default_cred.json()["id"]
+
+    # No credential_id given at all - devices no longer need one per-device.
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
+    )
+    assert device.status_code == 201, device.text
+    assert device.json()["credential_id"] is None
+
+    used_credential_ids = []
+
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        used_credential_ids.append(str(credential.id))
+        return f"hostname {device.host}\n"
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]})
+    assert job.status_code == 201, job.text
+    assert job.json()["items"][0]["status"] == "completed"
+    assert used_credential_ids == [default_cred_id]
+
+
+async def test_device_with_own_credential_overrides_org_default(client: AsyncClient, unique_email, monkeypatch):
+    token = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "org-default", "username": "admin", "password": "cisco123"},
+    )
+    override_cred = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "override", "username": "root", "password": "rootpass"},
+    )
+    override_cred_id = override_cred.json()["id"]
+
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={
+            "name": "sw1",
+            "host": "192.0.2.1",
+            "device_type": "cisco_ios",
+            "credential_id": override_cred_id,
+        },
+    )
+    assert device.status_code == 201, device.text
+
+    used_credential_ids = []
+
+    def _fake_attempt(device, credential, otp, commands_override, on_authenticated, on_output, should_cancel):
+        used_credential_ids.append(str(credential.id))
+        return f"hostname {device.host}\n"
+
+    monkeypatch.setattr(tasks_module, "_attempt_collection", _fake_attempt)
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]})
+    assert job.status_code == 201, job.text
+    assert used_credential_ids == [override_cred_id]
+
+
+async def test_job_creation_rejected_when_no_credential_exists_at_all(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    device = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"},
+    )
+    assert device.status_code == 201, device.text
+
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]})
+    assert job.status_code == 400
+    assert "no credential assigned" in job.json()["detail"]
+    assert "sw1" in job.json()["detail"]
 
 
 async def test_credential_fallback_cannot_chain(client: AsyncClient, unique_email):

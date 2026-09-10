@@ -82,6 +82,12 @@ async def test_save_command_profile_for_type_with_no_default_makes_it_resolvable
         DeviceTypeSpec("Test type with no default", "pdu", "generic_termserver", (), secret_supported=False),
     )
     token = await _register(client, unique_email)
+    # Devices no longer need their own credential - the org's one default
+    # credential (the first one added) covers them - but a job still needs
+    # *some* credential to resolve to, so one must exist.
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
 
     resp = await client.put(
         "/api/command-profiles/test_no_default_commands",
@@ -137,6 +143,11 @@ async def test_command_profiles_are_scoped_per_org(client: AsyncClient, unique_e
 
 async def test_device_custom_commands_take_priority_over_org_profile(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
+    # A job needs some credential to resolve to - devices no longer need
+    # their own, but at least one must exist in the org.
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
     await client.put(
         "/api/command-profiles/cisco_ios", headers=_auth(token), json={"commands": ["show version"]}
     )

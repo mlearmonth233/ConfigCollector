@@ -87,12 +87,36 @@ async def create_job(
 
     credential_otps = payload.credential_otps or {}
 
+    # Devices don't need a credential picked per-device anymore - a device
+    # with no credential_id of its own uses the org's one default
+    # credential instead (see Credential.is_default).
+    org_default_credential = await db.scalar(
+        select(Credential)
+        .options(selectinload(Credential.fallback_credential))
+        .where(Credential.org_id == user.org_id, Credential.is_default.is_(True))
+    )
+
+    def _effective_credential(d: Device) -> Credential | None:
+        return d.credential or org_default_credential
+
+    missing_credential_devices = sorted(d.name for d in devices if _effective_credential(d) is None)
+    if missing_credential_devices:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "These devices have no credential assigned and no org-wide default credential is "
+                "configured - add a credential on the Credentials page (the first one becomes the "
+                "default automatically) or set one as default: " + ", ".join(missing_credential_devices)
+            ),
+        )
+
     def _passcode_creds_in_use(d: Device) -> list[Credential]:
         # Which credential ends up authenticating a device (primary or its
         # fallback) isn't known until it's actually contacted, and an OTP
         # can't be requested mid-run - so both must be supplied up front
         # whenever either uses passcode-based MFA.
-        candidates = [d.credential, d.credential.fallback_credential if d.credential else None]
+        credential = _effective_credential(d)
+        candidates = [credential, credential.fallback_credential if credential else None]
         return [c for c in candidates if c is not None and c.mfa_mode == MfaMode.PASSCODE]
 
     missing_otp_credentials = sorted(
@@ -162,8 +186,9 @@ async def create_job(
             commands_override = org_default_commands[device.device_type]
         else:
             commands_override = None
-        otp = credential_otps.get(str(device.credential_id)) if device.credential_id else None
-        fallback = device.credential.fallback_credential if device.credential else None
+        credential = _effective_credential(device)
+        otp = credential_otps.get(str(credential.id)) if credential else None
+        fallback = credential.fallback_credential if credential else None
         fallback_otp = credential_otps.get(str(fallback.id)) if fallback else None
         dispatch_specs.append(
             {

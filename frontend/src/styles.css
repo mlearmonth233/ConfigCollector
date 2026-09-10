@@ -178,6 +178,17 @@ a {
   color: var(--danger);
 }
 
+.badge {
+  display: inline-block;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .error-banner {
   background: #fef2f2;
   border: 1px solid #fecaca;
