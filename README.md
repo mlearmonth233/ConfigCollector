@@ -83,10 +83,32 @@ won't run as-is in PowerShell. Use the bundled scripts instead, which handle
 venv creation, dependency install, and the Windows-specific syntax for you:
 
 ```powershell
-.\backend\run-backend.ps1    # sets up + starts the backend
+.\backend\run-backend.ps1    # sets up + starts the backend (real async mode)
+.\backend\run-worker.ps1     # sets up + starts the Celery worker, in another window
 .\frontend\run-frontend.ps1  # sets up + starts the frontend, in another window
-# or, from the repo root, start both at once (each in its own window):
+# or, from the repo root, start all three at once (each in its own window):
 .\run-dev.ps1
+```
+
+By default these run in real async mode: the backend hands collection jobs
+off to the Celery worker instead of running them in-process, so `POST
+/api/jobs` returns immediately even for a multi-device job, and progress
+shows up via the job status bar as devices are collected. This needs Redis
+reachable at `redis://localhost:6379/0` (the default `REDIS_URL`). On
+Windows without Docker, the easiest way to get that is
+[Memurai](https://www.memurai.com/) - a free, native Redis-compatible
+Windows service that listens on that same default port, so no other
+configuration is needed. Install it, make sure the service is running, then
+start `run-backend.ps1` (or `run-dev.ps1`) as usual - it checks Redis is
+reachable up front and fails fast with a clear message if it isn't.
+
+If you don't want to install Memurai, pass `-Eager` to run in the old
+synchronous mode instead (no Redis or worker needed, but "Start collection"
+blocks until every device in the job finishes):
+
+```powershell
+.\backend\run-backend.ps1 -Eager
+.\run-dev.ps1 -Eager
 ```
 
 `run-frontend.ps1` automatically opens Chrome to http://localhost:5173 once
