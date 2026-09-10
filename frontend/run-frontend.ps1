@@ -23,5 +23,28 @@ if (-not (Test-Path ".env.local")) {
     "VITE_API_BASE_URL=http://localhost:8000" | Out-File -Encoding utf8 .env.local
 }
 
-Write-Host "Starting frontend at http://localhost:5173..."
+$url = "http://localhost:5173"
+
+# Opens Chrome automatically once the dev server actually responds, without
+# blocking `npm run dev` below (which stays in the foreground so Ctrl+C
+# still stops it normally). Runs in a background job, not a new window;
+# gives up quietly after ~30s if the server never comes up. Falls back to
+# whatever the system's default browser is if Chrome isn't installed/found.
+Start-Job -ScriptBlock {
+    param($url)
+    for ($i = 0; $i -lt 60; $i++) {
+        try {
+            $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1
+            if ($resp.StatusCode -eq 200) { break }
+        } catch {}
+        Start-Sleep -Milliseconds 500
+    }
+    try {
+        Start-Process "chrome" $url -ErrorAction Stop
+    } catch {
+        Start-Process $url
+    }
+} -ArgumentList $url | Out-Null
+
+Write-Host "Starting frontend at $url (Chrome will open automatically once it's ready)..."
 npm run dev

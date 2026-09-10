@@ -89,6 +89,10 @@ venv creation, dependency install, and the Windows-specific syntax for you:
 .\run-dev.ps1
 ```
 
+`run-frontend.ps1` automatically opens Chrome to http://localhost:5173 once
+the dev server is actually ready (falling back to your system's default
+browser if Chrome isn't installed) - no need to open it by hand.
+
 If PowerShell blocks the scripts from running, allow local scripts once
 (per user, doesn't need admin):
 ```powershell
