@@ -195,6 +195,17 @@ def collect_device_config(
                 # command from one that's already finished, so it's only
                 # used here, not for drivers with real prompt detection.
                 use_timing_read = spec.netmiko_driver == "generic_termserver"
+                # Cisco WLCs (both AireOS and Catalyst 9800) are known to be
+                # slow/chatty enough echoing a command back that Netmiko's
+                # cmd_verify step - which waits up to a hardcoded 10s (not
+                # configurable via read_timeout) for the command's own text
+                # to reappear before it even starts looking for output - can
+                # time out with "Pattern not detected: '<command>' in
+                # output" even though the device is working fine and would
+                # have answered within the real read_timeout below. Disabling
+                # cmd_verify skips straight to waiting for the prompt itself,
+                # which is what actually matters.
+                verify_command_echo = spec.category != "wlc"
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
@@ -205,7 +216,7 @@ def collect_device_config(
                     if use_timing_read:
                         output = conn.send_command_timing(command, last_read=2, read_timeout=300)
                     else:
-                        output = conn.send_command(command, read_timeout=300)
+                        output = conn.send_command(command, read_timeout=300, cmd_verify=verify_command_echo)
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)

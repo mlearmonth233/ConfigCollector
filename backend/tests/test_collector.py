@@ -218,6 +218,7 @@ class _FakeConnection:
     def __init__(self):
         self.pattern_based_calls: list[str] = []
         self.timing_based_calls: list[str] = []
+        self.cmd_verify_values: list[bool] = []
 
     def __enter__(self):
         return self
@@ -225,8 +226,9 @@ class _FakeConnection:
     def __exit__(self, *exc_info):
         return False
 
-    def send_command(self, command, read_timeout=None):
+    def send_command(self, command, read_timeout=None, cmd_verify=True):
         self.pattern_based_calls.append(command)
+        self.cmd_verify_values.append(cmd_verify)
         return f"pattern-output:{command}"
 
     def send_command_timing(self, command, last_read=None, read_timeout=None):
@@ -283,3 +285,53 @@ def test_network_os_devices_still_use_pattern_based_read(monkeypatch):
     assert fake.pattern_based_calls == ["show version"]
     assert fake.timing_based_calls == []
     assert "pattern-output:show version" in output
+    assert fake.cmd_verify_values == [True]
+
+
+@pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
+def test_wlc_devices_skip_command_echo_verification(monkeypatch, device_type):
+    # Both WLC generations are slow/chatty enough echoing a command back
+    # that Netmiko's cmd_verify step - a hardcoded 10s wait, unaffected by
+    # our own read_timeout=300 - can time out with "Pattern not detected"
+    # even though the device would have answered fine. cmd_verify=False
+    # skips straight to waiting for the real prompt instead.
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    collect_device_config(
+        host="10.0.0.7",
+        port=22,
+        device_type=device_type,
+        username="admin",
+        password="cisco123",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["sh cdp nei"],
+    )
+
+    assert fake.cmd_verify_values == [False]
+
+
+def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_command_echo_verification(monkeypatch):
+    # cisco_xe (plain IOS-XE switch/router) uses the exact same Netmiko
+    # driver as the Catalyst 9800 WLC type, but isn't itself a WLC - the
+    # cmd_verify skip must key off the device *type*'s category, not the
+    # underlying driver name, or a perfectly well-behaved switch would lose
+    # this safety check too.
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    collect_device_config(
+        host="10.0.0.8",
+        port=22,
+        device_type="cisco_xe",
+        username="admin",
+        password="cisco123",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["show running-config"],
+    )
+
+    assert fake.cmd_verify_values == [True]
