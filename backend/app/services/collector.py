@@ -195,17 +195,33 @@ def collect_device_config(
                 # command from one that's already finished, so it's only
                 # used here, not for drivers with real prompt detection.
                 use_timing_read = spec.netmiko_driver == "generic_termserver"
-                # Cisco WLCs (both AireOS and Catalyst 9800) are known to be
-                # slow/chatty enough echoing a command back that Netmiko's
-                # cmd_verify step - which waits up to a hardcoded 10s (not
-                # configurable via read_timeout) for the command's own text
-                # to reappear before it even starts looking for output - can
-                # time out with "Pattern not detected: '<command>' in
-                # output" even though the device is working fine and would
-                # have answered within the real read_timeout below. Disabling
-                # cmd_verify skips straight to waiting for the prompt itself,
-                # which is what actually matters.
-                verify_command_echo = spec.category != "wlc"
+                # Cisco WLCs (both AireOS and Catalyst 9800) are slow/chatty
+                # enough that two different bits of Netmiko's per-command
+                # "figure out what to wait for" logic misfire on them:
+                #
+                # 1. cmd_verify (on by default) waits up to a hardcoded 10s
+                #    (not configurable via read_timeout) for the command's
+                #    own text to echo back before it even starts looking for
+                #    real output - can time out with "Pattern not detected:
+                #    '<command>' in output" even though the device is
+                #    working fine and would have answered in time.
+                #
+                # 2. auto_find_prompt (also on by default) re-probes the
+                #    device's prompt fresh before *every* command by sending
+                #    a bare newline and reading whatever comes back. If the
+                #    previous command's (often large, tabular) output hasn't
+                #    fully finished draining yet, that probe can instead grab
+                #    a trailing fragment of it - e.g. one row of a "show
+                #    interface summary" table - and use *that* as the
+                #    pattern to wait for on the *next* command, which of
+                #    course never reappears, failing the same way.
+                #
+                # Both are disabled here: cmd_verify entirely (nothing to
+                # skip straight to but waiting for the real prompt), and
+                # auto_find_prompt in favor of the stable prompt Netmiko
+                # already captured once, correctly, via session_preparation()
+                # when the connection was first established.
+                is_wlc = spec.category == "wlc"
                 outputs = []
                 for command in commands:
                     outputs.append(f"! ---- {command} ----")
@@ -216,7 +232,9 @@ def collect_device_config(
                     if use_timing_read:
                         output = conn.send_command_timing(command, last_read=2, read_timeout=300)
                     else:
-                        output = conn.send_command(command, read_timeout=300, cmd_verify=verify_command_echo)
+                        output = conn.send_command(
+                            command, read_timeout=300, cmd_verify=not is_wlc, auto_find_prompt=not is_wlc
+                        )
                     outputs.append(output)
                     _emit(output + "\n")
                 return "\n".join(outputs)

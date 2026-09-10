@@ -229,6 +229,7 @@ class _FakeConnection:
         self.pattern_based_calls: list[str] = []
         self.timing_based_calls: list[str] = []
         self.cmd_verify_values: list[bool] = []
+        self.auto_find_prompt_values: list[bool] = []
 
     def __enter__(self):
         return self
@@ -236,9 +237,10 @@ class _FakeConnection:
     def __exit__(self, *exc_info):
         return False
 
-    def send_command(self, command, read_timeout=None, cmd_verify=True):
+    def send_command(self, command, read_timeout=None, cmd_verify=True, auto_find_prompt=True):
         self.pattern_based_calls.append(command)
         self.cmd_verify_values.append(cmd_verify)
+        self.auto_find_prompt_values.append(auto_find_prompt)
         return f"pattern-output:{command}"
 
     def send_command_timing(self, command, last_read=None, read_timeout=None):
@@ -296,6 +298,7 @@ def test_network_os_devices_still_use_pattern_based_read(monkeypatch):
     assert fake.timing_based_calls == []
     assert "pattern-output:show version" in output
     assert fake.cmd_verify_values == [True]
+    assert fake.auto_find_prompt_values == [True]
 
 
 @pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
@@ -313,12 +316,21 @@ def test_wlc_default_commands_do_not_redundantly_disable_paging(device_type):
 
 
 @pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
-def test_wlc_devices_skip_command_echo_verification(monkeypatch, device_type):
-    # Both WLC generations are slow/chatty enough echoing a command back
-    # that Netmiko's cmd_verify step - a hardcoded 10s wait, unaffected by
-    # our own read_timeout=300 - can time out with "Pattern not detected"
-    # even though the device would have answered fine. cmd_verify=False
-    # skips straight to waiting for the real prompt instead.
+def test_wlc_devices_skip_command_echo_verification_and_prompt_reprobing(monkeypatch, device_type):
+    # Both WLC generations are slow/chatty enough that two different bits
+    # of Netmiko's per-command auto-detection misfire on them:
+    # - cmd_verify (a hardcoded 10s wait, unaffected by our own
+    #   read_timeout=300) can time out with "Pattern not detected" waiting
+    #   for the command's own echo, even though the device would have
+    #   answered fine.
+    # - auto_find_prompt re-probes the prompt fresh before every command by
+    #   reading whatever comes back right then - if the previous (often
+    #   large, tabular) command's output hasn't fully drained yet, it can
+    #   grab a trailing fragment of that instead and use it as the pattern
+    #   to wait for on the *next* command, which of course never reappears.
+    # Both are disabled for exactly this category, relying instead on the
+    # stable prompt Netmiko already captured once, correctly, at connect
+    # time.
     fake = _FakeConnection()
     monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
 
@@ -331,20 +343,22 @@ def test_wlc_devices_skip_command_echo_verification(monkeypatch, device_type):
         secret=None,
         custom_commands=None,
         auth_timeout=5,
-        commands_override=["sh cdp nei"],
+        commands_override=["show cdp neighbors"],
     )
 
     assert fake.cmd_verify_values == [False]
+    assert fake.auto_find_prompt_values == [False]
 
 
-def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_command_echo_verification(monkeypatch):
+def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_normal_prompt_handling(monkeypatch):
     # A plain IOS-XE switch/router uses the exact same Netmiko driver
     # ("cisco_xe") as the Catalyst 9800 WLC type, but isn't itself a WLC -
-    # the cmd_verify skip must key off the device *type*'s category, not
-    # the underlying driver name, or a perfectly well-behaved switch would
-    # lose this safety check too. No such switch type is in the registry
-    # right now (this org's environment is Cisco IOS + APC only), so one is
-    # inserted temporarily just to prove the category-based keying.
+    # the cmd_verify/auto_find_prompt skip must key off the device *type*'s
+    # category, not the underlying driver name, or a perfectly well-behaved
+    # switch would lose these safety checks too. No such switch type is in
+    # the registry right now (this org's environment is Cisco IOS + APC
+    # only), so one is inserted temporarily just to prove the category-
+    # based keying.
     monkeypatch.setitem(
         DEVICE_TYPE_REGISTRY,
         "test_cisco_xe_switch",
@@ -366,3 +380,4 @@ def test_non_wlc_switch_on_shared_cisco_xe_driver_keeps_command_echo_verificatio
     )
 
     assert fake.cmd_verify_values == [True]
+    assert fake.auto_find_prompt_values == [True]
