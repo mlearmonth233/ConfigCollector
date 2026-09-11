@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { apiClient, extractErrorMessage } from "../api/client";
@@ -190,6 +190,19 @@ export function JobDetail() {
     };
   }, [jobId]);
 
+  // Completed devices sink to the bottom so the ones still in progress (or
+  // that need attention, like a failure) stay visible at the top without
+  // scrolling past everything that's already done. Stable within each group.
+  const sortedItems = useMemo(() => {
+    if (!job) return [];
+    const pending: typeof job.items = [];
+    const done: typeof job.items = [];
+    for (const item of job.items) {
+      (item.status === "completed" ? done : pending).push(item);
+    }
+    return [...pending, ...done];
+  }, [job]);
+
   if (error) return <div className="page error-banner">{error}</div>;
   if (!job) return <div className="page">Loading…</div>;
 
@@ -317,7 +330,7 @@ export function JobDetail() {
           </tr>
         </thead>
         <tbody>
-          {job.items.map((item) => (
+          {sortedItems.map((item) => (
             <Fragment key={item.id}>
               <tr>
                 <td>{item.device_name}</td>
