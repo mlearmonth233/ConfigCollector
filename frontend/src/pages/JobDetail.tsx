@@ -150,6 +150,7 @@ export function JobDetail() {
   // fires once, so a console the viewer collapses afterward stays
   // collapsed on the next poll instead of snapping back open.
   const hasAutoExpanded = useRef(false);
+  const wasActive = useRef(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -161,11 +162,19 @@ export function JobDetail() {
         const { data } = await jobsApi.get(jobId!);
         if (cancelled) return;
         setJob(data);
-        if (!hasAutoExpanded.current && ACTIVE_STATUSES.has(data.status)) {
+        const isActive = ACTIVE_STATUSES.has(data.status);
+        if (!hasAutoExpanded.current && isActive) {
           hasAutoExpanded.current = true;
           expandAllConsoles(data.items);
         }
-        if (!ACTIVE_STATUSES.has(data.status) && interval) {
+        // Auto-collapse the consoles once a job that was running finishes -
+        // they were only opened to watch it live, and there's no need to
+        // keep the output on screen once it's done.
+        if (wasActive.current && !isActive) {
+          setExpandedConsoles(new Set());
+        }
+        wasActive.current = isActive;
+        if (!isActive && interval) {
           clearInterval(interval);
         }
       } catch (err) {
