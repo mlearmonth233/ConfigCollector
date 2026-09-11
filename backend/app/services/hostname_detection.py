@@ -20,6 +20,7 @@ DEVICE_ROLES: dict[str, str] = {
     "pdu": "Power distribution unit",
     "console_server": "Console server",
     "firewall": "Firewall",
+    "router": "Router",
 }
 
 # These tokens don't overlap with one another, so match order doesn't
@@ -33,6 +34,7 @@ _ROLE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("PDU", "pdu"),
     ("CON", "console_server"),
     ("FWL", "firewall"),
+    ("RTR", "router"),
 )
 
 _ZONE_PATTERNS: tuple[tuple[str, NetworkZone], ...] = (
@@ -60,6 +62,9 @@ _ROLE_TO_DEVICE_TYPE: dict[str, str] = {
     # non-Fortinet firewall ever shows up, the device type is still just a
     # suggestion and can be changed on the "Add device" form like any other.
     "firewall": "fortinet",
+    # Same reasoning as "firewall" above - this org's routers are expected
+    # to be Dell-hosted Versa Networks SD-WAN appliances.
+    "router": "versa",
 }
 
 

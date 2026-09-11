@@ -155,20 +155,40 @@ _APC_PDU_COMMANDS: tuple[str, ...] = (
     "olStatus all",
 )
 
+# Versa Networks SD-WAN routers (VOS - Versa Operating System), typically
+# deployed on Dell-branded appliances. Netmiko has no dedicated driver for
+# these, and Versa's Junos-inspired CLI hasn't been verified against this
+# app's pattern-based reads, so "generic_termserver" is used the same way
+# as apc_pdu above - no vendor-specific paging-disable command is sent
+# (unlike Cisco's "term len 0"), since no Versa equivalent could be
+# confirmed and guessing wrong risks producing more harm (a hung read
+# waiting on a paginated prompt) than leaving it out. Confirm/adjust these
+# against a real device before relying on them.
+_VERSA_COMMANDS: tuple[str, ...] = (
+    "show configuration",
+    "show configuration | details | display set",
+    "show system status",
+    "show system detail",
+    "show interfaces detail",
+)
+
 
 # Trimmed down to exactly what this org actually runs: Cisco switches, both
-# WLC generations, FortiGate firewalls, and APC PDUs. Previously also had
-# cisco_xe, hp_procurve, juniper_junos, arista_eos, linux, pdu_generic,
-# console_server, opengear, paloalto_panos, cisco_asa, and juniper_srx -
-# removed since nothing in this org's environment used them, simplifying the
-# Commands page and the "Add device" type dropdown down to real choices. Add
-# a type back here (mapping to a Netmiko driver name) if a device from one
-# of those vendors shows up.
+# WLC generations, FortiGate firewalls, APC PDUs, and Versa SD-WAN routers.
+# Previously also had cisco_xe, hp_procurve, juniper_junos, arista_eos,
+# linux, pdu_generic, console_server, opengear, paloalto_panos, cisco_asa,
+# and juniper_srx - removed since nothing in this org's environment used
+# them, simplifying the Commands page and the "Add device" type dropdown
+# down to real choices. Add a type back here (mapping to a Netmiko driver
+# name) if a device from one of those vendors shows up.
 DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec("Cisco IOS Switch/Router", "switch", "cisco_ios", _CISCO_IOS_COMMANDS),
     "cisco_nxos": DeviceTypeSpec(
         "Cisco Nexus (NX-OS)", "switch", "cisco_nxos", ("show running-config",)
+    ),
+    "versa": DeviceTypeSpec(
+        "Versa SD-WAN Router (VOS)", "router", "generic_termserver", _VERSA_COMMANDS, secret_supported=False
     ),
     # --- Wireless LAN controllers ---
     "cisco_wlc": DeviceTypeSpec(

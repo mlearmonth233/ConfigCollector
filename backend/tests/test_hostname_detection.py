@@ -20,6 +20,7 @@ def test_detect_device_role_matches_each_code():
     assert detect_device_role("GBGYSP01PDU001") == "pdu"
     assert detect_device_role("GBGYSP01CON001") == "console_server"
     assert detect_device_role("GBGYSP01FWL001") == "firewall"
+    assert detect_device_role("GBGYSP01RTR001") == "router"
 
 
 def test_detect_device_role_case_insensitive():
@@ -40,6 +41,7 @@ def test_device_type_for_role_omits_wlc_and_console_server():
     assert device_type_for_role("access_switch") == "cisco_ios"
     assert device_type_for_role("pdu") == "apc_pdu"
     assert device_type_for_role("firewall") == "fortinet"
+    assert device_type_for_role("router") == "versa"
     # Deliberately ambiguous - hostname alone can't tell AireOS from
     # Catalyst 9800, so this always requires an explicit choice.
     assert device_type_for_role("wlc") is None
@@ -110,6 +112,20 @@ async def test_create_device_auto_fills_type_role_zone_from_name(client: AsyncCl
     assert body["device_type"] == "cisco_ios"
     assert body["device_role"] == "access_switch"
     assert body["network_zone"] == "it"
+
+
+@pytest.mark.asyncio
+async def test_create_device_auto_fills_router_type_from_name(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/devices",
+        headers=_auth(token),
+        json={"name": "GBGYSP01RTR001", "host": "10.0.0.1"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["device_type"] == "versa"
+    assert body["device_role"] == "router"
 
 
 @pytest.mark.asyncio
