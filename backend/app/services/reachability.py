@@ -1,5 +1,6 @@
 import asyncio
 import platform
+import subprocess
 from dataclasses import dataclass
 
 # Pings alone are an unreliable signal - plenty of real, reachable devices sit
@@ -21,19 +22,36 @@ class ReachabilityResult:
     resolved_ip: str | None
 
 
+def _run_ping(args: list[str]) -> bool:
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_PING_TIMEOUT_SECONDS + 2,
+        )
+        return result.returncode == 0
+    except Exception:  # noqa: BLE001
+        # Deliberately broad: ping is a best-effort diagnostic, so anything
+        # that stops it from running (the binary missing, a timeout, a
+        # permissions issue) is reported as "didn't respond" rather than
+        # crashing the whole reachability check.
+        return False
+
+
 async def _ping(host: str) -> bool:
     if platform.system() == "Windows":
         args = ["ping", "-n", "1", "-w", str(int(_PING_TIMEOUT_SECONDS * 1000)), host]
     else:
         args = ["ping", "-c", "1", "-W", str(int(_PING_TIMEOUT_SECONDS)), host]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
-        )
-        returncode = await asyncio.wait_for(proc.wait(), timeout=_PING_TIMEOUT_SECONDS + 2)
-        return returncode == 0
-    except (FileNotFoundError, OSError, asyncio.TimeoutError):
-        return False
+    # A plain blocking subprocess.run() in a worker thread, not
+    # asyncio.create_subprocess_exec() - the latter needs the event loop's
+    # own subprocess transport, which a SelectorEventLoop doesn't provide on
+    # Windows (raises NotImplementedError) - and that's exactly the loop
+    # uvicorn's --reload supervisor forces on Windows so its file-watcher IPC
+    # works. Running the subprocess from a thread instead sidesteps the
+    # event loop entirely, so this works the same regardless of loop type.
+    return await asyncio.to_thread(_run_ping, args)
 
 
 async def _resolve_dns(host: str) -> tuple[bool, str | None]:
@@ -41,7 +59,7 @@ async def _resolve_dns(host: str) -> tuple[bool, str | None]:
         loop = asyncio.get_running_loop()
         infos = await loop.getaddrinfo(host, None)
         return True, (infos[0][4][0] if infos else None)
-    except OSError:
+    except Exception:  # noqa: BLE001 - same "never crash the batch" reasoning as _ping above
         return False, None
 
 
