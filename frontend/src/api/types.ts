@@ -116,6 +116,11 @@ export interface NeighborGapCheck {
   missing: NeighborGap[];
 }
 
+export interface DeviceClearResult {
+  deleted: number;
+  skipped: number;
+}
+
 export interface DeviceReachability {
   device_id: string;
   host: string;

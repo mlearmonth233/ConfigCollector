@@ -68,3 +68,10 @@ class DeviceReachabilityOut(BaseModel):
     ping_ok: bool
     dns_ok: bool
     resolved_ip: str | None
+
+
+class DeviceClearResult(BaseModel):
+    deleted: int
+    # Devices left alone because a collection job is currently in progress
+    # against them - same guard as the single-device delete endpoint.
+    skipped: int

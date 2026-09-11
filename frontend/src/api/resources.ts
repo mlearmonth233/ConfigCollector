@@ -4,6 +4,7 @@ import type {
   Credential,
   CurrentUser,
   Device,
+  DeviceClearResult,
   DeviceDetection,
   DeviceImportResult,
   DeviceReachability,
@@ -80,6 +81,7 @@ export const devicesApi = {
   listSnapshots: (deviceId: string) =>
     apiClient.get<SnapshotSummary[]>(`/api/devices/${deviceId}/snapshots`),
   checkReachability: () => apiClient.get<DeviceReachability[]>("/api/devices/reachability"),
+  clearAll: () => apiClient.delete<DeviceClearResult>("/api/devices"),
 };
 
 export interface JobCreatePayload {

@@ -15,6 +15,7 @@ from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.schemas.device import (
+    DeviceClearResult,
     DeviceCreate,
     DeviceDetectionOut,
     DeviceImportResult,
@@ -64,6 +65,46 @@ async def list_devices(
 ) -> list[Device]:
     result = await db.scalars(select(Device).where(Device.org_id == user.org_id))
     return list(result)
+
+
+@router.delete("", response_model=DeviceClearResult)
+async def clear_all_devices(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DeviceClearResult:
+    """Bulk 'wipe the device list': deletes every device in the org except
+    one currently mid-collection (same guard as delete_device, applied
+    across the board rather than erroring the whole request over one busy
+    device). Like a single delete, this only removes the device itself -
+    its past job items/snapshots outlive it as orphaned history (device_id
+    nulled out), exactly as delete_device already does."""
+    devices = list(await db.scalars(select(Device).where(Device.org_id == user.org_id)))
+    if not devices:
+        return DeviceClearResult(deleted=0, skipped=0)
+
+    device_ids = [d.id for d in devices]
+    active_device_ids = set(
+        await db.scalars(
+            select(CollectionJobItem.device_id)
+            .where(CollectionJobItem.device_id.in_(device_ids), CollectionJobItem.status.in_(ACTIVE_JOB_STATUSES))
+            .distinct()
+        )
+    )
+    to_delete = [d for d in devices if d.id not in active_device_ids]
+    to_delete_ids = [d.id for d in to_delete]
+
+    if to_delete_ids:
+        await db.execute(
+            update(CollectionJobItem).where(CollectionJobItem.device_id.in_(to_delete_ids)).values(device_id=None)
+        )
+        await db.execute(
+            update(ConfigSnapshot).where(ConfigSnapshot.device_id.in_(to_delete_ids)).values(device_id=None)
+        )
+        for device in to_delete:
+            await db.delete(device)
+        await db.commit()
+
+    return DeviceClearResult(deleted=len(to_delete), skipped=len(active_device_ids))
 
 
 @router.get("/import-template")

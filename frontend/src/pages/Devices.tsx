@@ -48,6 +48,8 @@ export function Devices() {
   const [reachability, setReachability] = useState<Map<string, DeviceReachability>>(new Map());
   const [checkingReachability, setCheckingReachability] = useState(false);
   const [reachabilityError, setReachabilityError] = useState<string | null>(null);
+  const [clearingAll, setClearingAll] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -294,6 +296,35 @@ export function Devices() {
     }
   }
 
+  async function handleClearAll() {
+    if (
+      !confirm(
+        "Delete every device in this org? A device with a collection job in progress is left alone - " +
+          "everything else's job history and collected configs are kept (just no longer linked to a " +
+          "device), but the devices themselves are gone for good."
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setClearNotice(null);
+    setClearingAll(true);
+    try {
+      const { data } = await devicesApi.clearAll();
+      await refresh();
+      setSelected(new Set());
+      setReachability(new Map());
+      setClearNotice(
+        `Deleted ${data.deleted} device(s).` +
+          (data.skipped > 0 ? ` ${data.skipped} left alone (collection in progress).` : "")
+      );
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setClearingAll(false);
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-header-row">
@@ -312,11 +343,19 @@ export function Devices() {
           <button className="link-button" onClick={handleCheckReachability} disabled={checkingReachability}>
             {checkingReachability ? "Checking…" : "Check reachability"}
           </button>
+          <button
+            className="link-button danger"
+            onClick={handleClearAll}
+            disabled={clearingAll || devices.length === 0}
+          >
+            {clearingAll ? "Clearing…" : "Clear all devices"}
+          </button>
           <button onClick={toggleAddForm}>{showAddForm ? "Cancel" : "Add device"}</button>
         </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {clearNotice && <div className="info-banner">{clearNotice}</div>}
       {reachabilityError && <div className="error-banner">{reachabilityError}</div>}
       {reachability.size > 0 && (
         <p className="page-subtitle" style={{ marginTop: 0 }}>
