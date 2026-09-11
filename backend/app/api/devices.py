@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 from uuid import UUID
@@ -13,9 +14,17 @@ from app.models.device import Device, NetworkZone
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
-from app.schemas.device import DeviceCreate, DeviceDetectionOut, DeviceImportResult, DeviceOut, DeviceUpdate
+from app.schemas.device import (
+    DeviceCreate,
+    DeviceDetectionOut,
+    DeviceImportResult,
+    DeviceOut,
+    DeviceReachabilityOut,
+    DeviceUpdate,
+)
 from app.services.device_types import DEVICE_TYPE_REGISTRY
 from app.services.hostname_detection import DEVICE_ROLES, detect, device_type_for_role
+from app.services.reachability import check_reachability
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -88,6 +97,27 @@ async def detect_device(
         network_zone=result.network_zone,
         suggested_device_type=result.suggested_device_type,
     )
+
+
+@router.get("/reachability", response_model=list[DeviceReachabilityOut])
+async def check_devices_reachability(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[DeviceReachabilityOut]:
+    """Pings every device in the org and looks up its hostname in DNS, purely
+    to surface a visual heads-up - neither check is treated as proof a
+    device is actually offline (a firewall commonly drops ICMP for a device
+    that's perfectly reachable over SSH, and a name can be missing from DNS
+    for a device that's still reachable some other way), so this never marks
+    anything "offline", only reports what each check saw."""
+    devices = list(await db.scalars(select(Device).where(Device.org_id == user.org_id)))
+    results = await asyncio.gather(*(check_reachability(d.host) for d in devices))
+    return [
+        DeviceReachabilityOut(
+            device_id=d.id, host=d.host, ping_ok=r.ping_ok, dns_ok=r.dns_ok, resolved_ip=r.resolved_ip
+        )
+        for d, r in zip(devices, results)
+    ]
 
 
 @router.post("", response_model=DeviceOut, status_code=status.HTTP_201_CREATED)

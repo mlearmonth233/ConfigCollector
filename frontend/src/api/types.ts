@@ -116,6 +116,14 @@ export interface NeighborGapCheck {
   missing: NeighborGap[];
 }
 
+export interface DeviceReachability {
+  device_id: string;
+  host: string;
+  ping_ok: boolean;
+  dns_ok: boolean;
+  resolved_ip: string | null;
+}
+
 export interface Snapshot {
   id: string;
   device_id: string | null;

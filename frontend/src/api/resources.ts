@@ -6,6 +6,7 @@ import type {
   Device,
   DeviceDetection,
   DeviceImportResult,
+  DeviceReachability,
   DeviceRole,
   DeviceType,
   Job,
@@ -78,6 +79,7 @@ export const devicesApi = {
     apiClient.get("/api/devices/import-template", { responseType: "blob" }),
   listSnapshots: (deviceId: string) =>
     apiClient.get<SnapshotSummary[]>(`/api/devices/${deviceId}/snapshots`),
+  checkReachability: () => apiClient.get<DeviceReachability[]>("/api/devices/reachability"),
 };
 
 export interface JobCreatePayload {

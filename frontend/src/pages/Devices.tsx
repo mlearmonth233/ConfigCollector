@@ -9,6 +9,7 @@ import type {
   Device,
   DeviceDetection,
   DeviceImportResult,
+  DeviceReachability,
   DeviceRole,
   DeviceType,
   NetworkZone,
@@ -44,6 +45,9 @@ export function Devices() {
   const [historyTarget, setHistoryTarget] = useState<Device | null>(null);
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [reachability, setReachability] = useState<Map<string, DeviceReachability>>(new Map());
+  const [checkingReachability, setCheckingReachability] = useState(false);
+  const [reachabilityError, setReachabilityError] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -277,6 +281,19 @@ export function Devices() {
     setShowAddForm((v) => !v);
   }
 
+  async function handleCheckReachability() {
+    setReachabilityError(null);
+    setCheckingReachability(true);
+    try {
+      const { data } = await devicesApi.checkReachability();
+      setReachability(new Map(data.map((r) => [r.device_id, r])));
+    } catch (err) {
+      setReachabilityError(extractErrorMessage(err));
+    } finally {
+      setCheckingReachability(false);
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-header-row">
@@ -292,11 +309,22 @@ export function Devices() {
           <button className="button-like" onClick={() => setShowBulkAdd(true)}>
             Bulk add from hostnames
           </button>
+          <button className="link-button" onClick={handleCheckReachability} disabled={checkingReachability}>
+            {checkingReachability ? "Checking…" : "Check reachability"}
+          </button>
           <button onClick={toggleAddForm}>{showAddForm ? "Cancel" : "Add device"}</button>
         </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {reachabilityError && <div className="error-banner">{reachabilityError}</div>}
+      {reachability.size > 0 && (
+        <p className="page-subtitle" style={{ marginTop: 0 }}>
+          Ping and DNS are best-effort checks, not proof a flagged device is actually offline - a
+          firewall commonly blocks ICMP for a device that's perfectly reachable over SSH, and a
+          name can be missing from DNS for a device that's still reachable some other way.
+        </p>
+      )}
       {importResult && (
         <div className="info-banner">
           Imported {importResult.created} device(s).
@@ -451,7 +479,22 @@ export function Devices() {
                   />
                 </td>
                 <td>{d.name}</td>
-                <td>{d.host}</td>
+                <td>
+                  {d.host}
+                  {reachability.get(d.id)?.ping_ok === false && (
+                    <span
+                      className="status-badge status-fallback"
+                      style={{ marginLeft: 8 }}
+                      title={
+                        "No ping response" +
+                        (reachability.get(d.id)?.dns_ok === false ? " and the hostname didn't resolve in DNS" : "") +
+                        " - this doesn't necessarily mean the device is offline."
+                      }
+                    >
+                      not responding
+                    </span>
+                  )}
+                </td>
                 <td>{d.port}</td>
                 <td>{deviceTypeMap.get(d.device_type)?.label ?? d.device_type}</td>
                 <td>{d.device_role ? (deviceRoleMap.get(d.device_role)?.label ?? d.device_role) : "—"}</td>

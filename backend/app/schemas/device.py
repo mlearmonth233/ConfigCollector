@@ -60,3 +60,11 @@ class DeviceDetectionOut(BaseModel):
     device_role_label: str | None
     network_zone: NetworkZone | None
     suggested_device_type: str | None
+
+
+class DeviceReachabilityOut(BaseModel):
+    device_id: UUID
+    host: str
+    ping_ok: bool
+    dns_ok: bool
+    resolved_ip: str | None
