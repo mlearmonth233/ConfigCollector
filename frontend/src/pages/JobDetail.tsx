@@ -8,6 +8,7 @@ import type { Credential, Device, DeviceType, JobDetail as JobDetailType, Neighb
 import { DownloadOptions } from "../components/DownloadOptions";
 import { JobStatusSummary } from "../components/JobStatusSummary";
 import { LiveConsole } from "../components/LiveConsole";
+import { RetryDeviceModal } from "../components/RetryDeviceModal";
 import { SnapshotModal } from "../components/SnapshotModal";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { StatusBadge } from "../components/StatusBadge";
@@ -33,6 +34,7 @@ export function JobDetail() {
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [retryTarget, setRetryTarget] = useState<Device[] | null>(null);
+  const [retryEditTarget, setRetryEditTarget] = useState<Device | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -71,7 +73,13 @@ export function JobDetail() {
       setRetryError("That device no longer exists, so it can't be retried.");
       return;
     }
-    setRetryTarget([device]);
+    setRetryEditTarget(device);
+  }
+
+  function handleRetryDeviceSaved(updated: Device) {
+    setDevices((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+    setRetryEditTarget(null);
+    setRetryTarget([updated]);
   }
 
   async function handleCancel() {
@@ -381,6 +389,15 @@ export function JobDetail() {
 
       {openSnapshotId && (
         <SnapshotModal snapshotId={openSnapshotId} onClose={() => setOpenSnapshotId(null)} />
+      )}
+
+      {retryEditTarget && (
+        <RetryDeviceModal
+          device={retryEditTarget}
+          credentials={credentials}
+          onClose={() => setRetryEditTarget(null)}
+          onSaved={handleRetryDeviceSaved}
+        />
       )}
 
       {retryTarget && (
