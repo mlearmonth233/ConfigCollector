@@ -145,6 +145,33 @@ Open the repo root as the workspace. `.vscode/launch.json` provides:
 one-time `Backend: Create venv` / `Install deps` setup tasks) if you'd
 rather not use the debugger.
 
+## Installing as a desktop app (Mac / Windows / Linux)
+
+The frontend is a installable PWA (Progressive Web App) - once it's built
+and served (over HTTPS in production, or plain HTTP on `localhost` for
+local dev/testing), Chrome or Edge can install it as a standalone desktop
+app with its own window, dock/taskbar icon, and app-switcher entry,
+separate from a regular browser tab:
+
+1. Open the deployed site (or `http://localhost:5173` in dev) in Chrome or
+   Edge.
+2. Click the install icon in the address bar (or *Settings/⋮ menu → Install
+   ConfigCollector...*).
+3. It opens in its own window from then on, and gets a normal Start Menu /
+   Applications / Dock entry like any other installed app.
+
+This is still the same hosted, multi-tenant app underneath - installing it
+doesn't bundle a local backend or work offline against your devices, it
+just gives users a proper app window instead of a browser tab pinned to a
+URL. The app shell (HTML/JS/CSS) is precached by a service worker for a
+fast, offline-tolerant launch, but API calls (devices, jobs, credentials,
+schedules, ...) always go straight to the live backend, never a stale
+cache.
+
+Safari doesn't support installable PWAs on macOS the same way Chrome/Edge
+do - Mac users on Safari should use Chrome or Edge for the install option
+(a plain Safari tab still works fine for the app itself).
+
 ## Adding devices
 
 Devices can be added one at a time from the UI, or bulk-imported via CSV
