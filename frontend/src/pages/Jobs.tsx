@@ -3,9 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { credentialsApi, devicesApi, deviceTypesApi, jobsApi } from "../api/resources";
-import type { Credential, Device, DeviceType, Job } from "../api/types";
+import type { Credential, Device, DeviceType, Job, JobStatus } from "../api/types";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { StatusBadge } from "../components/StatusBadge";
+
+const ACTIVE_STATUSES = new Set<JobStatus>(["pending", "running"]);
+// Polled fast while something's actually in flight, since that's when the
+// list is worth watching closely; backed off the rest of the time to avoid
+// hitting the API every 5s all day for a list that isn't changing - but
+// never stopped outright, since a schedule can kick off a new job at any
+// time while this page is just sitting open.
+const ACTIVE_POLL_MS = 5000;
+const IDLE_POLL_MS = 20000;
 
 export function Jobs() {
   const navigate = useNavigate();
@@ -24,23 +33,28 @@ export function Jobs() {
 
   useEffect(() => {
     let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
     async function loadJobs() {
       try {
         const { data } = await jobsApi.list();
-        if (!cancelled) setJobs(data);
+        if (cancelled) return;
+        setJobs(data);
+        const hasActive = data.some((j) => ACTIVE_STATUSES.has(j.status));
+        timeout = setTimeout(loadJobs, hasActive ? ACTIVE_POLL_MS : IDLE_POLL_MS);
       } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (cancelled) return;
+        setError(extractErrorMessage(err));
+        timeout = setTimeout(loadJobs, IDLE_POLL_MS);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
     void loadJobs();
-    const interval = setInterval(loadJobs, 5000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
     };
   }, []);
 

@@ -19,7 +19,7 @@ class NetworkZone(str, enum.Enum):
 class Device(Base_):
     __tablename__ = "devices"
 
-    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False)
+    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     credential_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("credentials.id"), nullable=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)

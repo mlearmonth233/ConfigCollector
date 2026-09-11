@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +35,7 @@ async def create_user(
     new_user = User(
         org_id=admin.org_id,
         email=payload.email,
-        hashed_password=hash_password(payload.password),
+        hashed_password=await asyncio.to_thread(hash_password, payload.password),
         role=payload.role,
     )
     db.add(new_user)

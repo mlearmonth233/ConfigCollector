@@ -40,7 +40,7 @@ class CollectionJob(Base_):
 
     __tablename__ = "collection_jobs"
 
-    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False)
+    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     created_by_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -66,12 +66,12 @@ class CollectionJobItem(Base_):
 
     __tablename__ = "collection_job_items"
 
-    job_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("collection_jobs.id"), nullable=False)
+    job_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("collection_jobs.id"), nullable=False, index=True)
     # Nullable so a device can be deleted without dragging its job history
     # down with it - see devices.py's delete_device, which nulls this out
     # (rather than deleting the item) for exactly that reason.
     device_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True
     )
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

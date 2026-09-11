@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import type { JobItem, JobStatus } from "../api/types";
 
 const STATUS_ORDER: JobStatus[] = [
@@ -22,12 +24,20 @@ const STATUS_LABELS: Record<JobStatus, string> = {
  * failed - proportional to the item count, colored the same as each
  * device row's own StatusBadge. */
 export function JobStatusSummary({ items }: { items: JobItem[] }) {
-  if (items.length === 0) return null;
+  // One pass building a count per status, rather than one filter() pass per
+  // entry in STATUS_ORDER - this reruns on every poll tick while a job is
+  // active, so it's worth not scanning the item list six times over.
+  const counts = useMemo(() => {
+    const byStatus = new Map<JobStatus, number>();
+    for (const item of items) {
+      byStatus.set(item.status, (byStatus.get(item.status) ?? 0) + 1);
+    }
+    return STATUS_ORDER.map((status) => ({ status, count: byStatus.get(status) ?? 0 })).filter(
+      ({ count }) => count > 0
+    );
+  }, [items]);
 
-  const counts = STATUS_ORDER.map((status) => ({
-    status,
-    count: items.filter((i) => i.status === status).length,
-  })).filter(({ count }) => count > 0);
+  if (items.length === 0) return null;
 
   return (
     <div className="job-status-summary">

@@ -285,16 +285,21 @@ def _finalize_job_if_done(db, job_id) -> None:
     if job is None:
         return
 
-    items = db.query(CollectionJobItem).filter(CollectionJobItem.job_id == job.id).all()
-    if any(i.status in ACTIVE_JOB_STATUSES for i in items):
+    # Just the status column - this runs once per device finishing, so for
+    # an N-device job it would otherwise pull N full item rows (including
+    # each device's live_output transcript, which can run to tens of KB) N
+    # times, an O(n^2) cost in bytes transferred that only gets worse as
+    # job size grows.
+    statuses = [s for (s,) in db.query(CollectionJobItem.status).filter(CollectionJobItem.job_id == job.id).all()]
+    if any(s in ACTIVE_JOB_STATUSES for s in statuses):
         return
 
     # CANCELLED takes priority over FAILED: it's the most relevant top-level
     # fact once the user has stepped in, even if another device happened to
     # fail on its own before/after the cancel request.
-    if any(i.status == JobStatus.CANCELLED for i in items):
+    if any(s == JobStatus.CANCELLED for s in statuses):
         job.status = JobStatus.CANCELLED
-    elif any(i.status == JobStatus.FAILED for i in items):
+    elif any(s == JobStatus.FAILED for s in statuses):
         job.status = JobStatus.FAILED
     else:
         job.status = JobStatus.COMPLETED

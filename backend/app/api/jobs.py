@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,13 +31,37 @@ async def list_jobs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[JobOut]:
-    result = await db.scalars(
-        select(CollectionJob)
-        .where(CollectionJob.org_id == user.org_id)
-        .options(selectinload(CollectionJob.items))
-        .order_by(CollectionJob.created_at.desc())
+    # A plain count, not a full selectinload of every item - the list view
+    # only ever needs item_count, and eager-loading the items themselves
+    # would pull every device's full live_output transcript along with them
+    # just to throw it away and report a number.
+    jobs = list(
+        await db.scalars(
+            select(CollectionJob)
+            .where(CollectionJob.org_id == user.org_id)
+            .order_by(CollectionJob.created_at.desc())
+        )
     )
-    return [_to_job_out(job) for job in result]
+    counts = dict(
+        (
+            await db.execute(
+                select(CollectionJobItem.job_id, func.count())
+                .where(CollectionJobItem.job_id.in_([job.id for job in jobs]))
+                .group_by(CollectionJobItem.job_id)
+            )
+        ).all()
+    )
+    return [
+        JobOut(
+            id=job.id,
+            status=job.status,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+            item_count=counts.get(job.id, 0),
+        )
+        for job in jobs
+    ]
 
 
 @router.delete("", response_model=JobClearResult)

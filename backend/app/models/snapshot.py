@@ -17,7 +17,7 @@ class ConfigSnapshot(Base_):
     # devices.py's delete_device, which nulls this out rather than deleting
     # the snapshot when its device is deleted.
     device_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True
     )
     job_item_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("collection_job_items.id"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

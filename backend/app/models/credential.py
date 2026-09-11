@@ -32,7 +32,7 @@ class Credential(Base_):
 
     __tablename__ = "credentials"
 
-    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False)
+    org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     # The credential used for any device that doesn't have its own
     # credential_id set - i.e. nearly all of them, since devices no longer
     # need one picked per-device. Exactly one credential per org should
