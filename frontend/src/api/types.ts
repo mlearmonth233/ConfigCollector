@@ -104,6 +104,18 @@ export interface JobDetail extends Job {
   items: JobItem[];
 }
 
+export interface NeighborGap {
+  name: string;
+  ip: string | null;
+  protocols: string[];
+  seen_from: string[];
+}
+
+export interface NeighborGapCheck {
+  checked_item_count: number;
+  missing: NeighborGap[];
+}
+
 export interface Snapshot {
   id: string;
   device_id: string | null;

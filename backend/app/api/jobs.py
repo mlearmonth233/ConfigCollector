@@ -17,9 +17,10 @@ from app.models.device import Device
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.schedule import Schedule
 from app.models.user import User
-from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut
+from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut, NeighborGapCheckOut, NeighborGapOut
 from app.services.device_types import parse_command_list, resolve_commands
 from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
+from app.services.neighbor_discovery import extract_neighbors, has_neighbor_command, normalize_device_name
 from app.tasks import collect_device_task
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -296,6 +297,64 @@ async def get_job(
     db: AsyncSession = Depends(get_db),
 ) -> JobDetailOut:
     return await fetch_job_detail(db, job_id, user.org_id)
+
+
+@router.get("/{job_id}/neighbor-gaps", response_model=NeighborGapCheckOut)
+async def check_neighbor_gaps(
+    job_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NeighborGapCheckOut:
+    """Best-effort "did we miss any devices?" check: parses each collected
+    device's CDP/LLDP neighbor table (only the "detail"-style commands -
+    see services/neighbor_discovery.py) and flags any neighbor whose name
+    doesn't match an existing device in this org, wherever it was
+    discovered from. This is a discovery aid, not an authoritative
+    inventory - a name mismatch (abbreviated vs. FQDN, a typo) can produce
+    a false positive, and a device type with no "detail"-style neighbor
+    command in its command list won't surface anything here at all."""
+    job = await _get_owned_job(db, job_id, user.org_id)
+
+    known_names = {
+        normalize_device_name(name)
+        for name in await db.scalars(select(Device.name).where(Device.org_id == user.org_id))
+    }
+
+    checked_item_count = 0
+    # Keyed by normalized name so the same neighbor reported by more than
+    # one source device (or by both CDP and LLDP) collapses into one entry.
+    missing: dict[str, NeighborGapOut] = {}
+    for item in job.items:
+        if item.snapshot is None:
+            continue
+        content = item.snapshot.content
+        if has_neighbor_command(content):
+            checked_item_count += 1
+        source_name = item.device.name if item.device else "deleted-device"
+        for neighbor in extract_neighbors(content):
+            normalized = normalize_device_name(neighbor.name)
+            if normalized in known_names:
+                continue
+            existing = missing.get(normalized)
+            if existing is None:
+                missing[normalized] = NeighborGapOut(
+                    name=neighbor.name,
+                    ip=neighbor.ip,
+                    protocols=[neighbor.protocol],
+                    seen_from=[source_name],
+                )
+            else:
+                if neighbor.protocol not in existing.protocols:
+                    existing.protocols.append(neighbor.protocol)
+                if source_name not in existing.seen_from:
+                    existing.seen_from.append(source_name)
+                if existing.ip is None and neighbor.ip is not None:
+                    existing.ip = neighbor.ip
+
+    return NeighborGapCheckOut(
+        checked_item_count=checked_item_count,
+        missing=sorted(missing.values(), key=lambda n: n.name.lower()),
+    )
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -53,3 +53,23 @@ class JobDetailOut(JobOut):
 
 class JobClearResult(BaseModel):
     deleted: int
+
+
+class NeighborGapOut(BaseModel):
+    # Exactly as reported by CDP/LLDP (may be an FQDN) - not normalized,
+    # so it's still recognizable as the name to go add.
+    name: str
+    ip: str | None
+    protocols: list[str]  # "cdp" and/or "lldp", whichever reported it
+    # Names (not ids - a source device may since have been deleted) of
+    # this job's devices that saw this neighbor.
+    seen_from: list[str]
+
+
+class NeighborGapCheckOut(BaseModel):
+    # How many of the job's completed items had a "detail"-style CDP/LLDP
+    # command actually run (not just how many devices exist in the job) -
+    # 0 here means the check found nothing to look at, not that every
+    # neighbor is accounted for.
+    checked_item_count: int
+    missing: list[NeighborGapOut]

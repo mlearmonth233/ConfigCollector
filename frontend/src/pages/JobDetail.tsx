@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiClient, extractErrorMessage } from "../api/client";
 import { saveBlobResponse } from "../api/download";
 import { credentialsApi, devicesApi, deviceTypesApi, jobsApi } from "../api/resources";
-import type { Credential, Device, DeviceType, JobDetail as JobDetailType } from "../api/types";
+import type { Credential, Device, DeviceType, JobDetail as JobDetailType, NeighborGapCheck } from "../api/types";
 import { DownloadOptions } from "../components/DownloadOptions";
 import { JobStatusSummary } from "../components/JobStatusSummary";
 import { LiveConsole } from "../components/LiveConsole";
@@ -36,6 +36,9 @@ export function JobDetail() {
   const [retryError, setRetryError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [neighborCheck, setNeighborCheck] = useState<NeighborGapCheck | null>(null);
+  const [checkingNeighbors, setCheckingNeighbors] = useState(false);
+  const [neighborError, setNeighborError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +114,20 @@ export function JobDetail() {
       setDownloadError(extractErrorMessage(err));
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleCheckNeighbors() {
+    if (!jobId) return;
+    setNeighborError(null);
+    setCheckingNeighbors(true);
+    try {
+      const { data } = await jobsApi.checkNeighborGaps(jobId);
+      setNeighborCheck(data);
+    } catch (err) {
+      setNeighborError(extractErrorMessage(err));
+    } finally {
+      setCheckingNeighbors(false);
     }
   }
 
@@ -215,6 +232,62 @@ export function JobDetail() {
           <button onClick={handleDownloadAll} disabled={downloading}>
             {downloading ? "Preparing…" : "Download all"}
           </button>
+        </div>
+      )}
+
+      {job.items.some((i) => i.snapshot_id) && (
+        <div className="page-header-row" style={{ marginBottom: 16 }}>
+          <p className="page-subtitle" style={{ margin: 0 }}>
+            Cross-check CDP/LLDP neighbors these devices reported against your device inventory.
+          </p>
+          <button onClick={handleCheckNeighbors} disabled={checkingNeighbors}>
+            {checkingNeighbors ? "Checking…" : "Check for untracked neighbors"}
+          </button>
+        </div>
+      )}
+
+      {neighborError && <div className="error-banner">{neighborError}</div>}
+
+      {neighborCheck && (
+        <div className="card-form" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Untracked neighbors</h3>
+          {neighborCheck.checked_item_count === 0 ? (
+            <p className="page-subtitle" style={{ marginTop: 0 }}>
+              None of this job's devices ran a CDP/LLDP "detail" command, so there's nothing to check.
+            </p>
+          ) : neighborCheck.missing.length === 0 ? (
+            <p className="page-subtitle" style={{ marginTop: 0 }}>
+              No untracked neighbors found across {neighborCheck.checked_item_count} device
+              {neighborCheck.checked_item_count === 1 ? "" : "s"} checked.
+            </p>
+          ) : (
+            <>
+              <p className="field-hint" style={{ marginTop: 0 }}>
+                Seen on the wire via CDP/LLDP but not in your device inventory - names are best-effort
+                (an abbreviated or differently-formatted name can look "missing" when it isn't).
+              </p>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>IP</th>
+                    <th>Protocol</th>
+                    <th>Seen from</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {neighborCheck.missing.map((n) => (
+                    <tr key={n.name}>
+                      <td>{n.name}</td>
+                      <td>{n.ip ?? "—"}</td>
+                      <td>{n.protocols.join(", ")}</td>
+                      <td>{n.seen_from.join(", ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
       )}
 

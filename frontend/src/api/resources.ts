@@ -11,6 +11,7 @@ import type {
   Job,
   JobDetail,
   MfaMode,
+  NeighborGapCheck,
   OrganizationSettings,
   Schedule,
   ScheduleFrequency,
@@ -97,6 +98,7 @@ export const jobsApi = {
   cancel: (id: string) => apiClient.post<JobDetail>(`/api/jobs/${id}/cancel`),
   remove: (id: string) => apiClient.delete(`/api/jobs/${id}`),
   clearFinished: () => apiClient.delete<{ deleted: number }>("/api/jobs"),
+  checkNeighborGaps: (id: string) => apiClient.get<NeighborGapCheck>(`/api/jobs/${id}/neighbor-gaps`),
 };
 
 export const snapshotsApi = {
