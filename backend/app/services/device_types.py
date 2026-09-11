@@ -28,8 +28,8 @@ class DeviceTypeSpec:
 # versa - this is a deliberately broad "gather everything" set.
 _CISCO_IOS_COMMANDS: tuple[str, ...] = (
     "term len 0",
+    "sh clock",
     "show ver",
-    "show interface mgmt0",
     "show run",
     "show cdp neighbor",
     "show cdp neighbor detail",
@@ -44,8 +44,6 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
     "show int",
     "show mac address",
     "show mac-address",
-    "sh spanning-tree",
-    "sh spanning-tree blockedports",
     "show ip arp",
     "show ip route summ",
     "show ip route 0.0.0.0",
@@ -67,11 +65,17 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
     "show module",
     "show power",
     "show environment all",
+    "sh ip igmp snooping mrouter",
     "show version | i uptime",
     "sho power inline",
     "sh environment temperature status",
     "sh lldp nei",
     "sh lldp nei detail",
+    "sh ip igmp snooping groups",
+    "sh ip igmp snooping querier",
+    "sh ptp parent",
+    "sh ptp clock",
+    "sh ptp port",
 )
 
 # Shared between both WLC generations (AireOS and Catalyst 9800) - most of
