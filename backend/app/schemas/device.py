@@ -50,11 +50,6 @@ class DeviceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class DeviceImportResult(BaseModel):
-    created: int
-    errors: list[str]
-
-
 class DeviceDetectionOut(BaseModel):
     device_role: str | None
     device_role_label: str | None

@@ -3,8 +3,8 @@
 A multi-tenant SaaS tool for bulk-collecting device configurations. Drop in a
 list of network devices — Cisco switches, WLCs, firewalls, PDUs, console
 servers, and more — assign credentials, and pull their running
-configuration over SSH in one click (or via CSV bulk import for hundreds of
-devices at once).
+configuration over SSH in one click (or paste in a list of hostnames to add
+hundreds of devices at once).
 
 ## Architecture
 
@@ -174,35 +174,26 @@ do - Mac users on Safari should use Chrome or Edge for the install option
 
 ## Adding devices
 
-Devices can be added one at a time from the UI, or bulk-imported via CSV
-(`Devices → Import CSV`). **Download CSV template** next to it gets you a
-ready-to-edit starting file with the exact columns expected and a few
-example rows (`GET /api/devices/import-template` for scripted access):
-
-```csv
-name,host,port,device_type,site,credential_name,custom_commands,device_role,network_zone
-core-sw1,10.0.0.1,22,cisco_ios,DC1,labcred,,,
-wlc-1,10.0.0.2,22,cisco_wlc,DC1,labcred,,,
-pdu-1,10.0.0.4,22,apc_pdu,DC1,labcred,,,
-GBGYSP01SWA001,10.0.0.5,22,,,labcred,,,
-```
+Devices can be added one at a time from the UI, or in bulk by pasting a
+list of hostnames (`Devices → Bulk add from hostnames`) - one per line (or
+comma-separated). Each name gets auto-detected the same way the single
+"Add device" form does (device type/role/network zone from the name, see
+below), landed in a review table sorted by role code and then numerically
+(routers, then firewalls, then switches by tier, then WLCs, then PDUs/
+console servers - see `frontend/src/utils/deviceNameSort.ts`), so you can
+adjust anything before saving all of them at once.
 
 **Duplicate**, on any device's row, opens the "Add device" form pre-filled
-with that device's fields - handy for a batch that's identical except for
-a sequence number (a trailing number in the name, e.g. `SWA001`, is bumped
-to `SWA002` automatically; every other field, including host, copies over
-verbatim for you to adjust before saving).
+with that device's fields - handy for adding one more that's identical
+except for a sequence number (a trailing number in the name, e.g.
+`SWA001`, is bumped to `SWA002` automatically; every other field,
+including host, copies over verbatim for you to adjust before saving).
 
-- `credential_name` looks up an existing credential set by name within your
-  org; leave blank to add the device without one.
-- `custom_commands` (comma-separated) overrides the default "show config"
-  command(s) for that device type — required for any device type with no
-  built-in default (vendor CLIs vary too much to guess a universal command).
-- `device_type`, `device_role`, and `network_zone` are all optional - see
-  "Auto-detecting device type/role/zone from the name" below. An explicit
-  value in any of these columns always wins over a detected one; the last
-  example row above (`GBGYSP01SWA001`) leaves all three blank and relies
-  entirely on detection.
+**Clear all devices** deletes every device in the org in one action (a
+confirmation dialog, since it's irreversible) - a device with a collection
+job currently in progress is left alone rather than blocking the whole
+request; everything else's job history and collected configs are kept as
+orphaned history, only the device records themselves are removed.
 
 See `GET /api/device-types` (or the "Device type" dropdown in the UI) for
 the full supported list. This is intentionally trimmed down to what this
@@ -213,9 +204,9 @@ to a Netmiko driver name if a new one shows up.
 
 ### Auto-detecting device type/role/zone from the name
 
-Both the "Add device" form and CSV import can infer a device's type, role,
-and network zone from its **name**, based on a short-code naming
-convention (e.g. `GBGYSP01SWA001`):
+Both the "Add device" form and the bulk-add review table can infer a
+device's type, role, and network zone from its **name**, based on a
+short-code naming convention (e.g. `GBGYSP01SWA001`):
 
 | Code in name | Role                 | Device type (when unambiguous) |
 | ------------ | -------------------- | ------------------------------- |
@@ -230,16 +221,16 @@ convention (e.g. `GBGYSP01SWA001`):
 `P0`/`O0` in the name similarly suggest the **network zone**, IT or OT.
 
 This is always just a starting guess, shown live as you type a name in the
-"Add device" form (and applied per-row on CSV import) - every field it
-fills in stays fully editable, and picking something yourself before
-saving always wins. A WLC is deliberately **never** guessed all the way to
-a device type: the naming convention can't tell an older AireOS controller
-from a Catalyst 9800 apart, so that choice is always left to you (both the
-form and CSV import will ask for it explicitly rather than assume). A
-`CON` name doesn't reach a device type either, but for a different reason -
-there's currently no console-server device type in the registry at all to
-suggest. The same goes for any name with no recognizable code in it at
-all - a device type must be specified by hand.
+"Add device" form (and applied per-row in the bulk-add review table) -
+every field it fills in stays fully editable, and picking something
+yourself before saving always wins. A WLC is deliberately **never**
+guessed all the way to a device type: the naming convention can't tell an
+older AireOS controller from a Catalyst 9800 apart, so that choice is
+always left to you (both the form and bulk-add will ask for it explicitly
+rather than assume). A `CON` name doesn't reach a device type either, but
+for a different reason - there's currently no console-server device type
+in the registry at all to suggest. The same goes for any name with no
+recognizable code in it at all - a device type must be specified by hand.
 
 `GET /api/devices/detect?name=...` exposes the same detection for scripted
 use, and `GET /api/device-roles` lists the full set of roles.

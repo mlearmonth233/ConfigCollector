@@ -3,6 +3,7 @@ import { useState } from "react";
 import { extractErrorMessage } from "../api/client";
 import { devicesApi } from "../api/resources";
 import type { DeviceImportResult, DeviceRole, DeviceType, NetworkZone } from "../api/types";
+import { sortByDeviceName } from "../utils/deviceNameSort";
 
 interface BulkRow {
   key: string;
@@ -22,32 +23,6 @@ interface Props {
   onDone: (result: DeviceImportResult) => void;
 }
 
-// Site naming convention's role code, embedded as a substring in the
-// hostname (e.g. "GBGYSP01SWA001") - same codes app.services.hostname_detection
-// looks for, plus RTR (routers, which that detector doesn't model yet).
-// Order here is the review order the bulk-add table sorts pasted hostnames
-// into, not the detector's own match order.
-const ROLE_SORT_ORDER = ["FWL", "RTR", "SWC", "SWD", "WLC", "SWS", "SWA", "CON", "PDU"];
-
-function roleSortRank(name: string): number {
-  const upper = name.toUpperCase();
-  const rank = ROLE_SORT_ORDER.findIndex((code) => upper.includes(code));
-  return rank === -1 ? ROLE_SORT_ORDER.length : rank;
-}
-
-function trailingNumber(name: string): number {
-  const match = /(\d+)$/.exec(name);
-  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
-}
-
-/** Groups pasted hostnames by role code in ROLE_SORT_ORDER (a name with no
- * recognized code sorts after all of them), then numerically ascending by
- * each name's trailing number within a group - e.g. RTR01, RTR02, then
- * SWC01, SWC02, ... */
-function sortHostnames(names: string[]): string[] {
-  return [...names].sort((a, b) => roleSortRank(a) - roleSortRank(b) || trailingNumber(a) - trailingNumber(b));
-}
-
 /** Paste a dump of hostnames -> one row per name, each auto-detected the
  * same way the single "Add device" form does (device type/role/network
  * zone from the name) -> reviewed/adjusted in an editable table -> saved
@@ -62,7 +37,7 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
 
   async function handleParse() {
     setError(null);
-    const names = sortHostnames(
+    const names = sortByDeviceName(
       Array.from(
         new Set(
           text
@@ -70,7 +45,8 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
             .map((s) => s.trim())
             .filter(Boolean)
         )
-      )
+      ),
+      (name) => name
     );
     if (names.length === 0) {
       setError("Paste at least one hostname first.");

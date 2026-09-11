@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
-import { saveBlobResponse } from "../api/download";
 import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi } from "../api/resources";
 import type {
   Credential,
@@ -17,6 +16,7 @@ import type {
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
 import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
 import { StartCollectionModal } from "../components/StartCollectionModal";
+import { sortByDeviceName } from "../utils/deviceNameSort";
 
 const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
 
@@ -74,6 +74,12 @@ export function Devices() {
 
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const deviceRoleMap = useMemo(() => new Map(deviceRoles.map((r) => [r.key, r])), [deviceRoles]);
+  // The backend returns devices in whatever order the database happens to
+  // store them in (insertion order, roughly) - sorted here by the same
+  // role-code + trailing-number convention as the bulk-add review table, so
+  // the list reads sensibly regardless of how or in what order devices were
+  // actually added.
+  const sortedDevices = useMemo(() => sortByDeviceName(devices, (d) => d.name), [devices]);
 
   async function refresh() {
     setLoading(true);
@@ -248,32 +254,6 @@ export function Devices() {
     }
   }
 
-  async function handleDownloadTemplate() {
-    setError(null);
-    try {
-      const response = await devicesApi.downloadImportTemplate();
-      saveBlobResponse(response, "device_import_template.csv");
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
-  }
-
-  async function handleImport(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    setImportResult(null);
-    try {
-      const { data } = await devicesApi.importCsv(file);
-      setImportResult(data);
-      await refresh();
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      e.target.value = "";
-    }
-  }
-
   function handleOpenCollect(targetDevices: Device[]) {
     setCollectionTarget(targetDevices);
   }
@@ -330,13 +310,6 @@ export function Devices() {
       <div className="page-header-row">
         <h1>Devices</h1>
         <div className="page-actions">
-          <button className="link-button" onClick={handleDownloadTemplate}>
-            Download CSV template
-          </button>
-          <label className="button-like">
-            Import CSV
-            <input type="file" accept=".csv" onChange={handleImport} hidden />
-          </label>
           <button className="button-like" onClick={() => setShowBulkAdd(true)}>
             Bulk add from hostnames
           </button>
@@ -508,7 +481,7 @@ export function Devices() {
             </tr>
           </thead>
           <tbody>
-            {devices.map((d) => (
+            {sortedDevices.map((d) => (
               <tr key={d.id}>
                 <td>
                   <input
