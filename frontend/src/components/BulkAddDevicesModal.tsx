@@ -27,7 +27,7 @@ interface Props {
 // looks for, plus RTR (routers, which that detector doesn't model yet).
 // Order here is the review order the bulk-add table sorts pasted hostnames
 // into, not the detector's own match order.
-const ROLE_SORT_ORDER = ["RTR", "SWC", "SWD", "WLC", "SWS", "SWA", "CON", "PDU"];
+const ROLE_SORT_ORDER = ["FWL", "RTR", "SWC", "SWD", "WLC", "SWS", "SWA", "CON", "PDU"];
 
 function roleSortRank(name: string): number {
   const upper = name.toUpperCase();
