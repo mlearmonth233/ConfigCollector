@@ -103,7 +103,10 @@ export function JobDetail() {
         responseType: "blob",
         params: { ext: prefs.extension, include_timestamp: prefs.includeTimestamp },
       });
-      saveBlobResponse(response, `job-${jobId.slice(0, 8)}-configs.zip`);
+      // Backstop only - the server's Content-Disposition header (the
+      // collection date, yyyymmdd) is what actually names the saved file.
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      saveBlobResponse(response, `${today}.zip`);
     } catch (err) {
       setDownloadError(extractErrorMessage(err));
     } finally {

@@ -19,7 +19,7 @@ from app.models.schedule import Schedule
 from app.models.user import User
 from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut
 from app.services.device_types import parse_command_list, resolve_commands
-from app.services.filenames import build_snapshot_filename
+from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 from app.tasks import collect_device_task
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -334,27 +334,29 @@ async def download_job_configs(
         )
 
     buffer = io.BytesIO()
-    used_filenames: dict[str, int] = {}
+    used_paths: dict[str, int] = {}
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in completed_items:
             device_name = item.device.name if item.device else "deleted-device"
+            device_type = item.device.device_type if item.device else None
             filename = build_snapshot_filename(
                 device_name,
                 collected_at=item.snapshot.collected_at,
                 ext=ext,
                 include_timestamp=include_timestamp,
             )
-            if filename in used_filenames:
+            path = f"{folder_for_device_type(device_type)}/{filename}"
+            if path in used_paths:
                 # Two devices sharing a sanitized name (or a re-run with no
                 # timestamp) would otherwise silently clobber one entry.
-                used_filenames[filename] += 1
-                stem, _, suffix = filename.rpartition(".")
-                filename = f"{stem}_{used_filenames[filename]}.{suffix}"
+                used_paths[path] += 1
+                stem, _, suffix = path.rpartition(".")
+                path = f"{stem}_{used_paths[path]}.{suffix}"
             else:
-                used_filenames[filename] = 0
-            zf.writestr(filename, item.snapshot.content)
+                used_paths[path] = 0
+            zf.writestr(path, item.snapshot.content)
 
-    zip_filename = f"job-{str(job.id)[:8]}-configs.zip"
+    zip_filename = build_zip_filename(dated_at=job.finished_at or job.created_at)
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",

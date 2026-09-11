@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from app.database import async_session_factory
 from app.models.job import CollectionJob, CollectionJobItem, JobStatus
 from app.models.snapshot import ConfigSnapshot
-from app.services.filenames import build_snapshot_filename
+from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 
 
 def test_build_filename_defaults_to_hostname_txt_no_timestamp():
@@ -33,6 +33,25 @@ def test_build_filename_sanitizes_unsafe_characters():
 def test_build_filename_falls_back_when_hostname_is_all_unsafe():
     collected_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
     assert build_snapshot_filename("///", collected_at=collected_at, ext="txt", include_timestamp=False) == "device.txt"
+
+
+def test_folder_for_device_type_pdus_get_their_own_folder():
+    assert folder_for_device_type("apc_pdu") == "PDUs"
+
+
+@pytest.mark.parametrize("device_type", ["cisco_ios", "cisco_nxos", "cisco_wlc", "cisco_wlc_9800", "fortinet"])
+def test_folder_for_device_type_everything_else_is_switches(device_type):
+    assert folder_for_device_type(device_type) == "Switches"
+
+
+def test_folder_for_device_type_falls_back_to_switches_for_deleted_or_unknown():
+    assert folder_for_device_type(None) == "Switches"
+    assert folder_for_device_type("not_a_real_type") == "Switches"
+
+
+def test_build_zip_filename_is_the_date_in_yyyymmdd_format():
+    dated_at = datetime(2026, 9, 11, 23, 59, 59, tzinfo=timezone.utc)
+    assert build_zip_filename(dated_at=dated_at) == "20260911.zip"
 
 
 async def _register(client: AsyncClient, email: str) -> str:
