@@ -211,7 +211,7 @@ export function JobDetail() {
       <p>
         <Link to="/jobs">← Back to jobs</Link>
       </p>
-      <div className="page-header-row">
+      <div className="page-header-row sticky-header">
         <h1>Job {job.id.slice(0, 8)}</h1>
         <div className="page-actions">
           <StatusBadge status={job.status} />

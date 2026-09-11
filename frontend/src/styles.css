@@ -142,6 +142,16 @@ a {
   margin-bottom: 16px;
 }
 
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  padding: 12px 0;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
 .page-actions {
   display: flex;
   gap: 8px;
