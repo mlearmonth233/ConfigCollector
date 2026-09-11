@@ -78,20 +78,18 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
     "sh ptp port",
 )
 
-# Shared between both WLC generations (AireOS and Catalyst 9800) - most of
-# these "show" commands behave the same on either platform.
-#
-# Deliberately doesn't include a paging-disable command: Netmiko's own
-# driver already disables paging automatically during connection setup for
-# both generations (cisco_wlc runs "config paging disable" itself in
-# session_preparation(), cisco_xe runs "terminal length 0") - sending
-# "config paging disable" again here as a first "real" command doesn't just
-# duplicate that, on AireOS it actively confused Netmiko's prompt detection
-# for the command right after it (the device's second response to the same
-# command isn't shaped like its first, so the auto-detected prompt for the
-# next send_command() call keyed off it instead of the actual CLI prompt),
-# breaking that command with "Pattern not detected" errors.
-_CISCO_WLC_COMMANDS: tuple[str, ...] = (
+# AireOS WLC (cisco_wlc driver). Deliberately doesn't include a
+# paging-disable command: Netmiko's own driver already disables paging
+# automatically during connection setup (cisco_wlc runs "config paging
+# disable" itself in session_preparation()) - sending it again here as a
+# first "real" command doesn't just duplicate that, it actively confused
+# Netmiko's prompt detection for the command right after it (the device's
+# second response to the same command isn't shaped like its first, so the
+# auto-detected prompt for the next send_command() call keyed off it
+# instead of the actual CLI prompt), breaking that command with "Pattern
+# not detected" errors back when this used pattern-based reads - see
+# collector.py's use_timing_read.
+_CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
     "show ap stats ethernet summary",
     "show cdp neighbors",
     "show lldp neighbors",
@@ -103,6 +101,25 @@ _CISCO_WLC_COMMANDS: tuple[str, ...] = (
     "show redundancy summary",
     "show interface detailed management",
     "show run-config",
+    "show wlan summary",
+    "show interface summary",
+    "show client summary",
+)
+
+# Catalyst 9800 WLC (cisco_xe driver, IOS-XE). Distinct AP-inventory-style
+# commands from AireOS above - the "term len 0" here is redundant with the
+# cisco_xe driver's own paging disable during session_preparation(), but
+# unlike AireOS this doesn't risk the prompt-detection issue described
+# above since WLCs already use timing-based reads (collector.py's
+# use_timing_read), not pattern-based ones.
+_CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
+    "term len 0",
+    "sh ap config general | i MAC Address|IP Address|AP Model|IOS Version|AP Serial Number|Cisco AP Name",
+    "show inventory",
+    "show vers",
+    "sh cdp nei",
+    "sh cdp nei detail",
+    "show ap ethernet statistics",
     "show wlan summary",
     "show interface summary",
     "show client summary",
@@ -155,10 +172,10 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     ),
     # --- Wireless LAN controllers ---
     "cisco_wlc": DeviceTypeSpec(
-        "Cisco AireOS WLC", "wlc", "cisco_wlc", _CISCO_WLC_COMMANDS, secret_supported=False
+        "Cisco AireOS WLC", "wlc", "cisco_wlc", _CISCO_AIREOS_WLC_COMMANDS, secret_supported=False
     ),
     "cisco_wlc_9800": DeviceTypeSpec(
-        "Cisco Catalyst 9800 WLC (IOS-XE)", "wlc", "cisco_xe", _CISCO_WLC_COMMANDS
+        "Cisco Catalyst 9800 WLC (IOS-XE)", "wlc", "cisco_xe", _CISCO_WLC_9800_COMMANDS
     ),
     # --- Firewalls ---
     "fortinet": DeviceTypeSpec(

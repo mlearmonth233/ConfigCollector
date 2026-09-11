@@ -372,18 +372,29 @@ def test_network_os_devices_still_use_pattern_based_read(monkeypatch):
     assert fake.auto_find_prompt_values == [True]
 
 
-@pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
-def test_wlc_default_commands_do_not_redundantly_disable_paging(device_type):
-    # Netmiko's own driver already disables paging automatically while
-    # connecting, for both WLC generations (cisco_wlc runs "config paging
-    # disable" itself; cisco_xe runs "terminal length 0") - sending "config
-    # paging disable" again as a first "real" command doesn't just
-    # duplicate that, it actively broke AireOS's prompt detection for
-    # whatever command came right after it.
-    commands = " ".join(DEVICE_TYPE_REGISTRY[device_type].default_commands).lower()
+def test_aireos_wlc_default_commands_do_not_redundantly_disable_paging():
+    # Netmiko's cisco_wlc driver already disables paging automatically
+    # while connecting (it runs "config paging disable" itself in
+    # session_preparation()) - sending it again as a first "real" command
+    # doesn't just duplicate that, it actively broke AireOS's prompt
+    # detection for whatever command came right after it (back when this
+    # used pattern-based reads).
+    commands = " ".join(DEVICE_TYPE_REGISTRY["cisco_wlc"].default_commands).lower()
     assert "paging" not in commands
     assert "terminal length" not in commands
     assert "term len" not in commands
+
+
+def test_9800_wlc_default_commands_do_not_include_config_paging_disable():
+    # The 9800 (cisco_xe driver) already disables paging itself too
+    # ("terminal length 0" during session_preparation()), but unlike
+    # AireOS this doesn't risk the prompt-detection issue above since WLCs
+    # use timing-based reads (not pattern-based) - so its own default
+    # commands intentionally lead with "term len 0" regardless. Only the
+    # AireOS-specific "config paging disable" form would be a real
+    # duplicate-and-risky mistake here.
+    commands = " ".join(DEVICE_TYPE_REGISTRY["cisco_wlc_9800"].default_commands).lower()
+    assert "paging" not in commands
 
 
 @pytest.mark.parametrize("device_type", ["cisco_wlc", "cisco_wlc_9800"])
