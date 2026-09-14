@@ -307,7 +307,13 @@ here.
 **Setup**: set `SCP_SERVER_PUBLIC_HOST` in `.env` to an address your managed
 devices can actually reach the `scp-server` container/process on (not
 `localhost`, not a compose-internal hostname) — pushes fail fast with a
-clear error until this is set. `docker compose up` starts `scp-server`
+clear error until this is set. Prefer a private/management-network address
+(e.g. `10.x.x.x` / `192.168.x.x`) your devices already reach directly over a
+public internet address — a public address means firmware images transit
+the open internet and `SCP_SERVER_PORT` has to be deliberately exposed,
+meaningfully more exposure than an internal network; if you do need one
+(e.g. NAT/port-forwarding to a remote site), restrict that port to only the
+source IPs that need it. `docker compose up` starts `scp-server`
 alongside the rest of the stack, listening on `SCP_SERVER_PORT` (default
 `2222`). Uploaded images live under `FIRMWARE_STORAGE_PATH` (default
 `./firmware_storage`, one subfolder per org); the server's SSH host key is
