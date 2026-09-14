@@ -9,6 +9,7 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
+  DnsCheckResult,
   FirmwareImage,
   FirmwareJob,
   FirmwareJobDetail,
@@ -178,4 +179,8 @@ export const organizationApi = {
   get: () => apiClient.get<OrganizationSettings>("/api/organization"),
   update: (data: { snapshot_retention_days?: number; clear_retention?: boolean }) =>
     apiClient.patch<OrganizationSettings>("/api/organization", data),
+};
+
+export const dnsCheckerApi = {
+  check: (input: string) => apiClient.post<DnsCheckResult[]>("/api/dns-checker", { input }),
 };

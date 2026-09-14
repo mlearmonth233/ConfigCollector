@@ -69,3 +69,33 @@ async def check_reachability(host: str) -> ReachabilityResult:
     ping_ok = await _ping(host)
     dns_ok, resolved_ip = await _resolve_dns(host)
     return ReachabilityResult(host=host, ping_ok=ping_ok, dns_ok=dns_ok, resolved_ip=resolved_ip)
+
+
+# --- Shared probing primitives, reused by services/dns_checker.py's bulk
+# hostname/IP checker in addition to check_reachability() above. Exposed
+# without a leading underscore since they're a deliberate public surface for
+# that reuse, unlike _ping/_resolve_dns above (kept private to this file's
+# own check_reachability()).
+
+
+async def ping_host(host: str) -> bool:
+    return await _ping(host)
+
+
+async def resolve_forward(host: str) -> tuple[bool, str | None]:
+    """Forward DNS lookup - works for a hostname (resolves it) or an IP
+    (getaddrinfo just hands the same IP back), same as _resolve_dns above."""
+    return await _resolve_dns(host)
+
+
+async def resolve_reverse(ip: str) -> str | None:
+    """Reverse DNS (PTR) lookup - the hostname associated with an IP, if
+    any. Returns None on failure or when there's simply no PTR record
+    (getnameinfo without NI_NAMEREQD silently falls back to returning the
+    IP itself in that case, which isn't a "found a hostname" result)."""
+    try:
+        loop = asyncio.get_running_loop()
+        host, _service = await loop.getnameinfo((ip, 0))
+        return host if host != ip else None
+    except Exception:  # noqa: BLE001 - same "never crash the batch" reasoning as _ping above
+        return None

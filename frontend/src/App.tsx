@@ -6,6 +6,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
 import { Devices } from "./pages/Devices";
+import { DnsChecker } from "./pages/DnsChecker";
 import { Firmware } from "./pages/Firmware";
 import { FirmwareJobDetail } from "./pages/FirmwareJobDetail";
 import { FirmwareJobs } from "./pages/FirmwareJobs";
@@ -84,6 +85,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <FirmwareJobDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dns-checker"
+          element={
+            <ProtectedRoute>
+              <DnsChecker />
             </ProtectedRoute>
           }
         />

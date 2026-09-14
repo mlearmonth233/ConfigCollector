@@ -341,6 +341,27 @@ effort: it declines saving unrelated pending config changes and accepts the
 final confirmation, but doesn't wait for or verify the device actually
 comes back up).
 
+## DNS Checker
+
+A standalone bulk connectivity/DNS diagnostic, unrelated to your saved
+devices - paste in any batch of hostnames and/or IP addresses (one per
+line, comma-separated, or a mix of both) on the **DNS Checker** page and
+get back, per entry:
+
+- **Ping** — whether it answered a single ICMP echo request.
+- **DNS** — for a hostname, whether it resolved (and to what IP); for an
+  IP, whether a reverse (PTR) lookup found a hostname for it.
+- **Reverse hostname** — the PTR record for the resolved IP either way, so
+  a hostname input also shows what its IP reverse-resolves to (handy for
+  spotting a stale/mismatched PTR record).
+
+Like the Devices page's "Check reachability", neither ping nor DNS is
+treated as proof of anything - a firewall commonly drops ICMP for a
+perfectly reachable device, and a missing PTR record doesn't mean an IP is
+unused. It's a quick, ad-hoc read of what the network reports, not a
+verdict. `POST /api/dns-checker` (any signed-in user, any org - nothing
+here is persisted) takes at most 500 entries per request.
+
 ## TACACS+/RADIUS and MFA-backed logins
 
 TACACS+/RADIUS AAA (and any MFA layered on top, e.g. Duo) is configured on

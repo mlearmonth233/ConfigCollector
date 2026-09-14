@@ -221,3 +221,13 @@ export interface FirmwareJob {
 export interface FirmwareJobDetail extends FirmwareJob {
   items: FirmwareJobItem[];
 }
+
+export interface DnsCheckResult {
+  input: string;
+  input_type: "ip" | "hostname";
+  resolved_ip: string | null;
+  reverse_hostname: string | null;
+  dns_ok: boolean;
+  ping_ok: boolean;
+  error: string | null;
+}
