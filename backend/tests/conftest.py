@@ -9,6 +9,9 @@ _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_db_path}"
 os.environ["CELERY_TASK_ALWAYS_EAGER"] = "true"
+_firmware_storage_dir = tempfile.mkdtemp(prefix="configcollector-firmware-")
+os.environ["FIRMWARE_STORAGE_PATH"] = _firmware_storage_dir
+os.environ["SCP_SERVER_PUBLIC_HOST"] = "scp.test.invalid"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 

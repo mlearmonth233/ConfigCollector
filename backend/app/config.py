@@ -30,6 +30,35 @@ class Settings(BaseSettings):
     # Netmiko connection defaults
     device_connect_timeout: int = 20
 
+    # Firmware push: uploaded images are stored on local disk under this
+    # directory (one subfolder per org) - see services/firmware_storage.py.
+    firmware_storage_path: str = "./firmware_storage"
+
+    # Ephemeral SCP server (services/scp_server.py) that devices connect to
+    # during a firmware push - see app/scp_server_main.py for the standalone
+    # process that runs it.
+    #
+    # Address/port the server process itself binds to.
+    scp_server_bind_host: str = "0.0.0.0"
+    scp_server_port: int = 2222
+    # Hostname/IP devices should use to reach the server above - this is
+    # baked into the "copy scp://..." command sent to each device, so it
+    # must be routable from the managed devices' network, not just from
+    # wherever this backend/worker happens to run. No safe default exists;
+    # firmware pushes fail fast with a clear error until this is set.
+    scp_server_public_host: str = ""
+    # Where the server's SSH host key is persisted (generated on first run
+    # if missing) so it presents the same identity across restarts instead
+    # of a fresh one devices have never seen. Lives in its own directory
+    # (rather than directly in the working directory) so docker-compose can
+    # mount just that directory as a volume.
+    scp_server_host_key_path: str = "./data/scp_host_key"
+    # How long a per-device-item SCP grant (one-time username/password,
+    # scoped to exactly one file) stays valid before it's rejected even if
+    # unused - generous enough for a slow firmware transfer over a WAN link,
+    # short enough that a grant a device never claims doesn't linger.
+    scp_grant_ttl_seconds: int = 1800
+
 
 @lru_cache
 def get_settings() -> Settings:

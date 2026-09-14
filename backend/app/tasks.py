@@ -4,11 +4,13 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.celery_app import celery_app
+from app.config import get_settings
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.device import Device
+from app.models.firmware import ACTIVE_FIRMWARE_JOB_STATUSES, FirmwareJob, FirmwareJobItem, FirmwareJobStatus
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.organization import Organization
 from app.models.schedule import Schedule, ScheduleFrequency
@@ -21,6 +23,7 @@ from app.services.collector import (
     collect_device_config,
 )
 from app.services.device_types import parse_command_list
+from app.services.firmware_push import push_firmware_to_device
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -303,6 +306,195 @@ def _finalize_job_if_done(db, job_id) -> None:
         job.status = JobStatus.FAILED
     else:
         job.status = JobStatus.COMPLETED
+    job.finished_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+@celery_app.task(name="app.tasks.push_firmware_task", bind=True, max_retries=0)
+def push_firmware_task(
+    self,
+    job_item_id: str,
+    otp: str | None = None,
+    fallback_otp: str | None = None,
+    remaining: list[dict] | None = None,
+) -> None:
+    """`remaining` is the rest of this firmware job's queue: dicts of
+    {item_id, otp, fallback_otp} for every device still to come, in order -
+    same shape as collect_device_task's, minus commands_override (a
+    firmware push has no per-device-type command list). Unlike
+    collect_device_task's pipelined authenticate/run overlap, the next
+    device here is only dispatched once this one is *fully* done (transfer,
+    any verification, any reload) - see FirmwareJob's docstring
+    (models/firmware.py) for why: the slow part of a firmware push is the
+    transfer itself, not authentication, so there's nothing to gain from
+    overlapping it with the next device's login, and running several large
+    firmware transfers over the same link at once is worth avoiding by
+    default."""
+    remaining = remaining or []
+
+    db = SyncSessionLocal()
+    try:
+        item = db.get(FirmwareJobItem, job_item_id)
+        if item is None:
+            _dispatch_next_firmware(remaining)
+            return
+
+        if item.status == FirmwareJobStatus.CANCELLED:
+            _dispatch_next_firmware(remaining)
+            _finalize_firmware_job_if_done(db, item.job_id)
+            return
+
+        try:
+            _push_one_device(db, item, otp, fallback_otp)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            item.status = FirmwareJobStatus.FAILED
+            item.error_message = f"Unexpected error during firmware push: {exc}"
+            item.finished_at = datetime.now(timezone.utc)
+            db.commit()
+
+        _dispatch_next_firmware(remaining)
+        _finalize_firmware_job_if_done(db, item.job_id)
+    finally:
+        db.close()
+
+
+def _dispatch_next_firmware(remaining: list[dict]) -> None:
+    if not remaining:
+        return
+    next_device, *rest = remaining
+    push_firmware_task.apply_async(
+        args=[next_device["item_id"]],
+        kwargs={"otp": next_device["otp"], "fallback_otp": next_device["fallback_otp"], "remaining": rest},
+    )
+
+
+def _push_one_device(db, item: FirmwareJobItem, otp: str | None, fallback_otp: str | None) -> None:
+    job: FirmwareJob = item.job
+    device = item.device
+
+    item.status = FirmwareJobStatus.AUTHENTICATING
+    item.started_at = datetime.now(timezone.utc)
+    db.commit()
+
+    if device is None:
+        item.status = FirmwareJobStatus.FAILED
+        item.error_message = "Device no longer exists"
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    credential = _resolve_credential(db, device)
+    if credential is None:
+        item.status = FirmwareJobStatus.FAILED
+        item.error_message = "Device has no credential assigned"
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    settings = get_settings()
+    on_output = _make_firmware_output_callback(db, item)
+
+    def on_authenticated() -> None:
+        try:
+            item.status = FirmwareJobStatus.TRANSFERRING
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    def _attempt(cred: Credential, cred_otp: str | None):
+        password = decrypt_secret(cred.encrypted_password)
+        secret = decrypt_secret(cred.encrypted_enable_secret) if cred.encrypted_enable_secret else None
+        return push_firmware_to_device(
+            host=device.host,
+            port=device.port,
+            device_type=device.device_type,
+            username=cred.username,
+            password=password,
+            secret=secret,
+            auth_timeout=cred.auth_timeout_seconds,
+            mfa_mode=cred.mfa_mode.value,
+            otp=cred_otp,
+            otp_delimiter=cred.otp_delimiter,
+            firmware_path=job.firmware_storage_path,
+            firmware_size_bytes=job.firmware_size_bytes,
+            firmware_md5=job.firmware_md5,
+            target_filename=job.target_filename,
+            verify_checksum=job.verify_checksum,
+            reload_after=job.reload_after,
+            scp_public_host=settings.scp_server_public_host,
+            scp_port=settings.scp_server_port,
+            on_authenticated=on_authenticated,
+            on_output=on_output,
+        )
+
+    try:
+        try:
+            result = _attempt(credential, otp)
+            used_fallback = False
+        except (AuthenticationError, EnableModeError) as primary_exc:
+            # Same fallback-credential retry as _collect_one_device - a
+            # TACACS+/RADIUS-backed device can fail its primary login for a
+            # firmware push exactly as it can for config collection.
+            fallback = credential.fallback_credential
+            if fallback is None:
+                raise
+            item.status = FirmwareJobStatus.AUTHENTICATING
+            db.commit()
+            on_output(
+                f"\nPrimary credential '{credential.name}' failed: {primary_exc}\n"
+                f"Trying fallback credential '{fallback.name}'...\n"
+            )
+            try:
+                result = _attempt(fallback, fallback_otp)
+                used_fallback = True
+            except CollectionError as fallback_exc:
+                raise CollectionError(
+                    f"Primary credential '{credential.name}' failed: {primary_exc} | "
+                    f"Fallback credential '{fallback.name}' also failed: {fallback_exc}"
+                ) from fallback_exc
+
+        item.status = FirmwareJobStatus.COMPLETED
+        item.used_fallback_credential = used_fallback
+        item.checksum_verified = result.checksum_verified
+    except CollectionError as exc:
+        # Covers this module's own FirmwarePushError subclasses (transfer/
+        # verification failures) as well as collector.py's Authentication/
+        # EnableModeError - every failure mode push_firmware_to_device raises.
+        item.status = FirmwareJobStatus.FAILED
+        item.error_message = str(exc)
+        on_output(f"\nERROR: {exc}\n")
+
+    item.finished_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def _make_firmware_output_callback(db, item: FirmwareJobItem):
+    def _on_output(text: str) -> None:
+        try:
+            item.live_output = (item.live_output or "") + text
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    return _on_output
+
+
+def _finalize_firmware_job_if_done(db, job_id) -> None:
+    job = db.get(FirmwareJob, job_id)
+    if job is None:
+        return
+
+    statuses = [s for (s,) in db.query(FirmwareJobItem.status).filter(FirmwareJobItem.job_id == job.id).all()]
+    if any(s in ACTIVE_FIRMWARE_JOB_STATUSES for s in statuses):
+        return
+
+    if any(s == FirmwareJobStatus.CANCELLED for s in statuses):
+        job.status = FirmwareJobStatus.CANCELLED
+    elif any(s == FirmwareJobStatus.FAILED for s in statuses):
+        job.status = FirmwareJobStatus.FAILED
+    else:
+        job.status = FirmwareJobStatus.COMPLETED
     job.finished_at = datetime.now(timezone.utc)
     db.commit()
 

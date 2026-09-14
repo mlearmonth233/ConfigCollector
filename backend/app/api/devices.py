@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.device import Device, NetworkZone
+from app.models.firmware import ACTIVE_FIRMWARE_JOB_STATUSES, FirmwareJobItem
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
@@ -58,12 +59,25 @@ async def clear_all_devices(
             .distinct()
         )
     )
+    active_device_ids |= set(
+        await db.scalars(
+            select(FirmwareJobItem.device_id)
+            .where(
+                FirmwareJobItem.device_id.in_(device_ids),
+                FirmwareJobItem.status.in_(ACTIVE_FIRMWARE_JOB_STATUSES),
+            )
+            .distinct()
+        )
+    )
     to_delete = [d for d in devices if d.id not in active_device_ids]
     to_delete_ids = [d.id for d in to_delete]
 
     if to_delete_ids:
         await db.execute(
             update(CollectionJobItem).where(CollectionJobItem.device_id.in_(to_delete_ids)).values(device_id=None)
+        )
+        await db.execute(
+            update(FirmwareJobItem).where(FirmwareJobItem.device_id.in_(to_delete_ids)).values(device_id=None)
         )
         await db.execute(
             update(ConfigSnapshot).where(ConfigSnapshot.device_id.in_(to_delete_ids)).values(device_id=None)
@@ -177,12 +191,24 @@ async def delete_device(
             detail="This device has a collection job in progress - wait for it to finish (or cancel it) before deleting",
         )
 
+    firmware_in_progress = await db.scalar(
+        select(FirmwareJobItem.id)
+        .where(FirmwareJobItem.device_id == device_id, FirmwareJobItem.status.in_(ACTIVE_FIRMWARE_JOB_STATUSES))
+        .limit(1)
+    )
+    if firmware_in_progress is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This device has a firmware push in progress - wait for it to finish (or cancel it) before deleting",
+        )
+
     # Past job items/snapshots reference this device but should outlive it -
     # they're history, not a live pointer - so this device_id is nulled out
     # rather than deleting (or blocking on) those rows. Done as plain UPDATEs
     # rather than through the ORM relationship, which would otherwise need
     # to load every job_item just to null each one individually.
     await db.execute(update(CollectionJobItem).where(CollectionJobItem.device_id == device_id).values(device_id=None))
+    await db.execute(update(FirmwareJobItem).where(FirmwareJobItem.device_id == device_id).values(device_id=None))
     await db.execute(update(ConfigSnapshot).where(ConfigSnapshot.device_id == device_id).values(device_id=None))
 
     await db.delete(device)

@@ -6,6 +6,11 @@ __pycache__/
 .pytest_cache/
 *.db
 
+# Local firmware storage / SCP server host key (see backend/app/config.py) -
+# real uploaded firmware and a generated SSH host key, neither belongs in git.
+backend/firmware_storage/
+backend/data/
+
 # Node / frontend
 node_modules/
 dist/

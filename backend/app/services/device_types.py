@@ -208,6 +208,19 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
 }
 
 
+# Device types that support this app's SCP-based firmware push (see
+# services/firmware_push.py), mapped to the flash-style filesystem prefix
+# their "copy" command destination uses. Every other type either manages
+# firmware a completely different way (AireOS WLCs use "transfer download",
+# FortiGate/APC have their own upgrade mechanisms/CLIs) or simply hasn't
+# been implemented/verified against this app's push flow.
+FIRMWARE_FLASH_PREFIXES: dict[str, str] = {
+    "cisco_ios": "flash:",
+    "cisco_nxos": "bootflash:",
+    "cisco_wlc_9800": "flash:",
+}
+
+
 def get_device_type_spec(device_type: str) -> DeviceTypeSpec:
     try:
         return DEVICE_TYPE_REGISTRY[device_type]
