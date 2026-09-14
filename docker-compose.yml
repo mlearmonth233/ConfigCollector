@@ -34,6 +34,11 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      # Shared with scp-server below: the backend writes uploaded firmware
+      # here, scp-server is what later reads it back off disk to serve to a
+      # device - both need the same physical files.
+      - firmware_storage:/app/firmware_storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +76,29 @@ services:
       redis:
         condition: service_healthy
 
+  scp-server:
+    build: ./backend
+    # The ephemeral SCP server firmware pushes rely on (see backend/app/
+    # services/scp_server.py) - a long-lived process independent of the API/
+    # worker, since it needs a listening socket open at all times, not just
+    # while a push is running. Devices connect to it directly, so
+    # SCP_SERVER_PUBLIC_HOST (in .env) must be an address routable from your
+    # managed devices' network - not "scp-server" (only resolvable inside
+    # this compose network) and not "localhost".
+    command: python -m app.scp_server_main
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "2222:2222"
+    volumes:
+      - firmware_storage:/app/firmware_storage
+      - scp_host_key:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontend
@@ -83,3 +111,5 @@ services:
 
 volumes:
   postgres_data:
+  firmware_storage:
+  scp_host_key:

@@ -6,6 +6,9 @@ import { AuthProvider } from "./context/AuthContext";
 import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
 import { Devices } from "./pages/Devices";
+import { Firmware } from "./pages/Firmware";
+import { FirmwareJobDetail } from "./pages/FirmwareJobDetail";
+import { FirmwareJobs } from "./pages/FirmwareJobs";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
@@ -57,6 +60,30 @@ export function App() {
           element={
             <ProtectedRoute>
               <JobDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/firmware"
+          element={
+            <ProtectedRoute>
+              <Firmware />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/firmware-jobs"
+          element={
+            <ProtectedRoute>
+              <FirmwareJobs />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/firmware-jobs/:jobId"
+          element={
+            <ProtectedRoute>
+              <FirmwareJobDetail />
             </ProtectedRoute>
           }
         />

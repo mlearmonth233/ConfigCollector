@@ -9,6 +9,9 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
+  FirmwareImage,
+  FirmwareJob,
+  FirmwareJobDetail,
   Job,
   JobDetail,
   MfaMode,
@@ -127,6 +130,48 @@ export const schedulesApi = {
   update: (id: string, data: ScheduleUpdatePayload) => apiClient.patch<Schedule>(`/api/schedules/${id}`, data),
   remove: (id: string) => apiClient.delete(`/api/schedules/${id}`),
   runNow: (id: string) => apiClient.post<JobDetail>(`/api/schedules/${id}/run-now`),
+};
+
+export const firmwareApi = {
+  list: () => apiClient.get<FirmwareImage[]>("/api/firmware"),
+  upload: (file: File, description: string, onProgress?: (percent: number) => void) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (description) formData.append("description", description);
+    return apiClient.post<FirmwareImage>("/api/firmware", formData, {
+      onUploadProgress: (event) => {
+        if (onProgress && event.total) onProgress(Math.round((event.loaded / event.total) * 100));
+      },
+    });
+  },
+  update: (id: string, description: string | null) =>
+    apiClient.patch<FirmwareImage>(`/api/firmware/${id}`, { description }),
+  remove: (id: string) => apiClient.delete(`/api/firmware/${id}`),
+};
+
+export interface FirmwareJobCreatePayload {
+  firmwareImageId: string;
+  deviceIds: string[];
+  targetFilename?: string;
+  verifyChecksum?: boolean;
+  reloadAfter?: boolean;
+  credentialOtps?: Record<string, string>;
+}
+
+export const firmwareJobsApi = {
+  list: () => apiClient.get<FirmwareJob[]>("/api/firmware-jobs"),
+  create: ({ firmwareImageId, deviceIds, targetFilename, verifyChecksum, reloadAfter, credentialOtps }: FirmwareJobCreatePayload) =>
+    apiClient.post<FirmwareJobDetail>("/api/firmware-jobs", {
+      firmware_image_id: firmwareImageId,
+      device_ids: deviceIds,
+      target_filename: targetFilename,
+      verify_checksum: verifyChecksum,
+      reload_after: reloadAfter,
+      credential_otps: credentialOtps,
+    }),
+  get: (id: string) => apiClient.get<FirmwareJobDetail>(`/api/firmware-jobs/${id}`),
+  cancel: (id: string) => apiClient.post<FirmwareJobDetail>(`/api/firmware-jobs/${id}/cancel`),
+  remove: (id: string) => apiClient.delete(`/api/firmware-jobs/${id}`),
 };
 
 export const organizationApi = {

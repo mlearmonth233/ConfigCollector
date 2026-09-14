@@ -171,3 +171,53 @@ export interface OrganizationSettings {
   name: string;
   snapshot_retention_days: number | null;
 }
+
+export interface FirmwareImage {
+  id: string;
+  filename: string;
+  description: string | null;
+  size_bytes: number;
+  md5: string;
+  created_at: string;
+}
+
+export type FirmwareJobStatus =
+  | "pending"
+  | "running"
+  | "authenticating"
+  | "transferring"
+  | "verifying"
+  | "reloading"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface FirmwareJobItem {
+  id: string;
+  device_id: string | null;
+  device_name: string;
+  status: FirmwareJobStatus;
+  error_message: string | null;
+  used_fallback_credential: boolean;
+  checksum_verified: boolean | null;
+  live_output: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface FirmwareJob {
+  id: string;
+  status: FirmwareJobStatus;
+  firmware_filename: string;
+  target_filename: string;
+  verify_checksum: boolean;
+  reload_after: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  item_count: number;
+}
+
+export interface FirmwareJobDetail extends FirmwareJob {
+  items: FirmwareJobItem[];
+}

@@ -1,10 +1,12 @@
 # ConfigCollector
 
-A multi-tenant SaaS tool for bulk-collecting device configurations. Drop in a
-list of network devices — Cisco switches, WLCs, firewalls, PDUs, console
-servers, and more — assign credentials, and pull their running
-configuration over SSH in one click (or paste in a list of hostnames to add
-hundreds of devices at once).
+A multi-tenant SaaS tool for bulk-collecting device configurations *and*
+pushing firmware to them. Drop in a list of network devices — Cisco
+switches, WLCs, firewalls, PDUs, console servers, and more — assign
+credentials, and pull their running configuration over SSH in one click (or
+paste in a list of hostnames to add hundreds of devices at once). Upload a
+firmware image and push it to any number of Cisco devices over SCP the same
+way — see [Pushing firmware to devices](#pushing-firmware-to-devices) below.
 
 ## Architecture
 
@@ -15,6 +17,10 @@ hundreds of devices at once).
   actual SSH sessions. Collection jobs fan out to a Celery worker (backed by
   Redis) so hundreds of devices can be collected in parallel without
   blocking the API.
+- **Firmware push**: the same Netmiko/Celery machinery drives a device's own
+  `copy scp://...` command, downloading from a minimal, ephemeral-credential
+  SCP server (`scp-server`, its own standalone process/container) this app
+  runs itself — see [Pushing firmware to devices](#pushing-firmware-to-devices).
 - **Frontend**: React + TypeScript (Vite), talking to the backend over a
   JSON REST API.
 - **Multi-tenancy**: every row is scoped to an `Organization`; users only
@@ -22,10 +28,13 @@ hundreds of devices at once).
 
 ```
 frontend (React/Vite) --HTTP--> backend (FastAPI) --enqueues--> Celery worker --SSH/Netmiko--> devices
-                                     |                                |
-                                     +--------- Postgres -------------+
-                                     |                                |
-                                     +----------- Redis (broker) -----+
+                                     |                                |                             |
+                                     +--------- Postgres -------------+                             | "copy scp://..."
+                                     |                                |                             v
+                                     +----------- Redis --------------+-----(one-time grant)---> scp-server
+                                       (Celery broker, and where the                          (own long-lived
+                                        firmware push grant lives)                              process, serves
+                                                                                                 exactly one file)
 ```
 
 ## Quickstart (Docker Compose)
@@ -70,6 +79,18 @@ Without it running, schedules just sit there and nothing ever gets purged:
 ```bash
 celery -A app.celery_app beat --loglevel=info
 ```
+
+Firmware pushes need Redis regardless of `CELERY_TASK_ALWAYS_EAGER` (it's
+where the one-time SCP grant lives, not just the Celery broker) and the
+standalone SCP server, a separate process from all of the above:
+
+```bash
+python -m app.scp_server_main
+```
+
+Also set `SCP_SERVER_PUBLIC_HOST` (see
+[Pushing firmware to devices](#pushing-firmware-to-devices)) before trying
+one - there's no safe default.
 
 Run the test suite:
 
@@ -235,6 +256,85 @@ recognizable code in it at all - a device type must be specified by hand.
 `GET /api/devices/detect?name=...` exposes the same detection for scripted
 use, and `GET /api/device-roles` lists the full set of roles.
 
+## Pushing firmware to devices
+
+Beyond pulling configs, ConfigCollector can push a firmware image to a
+device over SCP — upload an image once, then push it to any number of
+devices, tracked the same way a collection job is (live per-device console,
+a status bar, cancel-in-progress).
+
+```
+Firmware page --upload--> firmware_storage/<org_id>/... (backend disk)
+                                |
+Firmware page --push--> POST /api/firmware-jobs --enqueues--> Celery worker
+                                                                    |
+                                                    mints a one-time SCP
+                                                    grant (in Redis) then
+                                                    SSHes into the device
+                                                    (Netmiko) and runs
+                                                    "copy scp://.../file
+                                                    flash:file" itself
+                                                                    |
+                                                                    v
+                                              device --SCP (SSH)--> scp-server
+                                                                    (standalone
+                                                                     process,
+                                                                     see below)
+```
+
+**How it works**: this app never runs a passive TFTP/FTP server that
+devices pull from at will. Instead, when a push starts, the worker mints a
+random, single-use username/password (stored in Redis with a bounded TTL —
+see `services/scp_grants.py`) good for downloading *exactly one file*, then
+connects to the device over SSH (same Netmiko machinery config collection
+uses, including its TACACS+/MFA/fallback-credential handling) and runs the
+device's own `copy scp://<one-time-user>@<scp-server>/<file> flash:<file>`
+— answering the destination-filename/password/overwrite prompts
+interactively, the same way a human at a terminal would, and streaming the
+console output live. `scp-server` (`app/scp_server_main.py`, its own
+long-lived process/container — see `docker-compose.yml`) is a minimal SSH
+server that authenticates against that one grant and sends only the one
+file it names; nothing else is reachable through it — no shell, no other
+files, no writes. The grant is consumed after that one attempt.
+
+**Supported device types**: only ones with a known flash-style filesystem —
+Cisco IOS switches/routers (`flash:`), Cisco NX-OS (`bootflash:`), and
+Catalyst 9800 WLCs (`flash:`) — see `FIRMWARE_FLASH_PREFIXES` in
+`backend/app/services/device_types.py`. AireOS WLCs, FortiGate, APC PDUs,
+and Versa manage firmware a completely different way and aren't supported
+here.
+
+**Setup**: set `SCP_SERVER_PUBLIC_HOST` in `.env` to an address your managed
+devices can actually reach the `scp-server` container/process on (not
+`localhost`, not a compose-internal hostname) — pushes fail fast with a
+clear error until this is set. `docker compose up` starts `scp-server`
+alongside the rest of the stack, listening on `SCP_SERVER_PORT` (default
+`2222`). Uploaded images live under `FIRMWARE_STORAGE_PATH` (default
+`./firmware_storage`, one subfolder per org); the server's SSH host key is
+generated on first run and persisted at `SCP_SERVER_HOST_KEY_PATH` so it
+doesn't change on every restart. Outside Docker, run it the same way as the
+worker/beat processes: `python -m app.scp_server_main` (needs the same
+`REDIS_URL` the backend/worker use).
+
+**Using it**: upload an image on the **Firmware** page, then **Push** it to
+one or more devices — choose the destination filename on flash (defaults to
+the uploaded filename), whether to run `verify /md5` afterward (recommended;
+compares against the upload's own MD5), and whether to reload the device on
+success. Devices are pushed strictly one at a time (never in parallel,
+unlike collection jobs) since the transfer itself, not authentication, is
+the slow part here — see the **Firmware Jobs** page for progress and
+per-device console output.
+
+**Caveats**: the interactive prompt-handling in `services/firmware_push.py`
+was written against publicly documented Cisco IOS/IOS-XE `copy` CLI
+behavior and is covered by tests against this app's own SCP server, but has
+not been exercised against real Cisco hardware — prompt wording is known to
+vary across IOS trains. Test against a lab device before relying on this
+for production rollouts, especially the reload-after-push option (best
+effort: it declines saving unrelated pending config changes and accepts the
+final confirmation, but doesn't wait for or verify the device actually
+comes back up).
+
 ## TACACS+/RADIUS and MFA-backed logins
 
 TACACS+/RADIUS AAA (and any MFA layered on top, e.g. Duo) is configured on
@@ -394,6 +494,11 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
   the Redis broker in flight (as task arguments), which is expected — treat
   Redis like any other piece of internal infrastructure that shouldn't be
   exposed publicly.
+- Firmware push never runs a passive TFTP/FTP server (no authentication and/
+  or plaintext credentials, and multi-tenant-unsafe by nature) — devices
+  authenticate to `scp-server` with a random, single-use credential minted
+  per push attempt, scoped to exactly one file, expiring after a bounded TTL
+  even if unused. See [Pushing firmware to devices](#pushing-firmware-to-devices).
 - Legacy SSH support: some still-deployed switches/WLCs only offer
   `diffie-hellman-group14-sha1` for key exchange and/or `ssh-rsa` (RSA host
   key, SHA-1 signature) for the host key, both of which recent Paramiko
@@ -427,3 +532,10 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
 - No scheduled/recurring collection jobs (only on-demand).
 - No diffing between config snapshots yet — each collection just adds a new
   timestamped snapshot per device.
+- Firmware push only supports device types with a known flash-style
+  filesystem (Cisco IOS, NX-OS, Catalyst 9800 — see
+  [Pushing firmware to devices](#pushing-firmware-to-devices)); AireOS WLCs,
+  FortiGate, APC PDUs, and Versa aren't supported. Its interactive CLI
+  prompt-handling hasn't been verified against real Cisco hardware, and
+  reload-after-push is best-effort (doesn't wait for or confirm the device
+  actually comes back up).
