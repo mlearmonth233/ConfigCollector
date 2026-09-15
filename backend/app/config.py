@@ -30,6 +30,20 @@ class Settings(BaseSettings):
     # Netmiko connection defaults
     device_connect_timeout: int = 20
 
+    # File logging (see core/logging_config.py). Each process - API,
+    # worker, beat - writes packrat-<process>.log under log_dir, rotating
+    # at log_max_bytes and keeping log_backup_count older files. LOG_LEVEL
+    # DEBUG adds successful GETs, SQL and SSH handshake detail.
+    log_dir: str = "./logs"
+    log_level: str = "INFO"
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
+    # Admins can view/download the log files from Settings > Troubleshooting.
+    # The files cover the whole server (every organisation on it), so a
+    # hosted multi-tenant deployment should turn this off and hand logs
+    # out from the server itself instead.
+    log_download_enabled: bool = True
+
     # Firmware push: uploaded image files are stored on local disk (not
     # the DB - these can be hundreds of MB, far past what's sane for a text
     # column) under this directory, one file per FirmwareImage row.

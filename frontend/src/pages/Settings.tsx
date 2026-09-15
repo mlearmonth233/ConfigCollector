@@ -4,6 +4,7 @@ import { extractErrorMessage } from "../api/client";
 import { organizationApi } from "../api/resources";
 import type { OrganizationSettings } from "../api/types";
 import { HostnameRulesEditor } from "../components/HostnameRulesEditor";
+import { Troubleshooting } from "../components/Troubleshooting";
 
 export function Settings() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
@@ -90,6 +91,7 @@ export function Settings() {
 
       <div id="naming" />
       <HostnameRulesEditor />
+      <Troubleshooting />
     </div>
   );
 }

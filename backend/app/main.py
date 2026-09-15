@@ -1,9 +1,16 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import (
+from app.core.logging_config import configure_logging
+
+# Before anything else imports so every module's logger has a file to go to.
+configure_logging("api")
+log = logging.getLogger("app")
+
+from app.api import (  # noqa: E402
     auth,
     command_profiles,
     credentials,
@@ -15,6 +22,7 @@ from app.api import (
     firmware,
     hostname_rules,
     jobs,
+    logs,
     organizations,
     schedules,
     snapshots,
@@ -22,16 +30,25 @@ from app.api import (
     terminal,
     users,
 )
-from app.database import init_db
+from app.core.request_logging import install_request_logging  # noqa: E402
+from app.database import init_db  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    log.info("API starting up: initialising database")
+    try:
+        await init_db()
+    except Exception:
+        log.exception("Database initialisation failed - the API cannot start")
+        raise
+    log.info("API ready")
     yield
+    log.info("API shutting down")
 
 
 app = FastAPI(title="Packrat", version="0.1.0", lifespan=lifespan)
+install_request_logging(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +77,7 @@ app.include_router(device_roles.router)
 app.include_router(hostname_rules.router)
 app.include_router(command_profiles.router)
 app.include_router(jobs.router)
+app.include_router(logs.router)
 app.include_router(snapshots.router)
 app.include_router(schedules.router)
 app.include_router(organizations.router)

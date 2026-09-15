@@ -590,9 +590,48 @@ insensitive.
 Explicit values always win: whatever you pick on the Add device form is
 used even if a rule would have guessed differently.
 
+### Troubleshooting (log files)
+
+Packrat writes everything it does to log files on the server: every
+request and who made it, every device it connects to and each command it
+runs there, every scheduled run, SNMP poll and alert email, and every
+error with its full traceback. Errors in the browser are sent to the same
+log, so one bundle covers the whole application.
+
+The **Troubleshooting** panel at the bottom of Settings (admins) shows:
+
+- The log files and their sizes. There is one per process, so you can see
+  at a glance whether the worker or scheduler is running at all:
+  `packrat-api.log` (web server), `packrat-worker.log` (collections,
+  pushes, polls, alerts) and `packrat-beat.log` (scheduler). Each file
+  rotates at 10 MB and keeps five older copies (`.1` to `.5`).
+- A live view of the last 100 to 2000 lines of any file, with **Warnings
+  and errors only** to hide routine traffic and **Follow** to refresh
+  every five seconds while you reproduce a problem.
+- **Download log bundle**: a zip of every log file plus a `system-info.txt`
+  describing the server (Python version, platform, database type). Send
+  this with your report.
+
+When a page shows *Internal server error (ref 3f9c2a1b)*, search the log
+for that reference code: the traceback that caused it is on the same line.
+
+The files live in the `logs` folder next to the backend (`LOG_DIR` to move
+them). `LOG_LEVEL=DEBUG` adds successful page loads, SQL and SSH handshake
+detail; leave it at the default `INFO` otherwise. Passwords, SNMP
+communities and one-time codes are never written to the log. On a shared
+server hosting several organizations set `LOG_DOWNLOAD_ENABLED=false` so
+logs are only readable from the server itself, since they cover every
+organization.
+
 ---
 
 ## 14. Troubleshooting
+
+**Start here: get the logs**
+Settings → Troubleshooting → **Download log bundle** collects every log
+file. Reproduce the problem first with **Follow** ticked on the API or
+worker log and you will usually see the cause as it happens. See section
+13 for what each file contains.
 
 **"Could not establish an SSH session ... TCP connection to device failed"**
 The device is unreachable from the Packrat machine: wrong IP, DNS name,

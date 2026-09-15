@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,7 @@ from app.services.snmp_monitor import EventFilter, SmtpSettings, Snapshot, diff_
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
+log = logging.getLogger(__name__)
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -111,6 +113,7 @@ def collect_device_task(
             # into a FAILED item without raising) must still just fail this
             # one item and let the queue continue.
             db.rollback()
+            log.exception("Unexpected error collecting job item %s", job_item_id)
             item.status = JobStatus.FAILED
             item.error_message = f"Unexpected error during collection: {exc}"
             item.finished_at = datetime.now(timezone.utc)
@@ -173,9 +176,11 @@ def _collect_one_device(
     credential = _resolve_credential(db, device)
 
     if credential is None:
+        log.warning("Collection of %s (%s) skipped: device has no credential and the org has no default", device.name, device.host)
         item.status = JobStatus.FAILED
         item.error_message = "Device has no credential assigned"
     else:
+        log.info("Collecting %s (%s, %s) for job %s with credential '%s'", device.name, device.host, device.device_type, item.job_id, credential.name)
         on_authenticated = _make_authenticated_callback(db, item, dispatch_next)
         on_output = _make_output_callback(db, item)
         should_cancel = _make_should_cancel(db, item.job_id)
@@ -198,6 +203,10 @@ def _collect_one_device(
                 # over from authenticating.
                 item.status = JobStatus.AUTHENTICATING
                 db.commit()
+                log.warning(
+                    "%s (%s): primary credential '%s' failed (%s); trying fallback '%s'",
+                    device.name, device.host, credential.name, primary_exc, fallback.name,
+                )
                 on_output(
                     f"\nPrimary credential '{credential.name}' failed: {primary_exc}\n"
                     f"Trying fallback credential '{fallback.name}'...\n"
@@ -216,14 +225,19 @@ def _collect_one_device(
             db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
             item.status = JobStatus.COMPLETED
             item.used_fallback_credential = used_fallback
+            log.info(
+                "Collected %s (%s): %d chars%s", device.name, device.host, len(content), " using fallback credential" if used_fallback else ""
+            )
         except CollectionCancelled:
             # should_cancel() already noticed this mid-command-list and
             # collector.py already narrated it into live_output - nothing
             # more to record than the outcome itself.
             item.status = JobStatus.CANCELLED
+            log.info("Collection of %s (%s) cancelled", device.name, device.host)
         except CollectionError as exc:
             item.status = JobStatus.FAILED
             item.error_message = str(exc)
+            log.warning("Collection of %s (%s) FAILED: %s", device.name, device.host, exc)
             on_output(f"\nERROR: {exc}\n")
 
     item.finished_at = datetime.now(timezone.utc)
@@ -397,6 +411,7 @@ def firmware_push_device_task(
             # this, an unexpected error here would silently stop the rest
             # of the queue from ever being attempted.
             db.rollback()
+            log.exception("Unexpected error pushing file for job item %s", job_item_id)
             item.status = JobStatus.FAILED
             item.error_message = f"Unexpected error during file push: {exc}"
             item.finished_at = datetime.now(timezone.utc)
@@ -537,13 +552,19 @@ def _push_to_one_device(
                     _attempt_push, device, credential, otp, commands, on_authenticated, on_output, should_cancel
                 )
 
+        log.info(
+            "Pushing %s to %s (%s) over %s from %s", image.original_filename, device.name, device.host, transfer_protocol.value, server_host
+        )
         _run_async_in_new_thread(_run)
         item.status = JobStatus.COMPLETED
+        log.info("Pushed %s to %s (%s)", image.original_filename, device.name, device.host)
     except CollectionCancelled:
         item.status = JobStatus.CANCELLED
+        log.info("File push to %s (%s) cancelled", device.name, device.host)
     except CollectionError as exc:
         item.status = JobStatus.FAILED
         item.error_message = str(exc)
+        log.warning("File push to %s (%s) FAILED: %s", device.name, device.host, exc)
         on_output(f"\nERROR: {exc}\n")
 
     item.finished_at = datetime.now(timezone.utc)
@@ -665,6 +686,7 @@ def run_dns_check_job_task(self, job_id: str) -> None:
         job.status = JobStatus.CANCELLED if job.cancel_requested else JobStatus.COMPLETED
         job.finished_at = datetime.now(timezone.utc)
         db.commit()
+        log.info("DNS check job %s %s: %d target(s)", job.id, job.status.value, len(items))
     finally:
         db.close()
 
@@ -700,10 +722,14 @@ def run_due_schedules() -> None:
     try:
         now = datetime.now(timezone.utc)
         due = db.query(Schedule).filter(Schedule.enabled.is_(True), Schedule.next_run_at <= now).all()
+        if due:
+            log.info("%d schedule(s) due", len(due))
         for schedule in due:
             try:
                 _run_one_schedule(db, schedule, now)
+                log.info("Schedule '%s' (%s) started a collection job; next run %s", schedule.name, schedule.id, schedule.next_run_at)
             except Exception:  # noqa: BLE001
+                log.exception("Schedule '%s' (%s) failed to start; advancing to its next occurrence", schedule.name, schedule.id)
                 # One schedule's failure (a DB hiccup, an unreachable
                 # broker) shouldn't stop the others due on this same tick,
                 # or get stuck retrying the same failure forever - it's
@@ -800,10 +826,12 @@ def purge_expired_snapshots() -> None:
                 .join(CollectionJob, CollectionJob.id == CollectionJobItem.job_id)
                 .filter(CollectionJob.org_id == org.id)
             )
-            db.query(ConfigSnapshot).filter(
+            deleted = db.query(ConfigSnapshot).filter(
                 ConfigSnapshot.job_item_id.in_(stale_item_ids),
                 ConfigSnapshot.collected_at < cutoff,
             ).delete(synchronize_session=False)
+            if deleted:
+                log.info("Retention: deleted %d snapshot(s) older than %d days for org %s", deleted, org.snapshot_retention_days, org.id)
         db.commit()
     finally:
         db.close()
@@ -891,11 +919,14 @@ def run_snmp_job_task(self, job_id: str) -> None:
                         item.status = JobStatus.FAILED
                         item.error_message = str(result)
                         item.live_output = f"Polling {host}:{auth.port} over {auth.describe()}...\nERROR: {result}\n"
+                        log.warning("SNMP poll of %s over %s FAILED: %s", host, auth.describe(), result)
                     elif isinstance(result, Exception):
                         item.status = JobStatus.FAILED
                         item.error_message = f"Unexpected error during SNMP poll: {result}"
                         item.live_output = f"Polling {host}:{auth.port} over {auth.describe()}...\nERROR: {result}\n"
+                        log.error("SNMP poll of %s hit an unexpected error: %r", host, result, exc_info=(type(result), result, result.__traceback__))
                     else:
+                        log.info("SNMP poll of %s over %s succeeded", host, auth.describe())
                         item.report = format_report(
                             item.device.name, host, auth, result, collected_at=now.strftime("%Y-%m-%d %H:%M:%S UTC")
                         )
@@ -950,7 +981,7 @@ def run_snmp_monitors() -> None:
         try:
             run_snmp_monitor_cycle(org_id)
         except Exception:  # noqa: BLE001
-            pass
+            log.exception("SNMP monitoring cycle for org %s crashed; will retry on its next interval", org_id)
 
 
 def _monitor_devices(db, config: SnmpMonitorConfig) -> list[Device]:
@@ -1077,6 +1108,7 @@ def run_snmp_monitor_cycle(org_id, *, force: bool = False) -> dict:
                         alert.emailed = True
                     summary += f", emailed {len(recipients)} recipient(s)"
                 except Exception as exc:  # noqa: BLE001
+                    log.error("SNMP alert email via %s:%s FAILED for org %s: %s", config.smtp_host, config.smtp_port, org_id, exc)
                     for alert in new_alerts:
                         alert.email_error = str(exc)[:1000]
                     summary += f", EMAIL FAILED: {exc}"
@@ -1086,6 +1118,9 @@ def run_snmp_monitor_cycle(org_id, *, force: bool = False) -> dict:
                 summary += ", not emailed (no recipients/SMTP configured)"
         config.last_result = summary
         db.commit()
+        log.log(logging.WARNING if new_alerts else logging.INFO, "SNMP monitor cycle for org %s: %s", org_id, summary)
+        for alert in new_alerts:
+            log.warning("SNMP alert: %s - %s: %s", alert.device_name, alert.kind.value, alert.detail or alert.subject)
         return {"polled": len(specs), "alerts": len(new_alerts), "summary": summary}
     finally:
         db.close()

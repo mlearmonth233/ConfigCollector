@@ -91,6 +91,17 @@ Run the test suite:
 python -m pytest
 ```
 
+**Log files.** Every process writes a rotating log under `backend/logs/`
+(`LOG_DIR` to move it): `packrat-api.log` for the web server (every request,
+every error with its traceback, browser-side errors reported by the
+frontend), `packrat-worker.log` for the worker (each device connection,
+command, push, poll and alert) and `packrat-beat.log` for the scheduler. Each
+file rotates at 10 MB keeping five older copies. Admins can tail and download
+all of them as a zip from **Settings → Troubleshooting**; set
+`LOG_DOWNLOAD_ENABLED=false` to disable that on a shared multi-tenant server,
+and `LOG_LEVEL=DEBUG` for verbose output. With Docker Compose the files land
+in `./logs` on the host.
+
 **Frontend**:
 
 ```bash

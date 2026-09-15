@@ -1,8 +1,59 @@
+import logging
+import sys
+
 from celery import Celery
+from celery.signals import setup_logging, task_failure, task_postrun, task_prerun
 
 from app.config import get_settings
+from app.core.logging_config import configure_logging
 
 settings = get_settings()
+log = logging.getLogger("app.celery")
+
+
+def _process_name() -> str:
+    """'beat' when this process is `celery ... beat`, 'worker' for the
+    worker and anything else (eager mode runs tasks inside the API process,
+    which has already configured itself as 'api' - configure_logging is a
+    no-op there)."""
+    return "beat" if "beat" in sys.argv else "worker"
+
+
+@setup_logging.connect
+def _configure_celery_logging(**_kwargs) -> None:
+    # Connecting this signal stops Celery from installing its own root
+    # handlers, so the worker/beat share the app's file+console setup.
+    configure_logging(_process_name())
+
+
+@task_prerun.connect
+def _log_task_start(task_id=None, task=None, args=None, kwargs=None, **_ignored) -> None:
+    log.info("Task %s started (id %s) args=%s", task.name if task else "?", task_id, _brief(args))
+
+
+@task_postrun.connect
+def _log_task_end(task_id=None, task=None, state=None, **_ignored) -> None:
+    log.info("Task %s finished (id %s) state=%s", task.name if task else "?", task_id, state)
+
+
+@task_failure.connect
+def _log_task_failure(task_id=None, exception=None, traceback=None, sender=None, **_ignored) -> None:
+    log.error(
+        "Task %s FAILED (id %s): %r",
+        getattr(sender, "name", "?"),
+        task_id,
+        exception,
+        exc_info=(type(exception), exception, traceback) if exception is not None else None,
+    )
+
+
+def _brief(args) -> str:
+    """Only the first task argument (always an id in this app) makes it to
+    the log line - later arguments can carry one-time passcodes."""
+    if not args:
+        return "[]"
+    args = list(args)
+    return "[" + str(args[0])[:60] + (", …" if len(args) > 1 else "") + "]"
 
 celery_app = Celery("configcollector", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(

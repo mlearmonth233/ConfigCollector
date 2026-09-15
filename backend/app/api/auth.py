@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from app.models.user import User, UserRole
 from app.schemas.auth import CurrentUser, LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+log = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -45,8 +47,10 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     user = await db.scalar(select(User).where(User.email == payload.email))
     if user is None or not await asyncio.to_thread(verify_password, payload.password, user.hashed_password):
+        log.warning("Login failed for %s (%s)", payload.email, "unknown email" if user is None else "wrong password")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
+    log.info("User %s (%s) logged in", payload.email, user.id)
     token = create_access_token(user_id=user.id, org_id=user.org_id)
     return TokenResponse(access_token=token)
 

@@ -7,6 +7,7 @@ the login step can take much longer than a plain local-auth SSH login, and
 may need a one-time passcode appended to the password. See Credential.mfa_mode.
 """
 
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from hashlib import sha1
@@ -22,6 +23,8 @@ from paramiko.rsakey import RSAKey
 from paramiko.ssh_exception import AuthenticationException as ParamikoAuthenticationException
 
 from app.services.device_types import DeviceTypeSpec, get_device_type_spec, resolve_commands
+
+log = logging.getLogger(__name__)
 
 
 class _KexGroup14SHA1(KexGroup14SHA256):
@@ -283,9 +286,11 @@ def collect_device_config(
         for command in commands:
             if should_cancel is not None and should_cancel():
                 _emit("\nCancelled - stopping before the next command.\n")
+                log.info("%s:%s collection cancelled before '%s'", host, port, command)
                 raise CollectionCancelled(f"Collection for {host}:{port} was cancelled")
             outputs.append(f"! ---- {command} ----")
             _emit(f"\n$ {command}\n")
+            log.info("%s:%s running '%s'", host, port, command)
             # A handful of these (show tech-support, show run on a
             # large config, etc.) can routinely take minutes on real
             # hardware, well past a 60s timeout.
@@ -295,6 +300,7 @@ def collect_device_config(
                 output = conn.send_command(command, read_timeout=300)
             outputs.append(output)
             _emit(output + "\n")
+            log.debug("%s:%s '%s' returned %d chars", host, port, command, len(output))
         return "\n".join(outputs)
 
 
@@ -366,6 +372,9 @@ def open_device_session(
         connection_params["secret"] = secret
 
     _emit(f"Connecting to {host}:{port} as {username}...\n")
+    log.info(
+        "Connecting to %s:%s as %s (driver %s, mfa %s, timeout %ss)", host, port, username, spec.netmiko_driver, mfa_mode, auth_timeout
+    )
     try:
         with ConnectHandler(**connection_params) as conn:
             # Netmiko's constructor above blocks until the SSH session is
@@ -375,6 +384,7 @@ def open_device_session(
             if on_authenticated is not None:
                 on_authenticated()
             _emit("Authenticated.\n")
+            log.info("Authenticated to %s:%s", host, port)
 
             try:
                 if secret and spec.secret_supported:

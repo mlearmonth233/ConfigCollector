@@ -25,6 +25,8 @@ import type {
   OrganizationSettings,
   Schedule,
   ScheduleFrequency,
+  LogOverview,
+  LogTail,
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
@@ -293,4 +295,12 @@ export const snmpMonitorApi = {
   runNow: () => apiClient.post<SnmpMonitorConfig>("/api/snmp/monitor/run-now"),
   listAlerts: () => apiClient.get<SnmpAlert[]>("/api/snmp/alerts"),
   clearAlerts: () => apiClient.delete<{ deleted: number }>("/api/snmp/alerts"),
+};
+
+export const logsApi = {
+  overview: () => apiClient.get<LogOverview>("/api/logs"),
+  tail: (name: string, lines: number) => apiClient.get<LogTail>("/api/logs/tail", { params: { name, lines } }),
+  download: () => apiClient.get<Blob>("/api/logs/download", { responseType: "blob" }),
+  reportClientError: (payload: { message: string; source?: string; stack?: string; kind?: string }) =>
+    apiClient.post("/api/logs/client", payload),
 };

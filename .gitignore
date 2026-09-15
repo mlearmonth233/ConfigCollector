@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 *.db
 backend/firmware_images/
+# Application log files (see backend/app/core/logging_config.py)
+logs/
+backend/logs/
 
 # Node / frontend
 node_modules/

@@ -368,3 +368,22 @@ export interface SnmpAlert {
   email_error: string | null;
   created_at: string;
 }
+
+export interface LogFile {
+  name: string;
+  size_bytes: number;
+  modified_at: string;
+}
+
+export interface LogOverview {
+  enabled: boolean;
+  directory: string;
+  level: string;
+  files: LogFile[];
+}
+
+export interface LogTail {
+  name: string;
+  lines: number;
+  content: string;
+}
