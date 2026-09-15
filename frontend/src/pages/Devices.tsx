@@ -531,6 +531,13 @@ export function Devices() {
                     History
                   </button>
                   <button
+                    className="link-button"
+                    style={{ marginLeft: 12 }}
+                    onClick={() => navigate(`/terminal?device=${d.id}`)}
+                  >
+                    SSH
+                  </button>
+                  <button
                     className="link-button danger"
                     style={{ marginLeft: 12 }}
                     onClick={() => handleDelete(d.id)}

@@ -16,6 +16,7 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
 import { Settings } from "./pages/Settings";
+import { Terminal } from "./pages/Terminal";
 
 export function App() {
   return (
@@ -93,6 +94,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <DnsCheckJobDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/terminal"
+          element={
+            <ProtectedRoute>
+              <Terminal />
             </ProtectedRoute>
           }
         />
