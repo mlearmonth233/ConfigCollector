@@ -9,7 +9,8 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
-  DnsCheckResult,
+  DnsCheckJob,
+  DnsCheckJobDetail,
   FirmwareImage,
   FirmwareJob,
   FirmwareJobDetail,
@@ -159,7 +160,12 @@ export interface FirmwareJobCreatePayload {
 }
 
 export const dnsCheckApi = {
-  run: (targets: string[]) => apiClient.post<DnsCheckResult[]>("/api/dns-check", { targets }),
+  createJob: (targets: string[]) => apiClient.post<DnsCheckJobDetail>("/api/dns-check/jobs", { targets }),
+  listJobs: () => apiClient.get<DnsCheckJob[]>("/api/dns-check/jobs"),
+  getJob: (id: string) => apiClient.get<DnsCheckJobDetail>(`/api/dns-check/jobs/${id}`),
+  cancelJob: (id: string) => apiClient.post<DnsCheckJobDetail>(`/api/dns-check/jobs/${id}/cancel`),
+  removeJob: (id: string) => apiClient.delete(`/api/dns-check/jobs/${id}`),
+  clearFinished: () => apiClient.delete<{ deleted: number }>("/api/dns-check/jobs"),
 };
 
 export const firmwareApi = {

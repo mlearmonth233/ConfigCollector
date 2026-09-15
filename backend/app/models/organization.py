@@ -29,3 +29,6 @@ class Organization(Base_):
     firmware_jobs: Mapped[list["FirmwareUpgradeJob"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+    dns_check_jobs: Mapped[list["DnsCheckJob"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )

@@ -213,11 +213,28 @@ export interface FirmwareJobDetail extends FirmwareJob {
   items: FirmwareJobItem[];
 }
 
-export interface DnsCheckResult {
+export interface DnsCheckJobItem {
+  id: string;
   target: string;
-  ping_ok: boolean;
-  forward_ok: boolean;
+  status: JobStatus;
+  ping_ok: boolean | null;
+  forward_ok: boolean | null;
   forward_ips: string[];
-  reverse_ok: boolean;
+  reverse_ok: boolean | null;
   reverse_hostname: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface DnsCheckJob {
+  id: string;
+  status: JobStatus;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  item_count: number;
+}
+
+export interface DnsCheckJobDetail extends DnsCheckJob {
+  items: DnsCheckJobItem[];
 }

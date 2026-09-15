@@ -15,12 +15,13 @@ import socket
 
 from app.services.reachability import _ping
 
-# Bounds worst-case request latency (each check can take a few seconds if a
-# target doesn't answer) and stops a very large paste from launching that
-# many ping subprocesses at once. MAX_TARGETS is enforced by the API layer
-# (app/api/dns_check.py), which needs it too, so it's public.
-MAX_TARGETS = 100
-_MAX_CONCURRENT_CHECKS = 25
+# How many checks run at once - stops a large batch from launching that
+# many ping subprocesses simultaneously. Public because tasks.py's
+# run_dns_check_job_task reuses it as its progress-reporting chunk size too
+# (one constant, so the two can't drift apart), and app/api/dns_check.py
+# imports MAX_TARGETS as a sanity-check cap on job size.
+CONCURRENCY = 25
+MAX_TARGETS = 10000
 
 
 def _is_ip_address(value: str) -> bool:
@@ -113,7 +114,7 @@ async def run_dns_check(target: str) -> DnsCheckResult:
 
 
 async def run_dns_checks(targets: list[str]) -> list[DnsCheckResult]:
-    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CHECKS)
+    semaphore = asyncio.Semaphore(CONCURRENCY)
 
     async def _bounded(target: str) -> DnsCheckResult:
         async with semaphore:

@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { dnsCheckApi } from "../api/resources";
-import type { DnsCheckResult } from "../api/types";
+import type { DnsCheckJob } from "../api/types";
+import { StatusBadge } from "../components/StatusBadge";
 
 function parseTargets(text: string): string[] {
   return Array.from(
@@ -15,40 +17,79 @@ function parseTargets(text: string): string[] {
   );
 }
 
-// Display-only heuristic (the backend does the real check) - just decides
-// whether a failed forward lookup means "no DNS record" or "there was
-// nothing to resolve, this is already an IP".
-function looksLikeIpAddress(s: string): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || s.includes(":");
-}
-
-function Pill({ ok, okLabel, failLabel }: { ok: boolean; okLabel: string; failLabel: string }) {
-  return <span className={`status-badge status-${ok ? "completed" : "failed"}`}>{ok ? okLabel : failLabel}</span>;
-}
-
 export function DnsCheck() {
-  const [text, setText] = useState("");
-  const [results, setResults] = useState<DnsCheckResult[] | null>(null);
-  const [running, setRunning] = useState(false);
+  const navigate = useNavigate();
+  const [jobs, setJobs] = useState<DnsCheckJob[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [text, setText] = useState("");
+  const [starting, setStarting] = useState(false);
   const targets = parseTargets(text);
 
-  async function handleRun() {
+  async function refresh() {
+    setLoading(true);
+    try {
+      const { data } = await dnsCheckApi.listJobs();
+      setJobs(data);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function handleStart() {
     setError(null);
     if (targets.length === 0) {
       setError("Paste at least one hostname or IP first.");
       return;
     }
-    setRunning(true);
-    setResults(null);
+    setStarting(true);
     try {
-      const { data } = await dnsCheckApi.run(targets);
-      setResults(data);
+      const { data } = await dnsCheckApi.createJob(targets);
+      navigate(`/dns-check/jobs/${data.id}`);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setRunning(false);
+      setStarting(false);
+    }
+  }
+
+  async function handleDelete(jobId: string) {
+    if (!confirm("Delete this DNS check job? Its results go with it.")) return;
+    setError(null);
+    setDeletingId(jobId);
+    try {
+      await dnsCheckApi.removeJob(jobId);
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleClearFinished() {
+    if (!confirm("Clear all finished DNS check jobs? A job still in progress is left alone.")) return;
+    setError(null);
+    setNotice(null);
+    setClearing(true);
+    try {
+      const { data } = await dnsCheckApi.clearFinished();
+      await refresh();
+      setNotice(`Cleared ${data.deleted} finished job(s).`);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -58,12 +99,13 @@ export function DnsCheck() {
       <p className="page-subtitle">
         Paste a list of hostnames or IPs (one per line, or comma-separated) to bulk-check each one:
         whether it answers a ping, whether its hostname resolves in DNS (forward lookup), and whether
-        its IP has a PTR record (reverse lookup). Nothing here is saved - it's a one-off diagnostic,
-        not tied to your device inventory. As with the reachability check on the Devices page, a
+        its IP has a PTR record (reverse lookup). As with the reachability check on the Devices page, a
         failed ping or missing DNS record doesn't necessarily mean a device is down - a firewall
-        commonly drops ICMP, and plenty of reachable devices have no PTR record at all.
+        commonly drops ICMP, and plenty of reachable devices have no PTR record at all. Runs as a
+        background job (like Jobs/Firmware), so a paste of thousands of targets is fine.
       </p>
       {error && <div className="error-banner">{error}</div>}
+      {notice && <div className="info-banner">{notice}</div>}
 
       <label>
         Hostnames or IPs
@@ -77,52 +119,61 @@ export function DnsCheck() {
       </label>
 
       <div className="page-actions" style={{ marginTop: 12 }}>
-        <button onClick={handleRun} disabled={running || targets.length === 0}>
-          {running
-            ? "Running…"
+        <button onClick={handleStart} disabled={starting || targets.length === 0}>
+          {starting
+            ? "Starting…"
             : `Run checks${targets.length > 0 ? ` (${targets.length} target${targets.length === 1 ? "" : "s"})` : ""}`}
         </button>
       </div>
 
-      {results && (
-        <table className="data-table" style={{ marginTop: 24 }}>
+      <div className="page-header-row" style={{ marginTop: 32 }}>
+        <h2 style={{ marginBottom: 0 }}>Past checks</h2>
+        {jobs.length > 0 && (
+          <button className="link-button danger" disabled={clearing} onClick={handleClearFinished}>
+            {clearing ? "Clearing…" : "Clear all finished jobs"}
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p>Loading…</p>
+      ) : (
+        <table className="data-table">
           <thead>
             <tr>
-              <th>Target</th>
-              <th>Ping</th>
-              <th>Forward DNS</th>
-              <th>Reverse DNS</th>
+              <th>Started</th>
+              <th>Status</th>
+              <th>Targets</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {results.map((r) => (
-              <tr key={r.target}>
-                <td>{r.target}</td>
+            {jobs.map((j) => (
+              <tr key={j.id}>
+                <td>{new Date(j.created_at).toLocaleString()}</td>
                 <td>
-                  <Pill ok={r.ping_ok} okLabel="Reachable" failLabel="No reply" />
+                  <StatusBadge status={j.status} />
                 </td>
+                <td>{j.item_count}</td>
                 <td>
-                  {r.forward_ok ? (
-                    r.forward_ips.join(", ")
-                  ) : (
-                    <span className="field-hint">
-                      {looksLikeIpAddress(r.target) ? "N/A (already an IP)" : "no DNS record found"}
-                    </span>
-                  )}
-                </td>
-                <td>
-                  {r.reverse_ok ? (
-                    r.reverse_hostname
-                  ) : (
-                    <span className="field-hint">no PTR record</span>
+                  <Link to={`/dns-check/jobs/${j.id}`}>View</Link>
+                  {j.status !== "running" && (
+                    <button
+                      className="link-button danger"
+                      style={{ marginLeft: 12 }}
+                      disabled={deletingId === j.id}
+                      onClick={() => handleDelete(j.id)}
+                    >
+                      {deletingId === j.id ? "Deleting…" : "Delete"}
+                    </button>
                   )}
                 </td>
               </tr>
             ))}
-            {results.length === 0 && (
+            {jobs.length === 0 && (
               <tr>
                 <td colSpan={4} className="empty-state">
-                  No targets checked.
+                  No DNS checks yet.
                 </td>
               </tr>
             )}

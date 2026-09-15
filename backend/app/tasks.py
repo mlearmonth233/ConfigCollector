@@ -13,6 +13,7 @@ from app.db_sync import SyncSessionLocal
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.device import Device
+from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareUpgradeJob, FirmwareUpgradeJobItem, TransferProtocol
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.organization import Organization
@@ -26,6 +27,8 @@ from app.services.collector import (
     collect_device_config,
 )
 from app.services.device_types import parse_command_list
+from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
+from app.services.dns_check import run_dns_checks
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -539,6 +542,69 @@ def _finalize_firmware_job_if_done(db, job_id) -> None:
         job.status = JobStatus.COMPLETED
     job.finished_at = datetime.now(timezone.utc)
     db.commit()
+
+
+@celery_app.task(name="app.tasks.run_dns_check_job_task", bind=True, max_retries=0)
+def run_dns_check_job_task(self, job_id: str) -> None:
+    """Runs every target in a DnsCheckJob, in chunks of DNS_CHECK_CHUNK_SIZE.
+
+    Unlike collect_device_task's per-device dispatch chain, there's no auth
+    phase to overlap here (a ping/DNS lookup has no credential/MFA wait) -
+    so rather than one Celery task per target, this single task processes
+    the whole batch itself. Each chunk's checks run concurrently (via
+    run_dns_checks' own internal semaphore - DNS_CHECK_CHUNK_SIZE matches
+    it exactly, so one chunk is exactly one round of full concurrency) in a
+    dedicated thread (_run_async_in_new_thread - same "asyncio.run() can't
+    nest inside CELERY_TASK_ALWAYS_EAGER's caller" reasoning as the
+    firmware task), with results written back and committed between
+    chunks. That's what makes a job with thousands of targets show live,
+    incremental progress instead of jumping from "running" to "done" only
+    once the entire batch finishes - and lets a mid-batch cancel request
+    stop the remaining chunks instead of running to completion regardless.
+    """
+    db = SyncSessionLocal()
+    try:
+        job = db.get(DnsCheckJob, job_id)
+        if job is None:
+            return
+        items = (
+            db.query(DnsCheckJobItem)
+            .filter(DnsCheckJobItem.job_id == job.id)
+            .order_by(DnsCheckJobItem.created_at)
+            .all()
+        )
+
+        for chunk_start in range(0, len(items), DNS_CHECK_CHUNK_SIZE):
+            db.refresh(job)
+            if job.cancel_requested:
+                break
+
+            chunk = items[chunk_start : chunk_start + DNS_CHECK_CHUNK_SIZE]
+            now = datetime.now(timezone.utc)
+            for item in chunk:
+                item.status = JobStatus.RUNNING
+                item.started_at = now
+            db.commit()
+
+            targets = [item.target for item in chunk]
+            results = _run_async_in_new_thread(lambda: run_dns_checks(targets))
+
+            now = datetime.now(timezone.utc)
+            for item, result in zip(chunk, results):
+                item.ping_ok = result.ping_ok
+                item.forward_ok = result.forward_ok
+                item.forward_ips = ", ".join(result.forward_ips)
+                item.reverse_ok = result.reverse_ok
+                item.reverse_hostname = result.reverse_hostname
+                item.status = JobStatus.COMPLETED
+                item.finished_at = now
+            db.commit()
+
+        job.status = JobStatus.CANCELLED if job.cancel_requested else JobStatus.COMPLETED
+        job.finished_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
 
 
 def _parse_schedule_device_ids(raw: str | None) -> list[uuid.UUID] | None:

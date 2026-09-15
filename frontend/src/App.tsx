@@ -7,6 +7,7 @@ import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
 import { Devices } from "./pages/Devices";
 import { DnsCheck } from "./pages/DnsCheck";
+import { DnsCheckJobDetail } from "./pages/DnsCheckJobDetail";
 import { Firmware } from "./pages/Firmware";
 import { FirmwareJobDetail } from "./pages/FirmwareJobDetail";
 import { JobDetail } from "./pages/JobDetail";
@@ -84,6 +85,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <DnsCheck />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dns-check/jobs/:jobId"
+          element={
+            <ProtectedRoute>
+              <DnsCheckJobDetail />
             </ProtectedRoute>
           }
         />
