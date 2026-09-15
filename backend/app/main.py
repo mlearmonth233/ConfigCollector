@@ -10,6 +10,7 @@ from app.api import (
     device_roles,
     device_types,
     devices,
+    dns_check,
     firmware,
     jobs,
     organizations,
@@ -57,6 +58,7 @@ app.include_router(snapshots.router)
 app.include_router(schedules.router)
 app.include_router(organizations.router)
 app.include_router(firmware.router)
+app.include_router(dns_check.router)
 
 
 @app.get("/health")

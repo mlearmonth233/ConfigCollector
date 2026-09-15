@@ -9,6 +9,7 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
+  DnsCheckResult,
   FirmwareImage,
   FirmwareJob,
   FirmwareJobDetail,
@@ -156,6 +157,10 @@ export interface FirmwareJobCreatePayload {
   commands_by_device_type: Record<string, string>;
   credential_otps?: Record<string, string>;
 }
+
+export const dnsCheckApi = {
+  run: (targets: string[]) => apiClient.post<DnsCheckResult[]>("/api/dns-check", { targets }),
+};
 
 export const firmwareApi = {
   listImages: () => apiClient.get<FirmwareImage[]>("/api/firmware/images"),

@@ -25,6 +25,9 @@ export function NavBar() {
         <NavLink to="/firmware" className={({ isActive }) => (isActive ? "active" : "")}>
           Firmware
         </NavLink>
+        <NavLink to="/dns-check" className={({ isActive }) => (isActive ? "active" : "")}>
+          DNS Check
+        </NavLink>
         <NavLink to="/schedules" className={({ isActive }) => (isActive ? "active" : "")}>
           Schedules
         </NavLink>
