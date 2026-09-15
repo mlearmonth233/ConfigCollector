@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # Netmiko connection defaults
     device_connect_timeout: int = 20
 
+    # Stuck-job cleanup (see services/job_reaper.py). A job whose worker was
+    # killed mid-device would otherwise show "running" forever and block
+    # deleting its devices. On worker start (and API start in eager mode)
+    # every unfinished job is marked interrupted; beat also sweeps every
+    # few minutes for jobs with no sign of life for stale_job_minutes.
+    # Set reap_jobs_on_start=false when several workers share one broker,
+    # since a restarting worker can't know what its siblings are running.
+    reap_jobs_on_start: bool = True
+    stale_job_minutes: int = 45
+
     # File logging (see core/logging_config.py). Each process - API,
     # worker, beat - writes packrat-<process>.log under log_dir, rotating
     # at log_max_bytes and keeping log_backup_count older files. LOG_LEVEL

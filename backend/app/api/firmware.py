@@ -27,6 +27,7 @@ from app.schemas.firmware import (
 )
 from app.services.device_types import parse_command_list
 from app.services.firmware_push import DEFAULT_PUSH_COMMANDS, render_push_commands, transfer_port
+from app.services.job_reaper import force_stop_job
 from app.services.network_interfaces import list_network_interfaces
 from app.tasks import firmware_push_device_task
 
@@ -283,6 +284,7 @@ async def list_firmware_jobs(
             firmware_image_id=j.firmware_image_id,
             protocol=j.protocol,
             status=j.status,
+            cancel_requested=j.cancel_requested,
             created_at=j.created_at,
             started_at=j.started_at,
             finished_at=j.finished_at,
@@ -319,6 +321,26 @@ async def cancel_firmware_job(
         .where(FirmwareUpgradeJobItem.job_id == job.id, FirmwareUpgradeJobItem.status == JobStatus.PENDING)
         .values(status=JobStatus.CANCELLED, finished_at=datetime.now(timezone.utc))
     )
+    await db.commit()
+    return await _fetch_job_detail(db, job_id, user.org_id)
+
+
+@router.post("/jobs/{job_id}/force-stop", response_model=FirmwareJobDetailOut)
+async def force_stop_firmware_job(
+    job_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FirmwareJobDetailOut:
+    """Same as /api/jobs/{id}/force-stop, for a push job whose worker died
+    mid-transfer and will never report back."""
+    job = await db.scalar(
+        select(FirmwareUpgradeJob).options(selectinload(FirmwareUpgradeJob.items)).where(FirmwareUpgradeJob.id == job_id, FirmwareUpgradeJob.org_id == user.org_id)
+    )
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.status not in ACTIVE_JOB_STATUSES and not any(i.status in ACTIVE_JOB_STATUSES for i in job.items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This job has already finished")
+    force_stop_job(job, job.items, by=user.email)
     await db.commit()
     return await _fetch_job_detail(db, job_id, user.org_id)
 
@@ -360,6 +382,7 @@ async def _fetch_job_detail(db: AsyncSession, job_id: uuid.UUID, org_id: uuid.UU
         firmware_image_id=job.firmware_image_id,
         protocol=job.protocol,
         status=job.status,
+        cancel_requested=job.cancel_requested,
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,

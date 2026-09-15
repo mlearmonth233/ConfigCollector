@@ -181,7 +181,10 @@ async def delete_device(
     if in_progress is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This device has a collection job in progress - wait for it to finish (or cancel it) before deleting",
+            detail=(
+                "This device has a collection job in progress - wait for it to finish (or cancel it) before deleting. "
+                "If the job is stuck because the worker was interrupted, open it on the Jobs page and use Force stop."
+            ),
         )
 
     # Past job items/snapshots reference this device but should outlive it -

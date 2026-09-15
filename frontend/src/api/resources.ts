@@ -132,6 +132,7 @@ export const jobsApi = {
     }),
   get: (id: string) => apiClient.get<JobDetail>(`/api/jobs/${id}`),
   cancel: (id: string) => apiClient.post<JobDetail>(`/api/jobs/${id}/cancel`),
+  forceStop: (id: string) => apiClient.post<JobDetail>(`/api/jobs/${id}/force-stop`),
   remove: (id: string) => apiClient.delete(`/api/jobs/${id}`),
   clearFinished: () => apiClient.delete<{ deleted: number }>("/api/jobs"),
   checkNeighborGaps: (id: string) => apiClient.get<NeighborGapCheck>(`/api/jobs/${id}/neighbor-gaps`),
@@ -224,6 +225,7 @@ export const firmwareApi = {
   listJobs: () => apiClient.get<FirmwareJob[]>("/api/firmware/jobs"),
   getJob: (id: string) => apiClient.get<FirmwareJobDetail>(`/api/firmware/jobs/${id}`),
   cancelJob: (id: string) => apiClient.post<FirmwareJobDetail>(`/api/firmware/jobs/${id}/cancel`),
+  forceStopJob: (id: string) => apiClient.post<FirmwareJobDetail>(`/api/firmware/jobs/${id}/force-stop`),
 };
 
 export interface SnmpProfilePayload {

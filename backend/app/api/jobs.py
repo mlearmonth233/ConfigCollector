@@ -1,4 +1,5 @@
 import io
+import logging
 import zipfile
 from datetime import datetime, timezone
 from typing import Literal
@@ -29,10 +30,12 @@ from app.schemas.job import (
 )
 from app.api.custom_device_types import load_catalog
 from app.services.device_types import Catalog, parse_command_list, resolve_commands
+from app.services.job_reaper import force_stop_job
 from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 from app.services.neighbor_discovery import extract_neighbors, has_neighbor_command, normalize_device_name
 from app.tasks import collect_device_task
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
@@ -65,6 +68,7 @@ async def list_jobs(
         JobOut(
             id=job.id,
             status=job.status,
+            cancel_requested=job.cancel_requested,
             created_at=job.created_at,
             started_at=job.started_at,
             finished_at=job.finished_at,
@@ -320,6 +324,27 @@ async def cancel_job(
             item.finished_at = now
     await db.commit()
 
+    return await fetch_job_detail(db, job_id, user.org_id)
+
+
+@router.post("/{job_id}/force-stop", response_model=JobDetailOut)
+async def force_stop_job_endpoint(
+    job_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobDetailOut:
+    """For a job that is stuck "running" because the worker was interrupted
+    (killed, restarted, machine rebooted) and so will never report back:
+    marks every unfinished device CANCELLED and the job CANCELLED right
+    now, without waiting for a worker that isn't there. Normally the
+    start-up and stale-job cleanup (services/job_reaper.py) does this
+    automatically; this is the button for when you don't want to wait."""
+    job = await _get_owned_job(db, job_id, user.org_id)
+    if job.status not in ACTIVE_JOB_STATUSES and not any(i.status in ACTIVE_JOB_STATUSES for i in job.items):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job has already finished")
+    changed = force_stop_job(job, job.items, by=user.email)
+    await db.commit()
+    log.warning("Job %s force-stopped by %s (%d device(s) marked cancelled)", job.id, user.email, changed)
     return await fetch_job_detail(db, job_id, user.org_id)
 
 
@@ -644,6 +669,7 @@ def _to_job_out(job: CollectionJob) -> JobOut:
     return JobOut(
         id=job.id,
         status=job.status,
+        cancel_requested=job.cancel_requested,
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,

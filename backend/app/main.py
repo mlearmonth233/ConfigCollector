@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -30,8 +31,10 @@ from app.api import (  # noqa: E402
     terminal,
     users,
 )
+from app.config import get_settings  # noqa: E402
 from app.core.request_logging import install_request_logging  # noqa: E402
 from app.database import init_db  # noqa: E402
+from app.services.job_reaper import reap_orphaned_jobs  # noqa: E402
 
 
 @asynccontextmanager
@@ -42,6 +45,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("Database initialisation failed - the API cannot start")
         raise
+    settings = get_settings()
+    if settings.celery_task_always_eager and settings.reap_jobs_on_start:
+        # In eager mode this process *is* the worker, so a job still
+        # marked running was interrupted when the API last stopped.
+        try:
+            await asyncio.to_thread(reap_orphaned_jobs, "the application was restarted")
+        except Exception:
+            log.exception("Start-up job cleanup failed")
     log.info("API ready")
     yield
     log.info("API shutting down")

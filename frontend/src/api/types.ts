@@ -103,6 +103,7 @@ export interface JobItem {
 }
 
 export interface Job {
+  cancel_requested: boolean;
   id: string;
   status: JobStatus;
   created_at: string;
@@ -214,6 +215,7 @@ export interface FirmwareJobItem {
 }
 
 export interface FirmwareJob {
+  cancel_requested: boolean;
   id: string;
   firmware_image_id: string | null;
   protocol: TransferProtocol;

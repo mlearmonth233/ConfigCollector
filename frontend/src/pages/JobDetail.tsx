@@ -103,6 +103,21 @@ export function JobDetail() {
     setRetryPollNonce((n) => n + 1);
   }
 
+  async function handleForceStop() {
+    if (!jobId) return;
+    if (!confirm("Force stop this job? Use this only when the job is stuck - for example the worker was restarted or the machine rebooted while it was running - so nothing will ever report back. Every unfinished device is marked cancelled immediately. If a worker really is still working on a device, its result will be recorded when it finishes.")) return;
+    setCancelError(null);
+    setCancelling(true);
+    try {
+      const { data } = await jobsApi.forceStop(jobId);
+      setJob(data);
+    } catch (err) {
+      setCancelError(extractErrorMessage(err));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function handleCancel() {
     if (!jobId) return;
     if (
@@ -249,10 +264,23 @@ export function JobDetail() {
         <h1>Job {job.id.slice(0, 8)}</h1>
         <div className="page-actions">
           <StatusBadge status={job.status} />
-          {ACTIVE_STATUSES.has(job.status) && (
+          {ACTIVE_STATUSES.has(job.status) && !job.cancel_requested && (
             <button className="link-button danger" onClick={handleCancel} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel job"}
             </button>
+          )}
+          {ACTIVE_STATUSES.has(job.status) && job.cancel_requested && (
+            <>
+              <span className="page-subtitle" style={{ margin: 0 }}>Cancel requested - waiting for the worker…</span>
+              <button
+                className="link-button danger"
+                onClick={handleForceStop}
+                disabled={cancelling}
+                title="Mark every unfinished device cancelled right now (for a job whose worker was interrupted)"
+              >
+                {cancelling ? "Stopping…" : "Force stop"}
+              </button>
+            </>
           )}
         </div>
       </div>

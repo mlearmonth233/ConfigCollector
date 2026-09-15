@@ -48,6 +48,9 @@ class JobItemOut(BaseModel):
 
 
 class JobOut(BaseModel):
+    # True once Cancel (or Force stop) has been asked for - the UI offers
+    # Force stop for a job that stays running after a cancel.
+    cancel_requested: bool = False
     id: UUID
     status: JobStatus
     created_at: datetime

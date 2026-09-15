@@ -66,3 +66,8 @@ class Base_(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+    # Bumped by SQLAlchemy on every UPDATE of the row. For job items this is
+    # the "last sign of life" (each live_output append or status change
+    # refreshes it) that services/job_reaper.py uses to tell a long but
+    # healthy collection from one whose worker died mid-device.
+    updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True, onupdate=func.now())

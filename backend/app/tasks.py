@@ -35,6 +35,7 @@ from app.services.device_types import DeviceTypeSpec, build_catalog, parse_comma
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
+from app.services.job_reaper import reap_stale_jobs as _reap_stale_jobs
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
 from app.services.snmp_poll import SnmpAuth, SnmpError, format_report, poll_many
@@ -1124,3 +1125,13 @@ def run_snmp_monitor_cycle(org_id, *, force: bool = False) -> dict:
         return {"polled": len(specs), "alerts": len(new_alerts), "summary": summary}
     finally:
         db.close()
+
+
+@celery_app.task(name="app.tasks.reap_stale_jobs")
+def reap_stale_jobs() -> dict:
+    """Invoked periodically by Celery beat: marks jobs with no progress for
+    STALE_JOB_MINUTES as interrupted (see services/job_reaper.py)."""
+    summary = _reap_stale_jobs(timedelta(minutes=settings.stale_job_minutes))
+    if summary:
+        log.warning("Stale-job sweep interrupted %s", ", ".join(f"{n} {k} job(s)" for k, n in summary.items()))
+    return summary

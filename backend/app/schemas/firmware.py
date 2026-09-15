@@ -67,6 +67,7 @@ class FirmwareJobItemOut(BaseModel):
 
 
 class FirmwareJobOut(BaseModel):
+    cancel_requested: bool = False
     id: UUID
     firmware_image_id: UUID | None
     protocol: TransferProtocol

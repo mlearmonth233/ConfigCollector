@@ -311,6 +311,14 @@ at a time, which keeps TACACS+ servers happy.
   results are untouched.
 - **Cancel job** stops devices that have not started and interrupts the
   ones in progress between commands.
+- **Force stop** appears once a cancel has been requested. Use it when a
+  job is stuck at Running because the worker was interrupted (Ctrl+C in
+  the dev window, a reboot, a crash) and so will never report back: every
+  unfinished device is marked cancelled at once and the device can be
+  deleted or collected again. Packrat also does this on its own: when the
+  worker starts it marks anything left over from the previous run as
+  interrupted, and every five minutes it does the same for jobs that have
+  shown no progress for 45 minutes (`STALE_JOB_MINUTES`).
 - On the **Jobs** list, tick old jobs and **Rerun** to collect the same
   devices again as a new job.
 - **Clear all finished jobs** deletes job records (snapshots are kept).
@@ -648,6 +656,16 @@ Settings → Troubleshooting → **Download log bundle** collects every log
 file. Reproduce the problem first with **Follow** ticked on the API or
 worker log and you will usually see the cause as it happens. See section
 13 for what each file contains.
+
+**A job shows Running but nothing is happening / "This device has a
+collection job in progress" when deleting**
+The worker that was running the job stopped before it could report back
+(the window was closed, the machine rebooted, the process crashed). Start
+the worker again and it marks the leftover job as interrupted within a
+few seconds; the scheduler also sweeps for stalled jobs every five
+minutes. To clear it immediately, open the job, press **Cancel job**,
+then **Force stop**. The affected devices show "Interrupted" or
+"Force-stopped" as their error and can be retried or collected again.
 
 **"Could not establish an SSH session ... TCP connection to device failed"**
 The device is unreachable from the Packrat machine: wrong IP, DNS name,

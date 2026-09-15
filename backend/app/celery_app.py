@@ -2,7 +2,7 @@ import logging
 import sys
 
 from celery import Celery
-from celery.signals import setup_logging, task_failure, task_postrun, task_prerun
+from celery.signals import setup_logging, task_failure, task_postrun, task_prerun, worker_ready
 
 from app.config import get_settings
 from app.core.logging_config import configure_logging
@@ -24,6 +24,20 @@ def _configure_celery_logging(**_kwargs) -> None:
     # Connecting this signal stops Celery from installing its own root
     # handlers, so the worker/beat share the app's file+console setup.
     configure_logging(_process_name())
+
+
+@worker_ready.connect
+def _reap_leftover_jobs(**_kwargs) -> None:
+    # A freshly started worker has nothing in flight, so any job still
+    # marked running was interrupted when the previous worker stopped.
+    if not settings.reap_jobs_on_start:
+        return
+    from app.services.job_reaper import reap_orphaned_jobs  # noqa: PLC0415 - avoid import cycle at module load
+
+    try:
+        reap_orphaned_jobs("the worker was restarted")
+    except Exception:  # noqa: BLE001
+        log.exception("Start-up job cleanup failed")
 
 
 @task_prerun.connect
@@ -72,6 +86,8 @@ celery_app.conf.update(
         "purge-expired-snapshots": {"task": "app.tasks.purge_expired_snapshots", "schedule": 3600.0},
         # SNMP monitoring/alerting cycles (per-org interval, minimum 1 min).
         "run-snmp-monitors": {"task": "app.tasks.run_snmp_monitors", "schedule": 60.0},
+        # Jobs with no sign of life for STALE_JOB_MINUTES are marked interrupted.
+        "reap-stale-jobs": {"task": "app.tasks.reap_stale_jobs", "schedule": 300.0},
     },
 )
 
