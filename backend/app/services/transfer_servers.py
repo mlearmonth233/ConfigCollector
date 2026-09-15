@@ -1,4 +1,4 @@
-"""Ephemeral, single-file file servers used during a firmware upgrade job -
+"""Ephemeral, single-file file servers used during a firmware push job -
 one of TFTP, FTP, or SCP/SFTP, picked per job (FirmwareUpgradeJob.protocol).
 Each one:
 

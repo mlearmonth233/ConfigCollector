@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { extractErrorMessage } from "../api/client";
-import { firmwareApi } from "../api/resources";
+import { firmwareApi, type PushDefaults } from "../api/resources";
 import type {
   Credential,
   Device,
@@ -27,7 +27,7 @@ const PROTOCOLS: { value: TransferProtocol; label: string }[] = [
   { value: "scp", label: "SCP" },
 ];
 
-export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credentials, onClose, onStarted }: Props) {
+export function StartFirmwarePushModal({ image, devices, deviceTypes, credentials, onClose, onStarted }: Props) {
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const credentialMap = useMemo(() => new Map(credentials.map((c) => [c.id, c])), [credentials]);
   const orgDefaultCredential = useMemo(() => credentials.find((c) => c.is_default), [credentials]);
@@ -39,15 +39,20 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([]);
   const [serverHost, setServerHost] = useState("");
   const [interfacesError, setInterfacesError] = useState<string | null>(null);
+  const [defaults, setDefaults] = useState<PushDefaults | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await firmwareApi.listNetworkInterfaces();
+        const [{ data: ifaces }, { data: pushDefaults }] = await Promise.all([
+          firmwareApi.listNetworkInterfaces(),
+          firmwareApi.getPushDefaults(),
+        ]);
         if (cancelled) return;
-        setInterfaces(data);
-        if (data.length > 0) setServerHost((prev) => prev || data[0].address);
+        setInterfaces(ifaces);
+        if (ifaces.length > 0) setServerHost((prev) => prev || ifaces[0].address);
+        setDefaults(pushDefaults);
       } catch (err) {
         if (!cancelled) setInterfacesError(extractErrorMessage(err));
       }
@@ -65,7 +70,24 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
       .sort((a, b) => (a.spec?.category ?? "").localeCompare(b.spec?.category ?? "") || a.key.localeCompare(b.key));
   }, [selectedDevices, deviceTypeMap]);
 
+  // Prefilled from the server's built-in copy command per device type the
+  // first time that type appears in the selection; anything the user has
+  // typed (or cleared) is left alone.
   const [commandsByType, setCommandsByType] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!defaults) return;
+    setCommandsByType((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const { key } of typesPresent) {
+        if (next[key] === undefined && defaults.commands_by_device_type[key] !== undefined) {
+          next[key] = defaults.commands_by_device_type[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [defaults, typesPresent]);
 
   const credentialsNeedingOtp = useMemo(() => {
     const ids = new Set<string>();
@@ -104,8 +126,9 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
     const missingCommands = typesPresent.filter(({ key }) => !commandsByType[key]?.trim());
     if (missingCommands.length > 0) {
       setError(
-        "An upgrade command template is required for: " +
-          missingCommands.map(({ key, spec }) => spec?.label ?? key).join(", ")
+        "A copy command is needed for: " +
+          missingCommands.map(({ key, spec }) => spec?.label ?? key).join(", ") +
+          " (no built-in default exists for this device type)."
       );
       return;
     }
@@ -132,7 +155,7 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ width: "min(900px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Upgrade firmware - {image.original_filename}</h2>
+          <h2>Push firmware - {image.original_filename}</h2>
           <div className="modal-header-actions">
             <button onClick={onClose}>Cancel</button>
           </div>
@@ -141,11 +164,11 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
           {error && <div className="error-banner">{error}</div>}
 
           <p className="page-subtitle" style={{ marginTop: 0 }}>
-            Devices are upgraded one at a time, never in parallel - a device fetches the image from
-            this app's own transfer server, over whichever protocol you pick below, then runs whatever
-            command sequence you supply for its device type. There's no built-in default here (unlike
-            config collection's "show" commands) - a wrong upgrade sequence can brick a device, so it's
-            always your call.
+            This copies the image file onto each device's storage (flash:/bootflash:) and stops there -
+            nothing is installed, no boot variable is changed, and nothing reloads. Devices are handled
+            one at a time: each pulls the file from this app's own transfer server over the protocol
+            you pick, and the copy's interactive prompts (destination filename, overwrite, "erase flash
+            before copying?") are answered for you - erase is always declined.
           </p>
 
           <h3>Devices</h3>
@@ -186,19 +209,26 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
 
           {typesPresent.length > 0 && (
             <>
-              <h3 style={{ marginTop: 20 }}>Upgrade commands, per device type (required)</h3>
+              <h3 style={{ marginTop: 20 }}>Copy command, per device type</h3>
               <p className="field-hint" style={{ marginTop: 0 }}>
-                Reference the transfer server with {"{protocol}"}, {"{host}"}, {"{port}"}, and{" "}
-                {"{filename}"} - e.g. "copy {"{protocol}"}://{"{host}"}:{"{port}"}/{"{filename}"} flash:,
-                reload".
+                Prefilled with the built-in copy command where one exists - edit it if your platform
+                stores images somewhere else. {"{url}"} becomes the ready-made {protocol.toUpperCase()} URL
+                for this image on the interface above
+                {defaults && defaults.placeholders.length > 1
+                  ? `; ${defaults.placeholders.filter((p) => p !== "{url}").join(", ")} are also available`
+                  : ""}
+                . Keep it to copy commands - anything that installs or reloads is on you.
               </p>
               {typesPresent.map(({ key, count, spec }) => (
                 <label key={key} style={{ marginBottom: 14 }}>
                   {spec?.label ?? key} · {count} device{count === 1 ? "" : "s"}
+                  {defaults && defaults.commands_by_device_type[key] === undefined && (
+                    <span className="field-hint"> · no built-in default for this type - enter the command</span>
+                  )}
                   <input
                     value={commandsByType[key] ?? ""}
                     onChange={(e) => setCommandsByType((prev) => ({ ...prev, [key]: e.target.value }))}
-                    placeholder="Comma-separated commands"
+                    placeholder="e.g. copy {url} flash:"
                   />
                 </label>
               ))}
@@ -226,7 +256,7 @@ export function StartFirmwareUpgradeModal({ image, devices, deviceTypes, credent
         </div>
         <div className="modal-footer">
           <button onClick={handleSubmit} disabled={submitting}>
-            {submitting ? "Starting…" : "Start upgrade"}
+            {submitting ? "Starting…" : "Push file"}
           </button>
         </div>
       </div>

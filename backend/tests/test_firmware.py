@@ -4,7 +4,8 @@ import pytest
 from httpx import AsyncClient
 
 from app.config import get_settings
-from app.tasks import _render_upgrade_commands
+from app.models.firmware import TransferProtocol
+from app.services.firmware_push import DEFAULT_PUSH_COMMANDS, render_push_commands
 
 pytestmark = pytest.mark.asyncio
 
@@ -34,15 +35,43 @@ def _non_privileged_transfer_ports(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "firmware_storage_dir", str(tmp_path), raising=False)
 
 
-async def test_render_upgrade_commands_substitutes_placeholders():
-    rendered = _render_upgrade_commands(
-        "copy {protocol}://{host}:{port}/{filename} flash:, reload",
+async def test_render_push_commands_substitutes_legacy_placeholders():
+    rendered = render_push_commands(
+        "copy {protocol}://{host}:{port}/{filename} flash:, dir flash:",
+        protocol=TransferProtocol.TFTP,
         host="10.0.0.5",
-        port=69,
-        protocol="tftp",
+        port=6969,
         filename="ios.bin",
     )
-    assert rendered == ["copy tftp://10.0.0.5:69/ios.bin flash:", "reload"]
+    assert rendered == ["copy tftp://10.0.0.5:6969/ios.bin flash:", "dir flash:"]
+
+
+async def test_render_push_commands_url_placeholder_omits_standard_port():
+    rendered = render_push_commands(
+        DEFAULT_PUSH_COMMANDS["cisco_ios"], protocol=TransferProtocol.TFTP, host="10.0.0.5", port=69, filename="ios.bin"
+    )
+    assert rendered == ["copy tftp://10.0.0.5/ios.bin flash:"]
+
+
+async def test_render_push_commands_rejects_unknown_placeholder():
+    with pytest.raises(ValueError, match="reload_after"):
+        render_push_commands(
+            "copy {url} flash:, {reload_after}", protocol=TransferProtocol.TFTP, host="h", port=69, filename="f"
+        )
+
+
+async def test_push_defaults_endpoint(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.get("/api/firmware/push-defaults", headers=_auth(token))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["commands_by_device_type"]["cisco_ios"] == "copy {url} flash:"
+    assert "{url}" in body["placeholders"]
+    # Only a *copy* - none of the defaults may install or reload anything.
+    for template in body["commands_by_device_type"].values():
+        assert template.startswith("copy ")
+        for forbidden in ("install", "reload", "boot system", "activate"):
+            assert forbidden not in template
 
 
 async def test_network_interfaces_endpoint(client: AsyncClient, unique_email):
@@ -79,20 +108,23 @@ async def test_upload_list_delete_firmware_image(client: AsyncClient, unique_ema
     assert listing_after.json() == []
 
 
-async def test_create_firmware_job_requires_command_template_per_device_type(client: AsyncClient, unique_email):
+async def test_create_firmware_job_requires_command_for_types_with_no_default(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
     await client.post(
-        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "apc", "password": "apc"}
     )
+    # apc_pdu deliberately has no built-in copy command (there's no
+    # sensible "push a firmware file" CLI to default to), so leaving it
+    # out of commands_by_device_type must be a clean 400 naming the type.
     device = await client.post(
-        "/api/devices", headers=_auth(token), json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"}
+        "/api/devices", headers=_auth(token), json={"name": "pdu1", "host": "192.0.2.1", "device_type": "apc_pdu"}
     )
     device_id = device.json()["id"]
 
     upload = await client.post(
         "/api/firmware/images",
         headers=_auth(token),
-        files={"file": ("ios.bin", io.BytesIO(b"bytes"), "application/octet-stream")},
+        files={"file": ("apc.bin", io.BytesIO(b"bytes"), "application/octet-stream")},
     )
     image_id = upload.json()["id"]
 
@@ -108,7 +140,37 @@ async def test_create_firmware_job_requires_command_template_per_device_type(cli
         },
     )
     assert resp.status_code == 400, resp.text
-    assert "cisco_ios" in resp.json()["detail"]
+    assert "apc_pdu" in resp.json()["detail"]
+    assert "no built-in default" in resp.json()["detail"]
+
+
+async def test_create_firmware_job_rejects_bad_placeholder_up_front(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
+    device = await client.post(
+        "/api/devices", headers=_auth(token), json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios"}
+    )
+    upload = await client.post(
+        "/api/firmware/images",
+        headers=_auth(token),
+        files={"file": ("ios.bin", io.BytesIO(b"bytes"), "application/octet-stream")},
+    )
+
+    resp = await client.post(
+        "/api/firmware/jobs",
+        headers=_auth(token),
+        json={
+            "firmware_image_id": upload.json()["id"],
+            "device_ids": [device.json()["id"]],
+            "protocol": "tftp",
+            "server_host": "127.0.0.1",
+            "commands_by_device_type": {"cisco_ios": "copy {ur} flash:"},
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "{ur}" in resp.json()["detail"]
 
 
 async def test_create_firmware_job_rejects_unknown_image(client: AsyncClient, unique_email):
@@ -134,6 +196,9 @@ async def test_create_firmware_job_rejects_unknown_image(client: AsyncClient, un
 
 
 async def test_firmware_job_fails_cleanly_for_unreachable_device(client: AsyncClient, unique_email):
+    # No commands_by_device_type at all: cisco_ios takes the built-in
+    # "copy {url} flash:" default, so job creation succeeds and the only
+    # failure is the (deliberately unreachable) device itself.
     token = await _register(client, unique_email)
     await client.post(
         "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
@@ -163,7 +228,6 @@ async def test_firmware_job_fails_cleanly_for_unreachable_device(client: AsyncCl
             "device_ids": [device_id],
             "protocol": "tftp",
             "server_host": "127.0.0.1",
-            "commands_by_device_type": {"cisco_ios": "copy {protocol}://{host}:{port}/{filename} flash:"},
         },
     )
     assert resp.status_code == 201, resp.text
@@ -172,3 +236,5 @@ async def test_firmware_job_fails_cleanly_for_unreachable_device(client: AsyncCl
     assert len(body["items"]) == 1
     assert body["items"][0]["status"] == "failed"
     assert body["items"][0]["error_message"]
+    # The transcript still shows the connection attempt that failed.
+    assert "Connecting to 192.0.2.1:22" in body["items"][0]["live_output"]

@@ -23,10 +23,12 @@ from app.schemas.firmware import (
     FirmwareJobItemOut,
     FirmwareJobOut,
     NetworkInterfaceOut,
+    PushDefaultsOut,
 )
 from app.services.device_types import parse_command_list
+from app.services.firmware_push import DEFAULT_PUSH_COMMANDS, render_push_commands, transfer_port
 from app.services.network_interfaces import list_network_interfaces
-from app.tasks import firmware_upgrade_device_task
+from app.tasks import firmware_push_device_task
 
 router = APIRouter(prefix="/api/firmware", tags=["firmware"])
 
@@ -47,6 +49,17 @@ async def get_network_interfaces(user: User = Depends(get_current_user)) -> list
     any managed device) - see services/network_interfaces.py for why this
     has to be a per-job pick rather than one fixed setting."""
     return [NetworkInterfaceOut(name=i.name, address=i.address) for i in list_network_interfaces()]
+
+
+@router.get("/push-defaults", response_model=PushDefaultsOut)
+async def get_push_defaults(user: User = Depends(get_current_user)) -> PushDefaultsOut:
+    """The built-in per-device-type copy command templates a push job falls
+    back to when none is supplied - exposed so the UI can prefill (and let
+    the user edit) exactly what will run."""
+    return PushDefaultsOut(
+        commands_by_device_type=dict(DEFAULT_PUSH_COMMANDS),
+        placeholders=["{url}", "{protocol}", "{host}", "{port}", "{filename}"],
+    )
 
 
 @router.post("/images", response_model=FirmwareImageOut, status_code=status.HTTP_201_CREATED)
@@ -115,7 +128,7 @@ async def delete_firmware_image(
     if in_progress is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This image is in use by an upgrade job in progress - wait for it to finish before deleting",
+            detail="This image is in use by a push job in progress - wait for it to finish before deleting",
         )
 
     file_path = _org_storage_dir(user.org_id) / image.stored_filename
@@ -173,22 +186,40 @@ async def create_firmware_job(
     if missing_otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A one-time passcode is required for these credentials before the upgrade can start: "
+            detail="A one-time passcode is required for these credentials before the push can start: "
             + ", ".join(missing_otp),
         )
 
-    missing_commands = sorted({d.device_type for d in devices} - set(payload.commands_by_device_type))
+    # A type the user supplied nothing for (or only whitespace) takes the
+    # built-in default; the fully resolved map is what's dispatched, so the
+    # worker never has to know about defaults.
+    supplied = {t: raw for t, raw in (payload.commands_by_device_type or {}).items() if parse_command_list(raw)}
+    commands_by_device_type = {
+        t: supplied.get(t) or DEFAULT_PUSH_COMMANDS.get(t) for t in sorted({d.device_type for d in devices})
+    }
+    missing_commands = sorted(t for t, raw in commands_by_device_type.items() if not raw)
     if missing_commands:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No upgrade command template supplied for these device types: " + ", ".join(missing_commands),
+            detail="No copy command supplied for these device types, and there's no built-in default for them: "
+            + ", ".join(missing_commands),
         )
-    for device_type, raw in payload.commands_by_device_type.items():
-        if not parse_command_list(raw):
+    # Dry-run the substitution now so a typo'd placeholder is a 400 here
+    # rather than a command sent verbatim to a device.
+    for device_type, raw in commands_by_device_type.items():
+        try:
+            render_push_commands(
+                raw,
+                protocol=payload.protocol,
+                host=payload.server_host,
+                port=transfer_port(payload.protocol),
+                filename=image.original_filename,
+            )
+        except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"The upgrade command template for '{device_type}' is empty",
-            )
+                detail=f"Copy command for '{device_type}': {exc}",
+            ) from exc
 
     job = FirmwareUpgradeJob(
         org_id=user.org_id,
@@ -213,12 +244,12 @@ async def create_firmware_job(
         otp = credential_otps.get(str(credential.id)) if credential else None
         dispatch_specs.append({"item_id": str(item.id), "otp": otp})
 
-    # Strictly sequential (see tasks.py's firmware_upgrade_device_task) -
+    # Strictly sequential (see tasks.py's firmware_push_device_task) -
     # only the first device is dispatched here; each one dispatches the
     # next only once it's fully finished.
     first, *rest = dispatch_specs
-    firmware_upgrade_device_task.apply_async(
-        args=[first["item_id"], payload.commands_by_device_type, payload.protocol.value, payload.server_host],
+    firmware_push_device_task.apply_async(
+        args=[first["item_id"], commands_by_device_type, payload.protocol.value, payload.server_host],
         kwargs={"otp": first["otp"], "remaining": rest},
     )
 

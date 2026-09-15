@@ -32,16 +32,25 @@ class FirmwareJobCreate(BaseModel):
     # a per-job choice, not a fixed setting, since a multi-homed host may
     # only be reachable from a given device on one of its addresses.
     server_host: str
-    # Per-device_type command template to run over SSH once the device has
-    # (or is expected to) pull the image - required, never defaulted: unlike
-    # config-collection's default_commands, there's no vendor upgrade
-    # sequence this app is confident enough to guess on its own (a wrong
-    # "show" command just errors; a wrong upgrade/reload sequence can brick
-    # a device). Reference the transfer server with the placeholders
-    # "{host}", "{port}", "{protocol}", and "{filename}", e.g.
-    # "copy {protocol}://{host}:{port}/{filename} flash:, reload".
-    commands_by_device_type: dict[str, str]
+    # Per-device_type copy command template to run over SSH - the command
+    # that makes the device pull the image from this app's transfer server
+    # onto its own storage, and nothing more (no install/reload: this is a
+    # file push). Optional per type: any type left out falls back to
+    # services/firmware_push.py's DEFAULT_PUSH_COMMANDS (e.g. "copy {url}
+    # flash:" for Cisco IOS); a type with no default there must be given
+    # one here. Placeholders: "{url}" (the ready-made, protocol-aware URL),
+    # or the pieces it's built from - "{protocol}", "{host}", "{port}",
+    # "{filename}".
+    commands_by_device_type: dict[str, str] = {}
     credential_otps: dict[str, str] | None = None
+
+
+class PushDefaultsOut(BaseModel):
+    # device_type -> default copy command template (see FirmwareJobCreate),
+    # for types that have one; the UI prefills these so the common case
+    # needs no typing while still leaving every command editable.
+    commands_by_device_type: dict[str, str]
+    placeholders: list[str]
 
 
 class FirmwareJobItemOut(BaseModel):

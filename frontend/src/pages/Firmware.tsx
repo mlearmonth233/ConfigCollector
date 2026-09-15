@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { extractErrorMessage } from "../api/client";
 import { credentialsApi, devicesApi, deviceTypesApi, firmwareApi } from "../api/resources";
 import type { Credential, Device, DeviceType, FirmwareImage, FirmwareJob } from "../api/types";
-import { StartFirmwareUpgradeModal } from "../components/StartFirmwareUpgradeModal";
+import { StartFirmwarePushModal } from "../components/StartFirmwarePushModal";
 import { StatusBadge } from "../components/StatusBadge";
 
 function formatSize(bytes: number): string {
@@ -24,7 +24,7 @@ export function Firmware() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadLabel, setUploadLabel] = useState("");
-  const [upgradeTarget, setUpgradeTarget] = useState<FirmwareImage | null>(null);
+  const [pushTarget, setPushTarget] = useState<FirmwareImage | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
@@ -84,6 +84,11 @@ export function Firmware() {
   return (
     <div className="page">
       <h1>Firmware</h1>
+      <p className="page-subtitle">
+        Upload an image once, then push the file onto devices' storage over TFTP, FTP, or SCP. A push
+        only copies the file - nothing is installed or reloaded, so the upgrade itself stays in your
+        hands.
+      </p>
       {error && <div className="error-banner">{error}</div>}
 
       <div className="page-header-row">
@@ -123,8 +128,8 @@ export function Firmware() {
                 <td>{formatSize(img.size_bytes)}</td>
                 <td>{new Date(img.created_at).toLocaleString()}</td>
                 <td>
-                  <button className="link-button" onClick={() => setUpgradeTarget(img)}>
-                    Upgrade devices
+                  <button className="link-button" onClick={() => setPushTarget(img)}>
+                    Push to devices
                   </button>
                   <button
                     className="link-button danger"
@@ -147,7 +152,7 @@ export function Firmware() {
         </table>
       )}
 
-      <h2 style={{ marginTop: 32 }}>Upgrade jobs</h2>
+      <h2 style={{ marginTop: 32 }}>Push jobs</h2>
       <table className="data-table">
         <thead>
           <tr>
@@ -175,22 +180,22 @@ export function Firmware() {
           {jobs.length === 0 && (
             <tr>
               <td colSpan={5} className="empty-state">
-                No upgrade jobs yet.
+                No push jobs yet.
               </td>
             </tr>
           )}
         </tbody>
       </table>
 
-      {upgradeTarget && (
-        <StartFirmwareUpgradeModal
-          image={upgradeTarget}
+      {pushTarget && (
+        <StartFirmwarePushModal
+          image={pushTarget}
           devices={devices}
           deviceTypes={deviceTypes}
           credentials={credentials}
-          onClose={() => setUpgradeTarget(null)}
+          onClose={() => setPushTarget(null)}
           onStarted={(job) => {
-            setUpgradeTarget(null);
+            setPushTarget(null);
             navigate(`/firmware/jobs/${job.id}`);
           }}
         />

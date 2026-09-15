@@ -155,8 +155,15 @@ export interface FirmwareJobCreatePayload {
   device_ids: string[];
   protocol: TransferProtocol;
   server_host: string;
-  commands_by_device_type: Record<string, string>;
+  // Optional per type - anything left out falls back to the server's
+  // built-in copy command for that device type (see getPushDefaults).
+  commands_by_device_type?: Record<string, string>;
   credential_otps?: Record<string, string>;
+}
+
+export interface PushDefaults {
+  commands_by_device_type: Record<string, string>;
+  placeholders: string[];
 }
 
 export const dnsCheckApi = {
@@ -180,6 +187,7 @@ export const firmwareApi = {
   },
   removeImage: (id: string) => apiClient.delete(`/api/firmware/images/${id}`),
   listNetworkInterfaces: () => apiClient.get<NetworkInterface[]>("/api/firmware/network-interfaces"),
+  getPushDefaults: () => apiClient.get<PushDefaults>("/api/firmware/push-defaults"),
   createJob: (payload: FirmwareJobCreatePayload) => apiClient.post<FirmwareJobDetail>("/api/firmware/jobs", payload),
   listJobs: () => apiClient.get<FirmwareJob[]>("/api/firmware/jobs"),
   getJob: (id: string) => apiClient.get<FirmwareJobDetail>(`/api/firmware/jobs/${id}`),

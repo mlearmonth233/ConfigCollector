@@ -7,7 +7,8 @@ the login step can take much longer than a plain local-auth SSH login, and
 may need a one-time passcode appended to the password. See Credential.mfa_mode.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from hashlib import sha1
 from os import path as os_path
 
@@ -205,6 +206,7 @@ def collect_device_config(
     def _emit(text: str) -> None:
         if on_output is not None:
             on_output(text)
+
     try:
         spec = get_device_type_spec(device_type)
         commands = commands_override or resolve_commands(device_type, custom_commands)
@@ -214,6 +216,115 @@ def collect_device_config(
         # a configuration problem, not a device/network failure, but still
         # something the caller needs reported as a clean job-item failure
         # rather than an unhandled exception crashing the worker task.
+        raise CollectionError(str(exc)) from exc
+
+    with open_device_session(
+        host=host,
+        port=port,
+        device_type=device_type,
+        username=username,
+        password=password,
+        secret=secret,
+        auth_timeout=auth_timeout,
+        mfa_mode=mfa_mode,
+        otp=otp,
+        otp_delimiter=otp_delimiter,
+        on_authenticated=on_authenticated,
+        on_output=on_output,
+    ) as conn:
+        # "generic_termserver" (most PDUs, Opengear console servers)
+        # and Cisco WLCs (both AireOS and Catalyst 9800) all use
+        # timing-based reads instead of Netmiko's normal pattern-
+        # based send_command():
+        #
+        # - generic_termserver has no vendor-specific prompt
+        #   handling at all (session_preparation() is a no-op), so a
+        #   pattern-based wait has nothing reliable to match against
+        #   and can sit blocked for the full read_timeout on every
+        #   command.
+        #
+        # - WLCs are slow/chatty enough that pattern-based reads
+        #   misfire in more than one way, tried and found lacking in
+        #   turn: cmd_verify's hardcoded 10s command-echo wait can
+        #   time out even though the device would have answered
+        #   fine; disabling just that and leaving auto_find_prompt
+        #   on, its fresh per-command prompt probe can instead grab
+        #   a trailing fragment of the *previous* (often large,
+        #   tabular) command's still-draining output and wait for
+        #   that on the *next* command; and disabling both in favor
+        #   of the one stable prompt captured at connect time still
+        #   risks that same prompt string coincidentally matching
+        #   partway through a large table's own contents, cutting a
+        #   command's output off early and leaving the rest to be
+        #   swept up by the *next* command's read - the exact "each
+        #   command's output is actually the previous command's"
+        #   symptom that combination produced.
+        #
+        # send_command_timing() sidesteps all of it - it just waits
+        # for the channel to go quiet for a couple seconds,
+        # regardless of what's been said or what the prompt looks
+        # like - at the cost of not being able to tell a genuinely
+        # slow command apart from one that's already finished, which
+        # is why well-behaved network-OS drivers still use the
+        # normal pattern-based read below instead.
+        use_timing_read = spec.netmiko_driver == "generic_termserver" or spec.category == "wlc"
+        outputs = []
+        for command in commands:
+            if should_cancel is not None and should_cancel():
+                _emit("\nCancelled - stopping before the next command.\n")
+                raise CollectionCancelled(f"Collection for {host}:{port} was cancelled")
+            outputs.append(f"! ---- {command} ----")
+            _emit(f"\n$ {command}\n")
+            # A handful of these (show tech-support, show run on a
+            # large config, etc.) can routinely take minutes on real
+            # hardware, well past a 60s timeout.
+            if use_timing_read:
+                output = conn.send_command_timing(command, last_read=2, read_timeout=300)
+            else:
+                output = conn.send_command(command, read_timeout=300)
+            outputs.append(output)
+            _emit(output + "\n")
+        return "\n".join(outputs)
+
+
+@contextmanager
+def open_device_session(
+    *,
+    host: str,
+    port: int,
+    device_type: str,
+    username: str,
+    password: str,
+    secret: str | None,
+    auth_timeout: int,
+    mfa_mode: str = "none",
+    otp: str | None = None,
+    otp_delimiter: str = ",",
+    on_authenticated: Callable[[], None] | None = None,
+    on_output: Callable[[str], None] | None = None,
+) -> Iterator:
+    """Connects, authenticates, and (where the device type supports it and
+    a secret was given) enters enable mode, then yields the live Netmiko
+    connection for the body to drive however it needs - plain show commands
+    (collect_device_config above) or an interactive file copy dialogue
+    (services/firmware_push.py). The connection is closed on exit.
+
+    Everything about *getting* the session is classified here, the same
+    way for every caller: a failure before the login succeeds raises
+    AuthenticationError, an enable failure raises EnableModeError, and any
+    non-CollectionError exception the body itself raises is wrapped as a
+    CommandExecutionError (login did succeed, so callers must never retry
+    those with a fallback credential). CollectionError subclasses raised
+    by the body pass through untouched. `on_authenticated`/`on_output`
+    follow the same contracts as collect_device_config's."""
+
+    def _emit(text: str) -> None:
+        if on_output is not None:
+            on_output(text)
+
+    try:
+        spec = get_device_type_spec(device_type)
+    except ValueError as exc:
         raise CollectionError(str(exc)) from exc
 
     effective_password = password
@@ -260,60 +371,10 @@ def collect_device_config(
                         raise EnableModeError(
                             f"Failed to enter enable mode on {host}:{port}: {exc}"
                         ) from exc
-                # "generic_termserver" (most PDUs, Opengear console servers)
-                # and Cisco WLCs (both AireOS and Catalyst 9800) all use
-                # timing-based reads instead of Netmiko's normal pattern-
-                # based send_command():
-                #
-                # - generic_termserver has no vendor-specific prompt
-                #   handling at all (session_preparation() is a no-op), so a
-                #   pattern-based wait has nothing reliable to match against
-                #   and can sit blocked for the full read_timeout on every
-                #   command.
-                #
-                # - WLCs are slow/chatty enough that pattern-based reads
-                #   misfire in more than one way, tried and found lacking in
-                #   turn: cmd_verify's hardcoded 10s command-echo wait can
-                #   time out even though the device would have answered
-                #   fine; disabling just that and leaving auto_find_prompt
-                #   on, its fresh per-command prompt probe can instead grab
-                #   a trailing fragment of the *previous* (often large,
-                #   tabular) command's still-draining output and wait for
-                #   that on the *next* command; and disabling both in favor
-                #   of the one stable prompt captured at connect time still
-                #   risks that same prompt string coincidentally matching
-                #   partway through a large table's own contents, cutting a
-                #   command's output off early and leaving the rest to be
-                #   swept up by the *next* command's read - the exact "each
-                #   command's output is actually the previous command's"
-                #   symptom that combination produced.
-                #
-                # send_command_timing() sidesteps all of it - it just waits
-                # for the channel to go quiet for a couple seconds,
-                # regardless of what's been said or what the prompt looks
-                # like - at the cost of not being able to tell a genuinely
-                # slow command apart from one that's already finished, which
-                # is why well-behaved network-OS drivers still use the
-                # normal pattern-based read below instead.
-                use_timing_read = spec.netmiko_driver == "generic_termserver" or spec.category == "wlc"
-                outputs = []
-                for command in commands:
-                    if should_cancel is not None and should_cancel():
-                        _emit("\nCancelled - stopping before the next command.\n")
-                        raise CollectionCancelled(f"Collection for {host}:{port} was cancelled")
-                    outputs.append(f"! ---- {command} ----")
-                    _emit(f"\n$ {command}\n")
-                    # A handful of these (show tech-support, show run on a
-                    # large config, etc.) can routinely take minutes on real
-                    # hardware, well past a 60s timeout.
-                    if use_timing_read:
-                        output = conn.send_command_timing(command, last_read=2, read_timeout=300)
-                    else:
-                        output = conn.send_command(command, read_timeout=300)
-                    outputs.append(output)
-                    _emit(output + "\n")
-                return "\n".join(outputs)
-            except (EnableModeError, CollectionCancelled):
+                yield conn
+            except CollectionError:
+                # EnableModeError from just above, CollectionCancelled (or
+                # any other already-classified failure) from the body.
                 raise
             except Exception as exc:  # noqa: BLE001 - reported as a job failure, not a crash
                 raise CommandExecutionError(

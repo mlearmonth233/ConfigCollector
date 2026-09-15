@@ -55,7 +55,7 @@ export function FirmwareJobDetail() {
 
   async function handleCancel() {
     if (!jobId) return;
-    if (!confirm("Cancel this upgrade job? Devices not yet started are skipped; one already mid-upgrade finishes normally.")) {
+    if (!confirm("Cancel this push job? Devices not yet started are skipped; a copy already in progress finishes normally.")) {
       return;
     }
     setCancelError(null);
@@ -79,7 +79,7 @@ export function FirmwareJobDetail() {
         <Link to="/firmware">← Back to firmware</Link>
       </p>
       <div className="page-header-row sticky-header">
-        <h1>Upgrade job {job.id.slice(0, 8)}</h1>
+        <h1>Push job {job.id.slice(0, 8)}</h1>
         <div className="page-actions">
           <StatusBadge status={job.status} />
           {ACTIVE_STATUSES.has(job.status) && (
@@ -92,6 +92,7 @@ export function FirmwareJobDetail() {
       <p className="page-subtitle">
         Protocol: {job.protocol.toUpperCase()} · Started {new Date(job.created_at).toLocaleString()}
         {job.finished_at && ` · Finished ${new Date(job.finished_at).toLocaleString()}`}
+        {" · "}File copy only - nothing is installed or reloaded.
       </p>
 
       {cancelError && <div className="error-banner">{cancelError}</div>}
@@ -101,7 +102,7 @@ export function FirmwareJobDetail() {
       {job.items.some((i) => i.status === "authenticating") && (
         <div className="info-banner">
           One or more devices are logging in - if their credential uses push-based MFA, approve the
-          request on your phone now. No upgrade commands run until it succeeds.
+          request on your phone now. No copy command runs until it succeeds.
         </div>
       )}
 

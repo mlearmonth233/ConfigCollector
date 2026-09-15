@@ -17,7 +17,7 @@ class TransferProtocol(str, enum.Enum):
 
 class FirmwareImage(Base_):
     """An uploaded firmware/OS image file, available to push out to devices
-    during an upgrade job. The actual bytes live on local disk under
+    during a push job. The actual bytes live on local disk under
     settings.firmware_storage_dir - only metadata is in the DB, since these
     files can run into the hundreds of MB."""
 
@@ -40,9 +40,12 @@ class FirmwareImage(Base_):
 
 
 class FirmwareUpgradeJob(Base_):
-    """One 'push this firmware image to these devices' request, fanning out
-    to one FirmwareUpgradeJobItem per target device - mirrors CollectionJob/
-    CollectionJobItem's shape and status lifecycle."""
+    """One 'push this firmware image file to these devices' request - a copy
+    onto each device's storage, never an install/reload - fanning out to one
+    FirmwareUpgradeJobItem per target device; mirrors CollectionJob/
+    CollectionJobItem's shape and status lifecycle. (The class/table names
+    keep their original "upgrade" wording purely so existing databases
+    need no migration - the job itself only ever pushes the file.)"""
 
     __tablename__ = "firmware_upgrade_jobs"
 
@@ -75,7 +78,7 @@ class FirmwareUpgradeJobItem(Base_):
     job_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("firmware_upgrade_jobs.id"), nullable=False, index=True
     )
-    # Nullable so a device can be deleted without dragging its upgrade
+    # Nullable so a device can be deleted without dragging its push job
     # history down with it - same reasoning as CollectionJobItem.device_id.
     device_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True
@@ -83,8 +86,8 @@ class FirmwareUpgradeJobItem(Base_):
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Same live, human-readable transcript pattern as CollectionJobItem -
-    # matters even more here, since an upgrade in progress is exactly the
-    # kind of thing you don't want to walk away from without visibility.
+    # matters even more here, since a multi-minute image copy onto flash is
+    # exactly the kind of thing you don't want to watch blind.
     live_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -29,6 +29,7 @@ from app.services.collector import (
 from app.services.device_types import parse_command_list
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
+from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -318,15 +319,8 @@ def _finalize_job_if_done(db, job_id) -> None:
     db.commit()
 
 
-_FIRMWARE_PROTOCOL_PORTS = {
-    TransferProtocol.TFTP: lambda: settings.firmware_tftp_port,
-    TransferProtocol.FTP: lambda: settings.firmware_ftp_port,
-    TransferProtocol.SCP: lambda: settings.firmware_scp_port,
-}
-
-
-@celery_app.task(name="app.tasks.firmware_upgrade_device_task", bind=True, max_retries=0)
-def firmware_upgrade_device_task(
+@celery_app.task(name="app.tasks.firmware_push_device_task", bind=True, max_retries=0)
+def firmware_push_device_task(
     self,
     job_item_id: str,
     commands_by_device_type: dict[str, str],
@@ -335,20 +329,22 @@ def firmware_upgrade_device_task(
     otp: str | None = None,
     remaining: list[dict] | None = None,
 ) -> None:
-    """Firmware upgrades run strictly one device at a time - unlike
-    collect_device_task's authentication-overlap pipeline, there's no
-    upside here to overlapping one device still fetching/installing an
-    image with the next one authenticating, and real downside (multiple
-    devices pulling a possibly-large image over the same transfer server/
-    network link at once, or a staggered rollout the user specifically
-    wanted serialized)."""
+    """Pushes the job's firmware image file onto one device's storage - a
+    copy only, never an install or reload (see services/firmware_push.py).
+
+    Runs strictly one device at a time - unlike collect_device_task's
+    authentication-overlap pipeline, there's no upside here to overlapping
+    one device still pulling an image with the next one authenticating,
+    and real downside (multiple devices pulling a possibly-large image over
+    the same transfer server/network link at once, or a staggered rollout
+    the user specifically wanted serialized)."""
     remaining = remaining or []
 
     def dispatch_next() -> None:
         if not remaining:
             return
         next_item, *rest = remaining
-        firmware_upgrade_device_task.apply_async(
+        firmware_push_device_task.apply_async(
             args=[next_item["item_id"], commands_by_device_type, protocol, server_host],
             kwargs={"otp": next_item["otp"], "remaining": rest},
         )
@@ -366,14 +362,14 @@ def firmware_upgrade_device_task(
             return
 
         try:
-            _upgrade_one_device(db, item, commands_by_device_type, protocol, server_host, otp)
+            _push_to_one_device(db, item, commands_by_device_type, protocol, server_host, otp)
         except Exception as exc:  # noqa: BLE001
             # Same reasoning as collect_device_task's own catch-all: without
             # this, an unexpected error here would silently stop the rest
             # of the queue from ever being attempted.
             db.rollback()
             item.status = JobStatus.FAILED
-            item.error_message = f"Unexpected error during upgrade: {exc}"
+            item.error_message = f"Unexpected error during file push: {exc}"
             item.finished_at = datetime.now(timezone.utc)
             db.commit()
 
@@ -408,17 +404,40 @@ def _run_async_in_new_thread(coro_factory):
     return result.get("value")
 
 
-def _render_upgrade_commands(raw_commands: str, *, host: str, port: int, protocol: str, filename: str) -> list[str]:
-    """Substitutes a job's transfer-server details into a user-supplied,
-    comma-separated upgrade command template (see FirmwareJobCreate's
-    docstring for the placeholders) - split out as its own function so the
-    substitution itself is unit-testable without a real device or DB."""
-    return [
-        cmd.format(host=host, port=port, protocol=protocol, filename=filename) for cmd in parse_command_list(raw_commands)
-    ]
+def _attempt_push(
+    device: Device,
+    credential: Credential,
+    otp: str | None,
+    commands: list[str],
+    on_authenticated,
+    on_output,
+    should_cancel,
+) -> str:
+    """firmware_push's counterpart to _attempt_collection: one login with
+    one credential, then the rendered copy command(s). Same exception
+    contract (AuthenticationError / EnableModeError / CommandExecutionError
+    / CollectionCancelled) since it runs over the same device session."""
+    password = decrypt_secret(credential.encrypted_password)
+    secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
+    return push_file(
+        host=device.host,
+        port=device.port,
+        device_type=device.device_type,
+        username=credential.username,
+        password=password,
+        secret=secret,
+        auth_timeout=credential.auth_timeout_seconds,
+        commands=commands,
+        mfa_mode=credential.mfa_mode.value,
+        otp=otp,
+        otp_delimiter=credential.otp_delimiter,
+        on_authenticated=on_authenticated,
+        on_output=on_output,
+        should_cancel=should_cancel,
+    )
 
 
-def _upgrade_one_device(
+def _push_to_one_device(
     db,
     item: FirmwareUpgradeJobItem,
     commands_by_device_type: dict[str, str],
@@ -443,7 +462,7 @@ def _upgrade_one_device(
     raw_commands = commands_by_device_type.get(device.device_type)
     if not raw_commands:
         item.status = JobStatus.FAILED
-        item.error_message = f"No upgrade command template supplied for device type '{device.device_type}'"
+        item.error_message = f"No copy command supplied for device type '{device.device_type}'"
         item.finished_at = datetime.now(timezone.utc)
         db.commit()
         return
@@ -458,10 +477,22 @@ def _upgrade_one_device(
         return
 
     transfer_protocol = TransferProtocol(protocol)
-    port = _FIRMWARE_PROTOCOL_PORTS[transfer_protocol]()
-    commands = _render_upgrade_commands(
-        raw_commands, host=server_host, port=port, protocol=protocol, filename=image.original_filename
-    )
+    try:
+        commands = render_push_commands(
+            raw_commands,
+            protocol=transfer_protocol,
+            host=server_host,
+            port=transfer_port(transfer_protocol),
+            filename=image.original_filename,
+        )
+    except ValueError as exc:
+        # Already validated at job creation - this only fires for a job
+        # queued by an older client that skipped that check.
+        item.status = JobStatus.FAILED
+        item.error_message = str(exc)
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
     image_path = Path(settings.firmware_storage_dir) / str(job.org_id) / image.stored_filename
 
     on_authenticated = _make_firmware_authenticated_callback(db, item)
@@ -472,7 +503,7 @@ def _upgrade_one_device(
         async def _run() -> str:
             async with serve_file(transfer_protocol, image_path, server_host):
                 return await asyncio.to_thread(
-                    _attempt_collection, device, credential, otp, commands, on_authenticated, on_output, should_cancel
+                    _attempt_push, device, credential, otp, commands, on_authenticated, on_output, should_cancel
                 )
 
         _run_async_in_new_thread(_run)

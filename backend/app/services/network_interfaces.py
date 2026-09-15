@@ -1,6 +1,6 @@
 """Enumerates the machine ConfigCollector's backend runs on - not the
 devices being managed - so the user can pick which of this host's own
-network interfaces devices should use to reach the firmware-upgrade
+network interfaces devices should use to reach the firmware-push
 transfer server (TFTP/FTP/SCP). This matters because a multi-homed host
 (e.g. one NIC on an IT segment, another on OT) can be reachable from a
 target device on only one of its addresses - there's no single "right"
