@@ -22,27 +22,8 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-function Assert-LastExitCode([string]$step) {
-    if ($LASTEXITCODE -ne 0) {
-        throw "$step failed (exit code $LASTEXITCODE) - see the output above for the actual error."
-    }
-}
-
-if (-not (Test-Path ".venv")) {
-    Write-Host "Creating virtual environment..."
-    python -m venv .venv
-    Assert-LastExitCode "Virtual environment creation"
-}
-
-$activate = ".venv\Scripts\Activate.ps1"
-if (-not (Test-Path $activate)) {
-    throw "Could not find $activate - venv creation may have failed."
-}
-& $activate
-
-Write-Host "Installing/updating dependencies..."
-pip install -r requirements.txt
-Assert-LastExitCode "pip install"
+. "$PSScriptRoot\dev-env.ps1"
+Ensure-Environment
 
 Write-Host "Starting Celery worker (pool=threads, concurrency=8)..."
 celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=8

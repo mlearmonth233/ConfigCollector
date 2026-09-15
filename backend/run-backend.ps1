@@ -30,27 +30,8 @@ Set-Location $PSScriptRoot
 # partially-failed `pip install` (e.g. one package fails to build) would go
 # unnoticed here and only surface later as a confusing runtime import error
 # once uvicorn actually tries to start.
-function Assert-LastExitCode([string]$step) {
-    if ($LASTEXITCODE -ne 0) {
-        throw "$step failed (exit code $LASTEXITCODE) - see the output above for the actual error."
-    }
-}
-
-if (-not (Test-Path ".venv")) {
-    Write-Host "Creating virtual environment..."
-    python -m venv .venv
-    Assert-LastExitCode "Virtual environment creation"
-}
-
-$activate = ".venv\Scripts\Activate.ps1"
-if (-not (Test-Path $activate)) {
-    throw "Could not find $activate - venv creation may have failed."
-}
-& $activate
-
-Write-Host "Installing/updating dependencies..."
-pip install -r requirements.txt
-Assert-LastExitCode "pip install"
+. "$PSScriptRoot\dev-env.ps1"
+Ensure-Environment
 
 if ($Eager) {
     $env:CELERY_TASK_ALWAYS_EAGER = "true"
