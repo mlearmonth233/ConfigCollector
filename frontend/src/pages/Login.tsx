@@ -29,7 +29,7 @@ export function Login() {
   return (
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>ConfigCollector</h1>
+        <h1>Packrat</h1>
         <p className="auth-subtitle">Log in to your organization</p>
         {error && <div className="error-banner">{error}</div>}
         <label>

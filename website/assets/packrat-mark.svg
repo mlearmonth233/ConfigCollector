@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Packrat">
+  <!-- tail: a curl of copper patch cable ending in an RJ45 plug -->
+  <path d="M15 44c-6 0-9-4.5-6.5-8.5S18 32 18 38" fill="none" stroke="#d08a4a" stroke-width="3" stroke-linecap="round"/>
+  <path d="M15 44h-5" fill="none" stroke="#d08a4a" stroke-width="3" stroke-linecap="round"/>
+  <rect x="3" y="41" width="7" height="6" rx="1.2" fill="#d08a4a"/>
+  <path d="M4.5 42.5v3M6.5 42.5v3M8.5 42.5v3" stroke="#0b1526" stroke-width="0.9"/>
+  <!-- body -->
+  <ellipse cx="33" cy="41" rx="18" ry="12" fill="#22d3ee"/>
+  <!-- feet -->
+  <rect x="22" y="50.5" width="7" height="3.2" rx="1.6" fill="#22d3ee"/>
+  <rect x="35" y="50.5" width="7" height="3.2" rx="1.6" fill="#22d3ee"/>
+  <!-- ears -->
+  <circle cx="42" cy="21.5" r="5.2" fill="#22d3ee"/><circle cx="42" cy="21.5" r="2.6" fill="#0b1526"/>
+  <circle cx="54" cy="21.5" r="5.2" fill="#22d3ee"/><circle cx="54" cy="21.5" r="2.6" fill="#0b1526"/>
+  <!-- head -->
+  <circle cx="48" cy="31" r="10" fill="#22d3ee"/>
+  <!-- eye, nose, whiskers -->
+  <circle cx="51" cy="29.5" r="1.8" fill="#0b1526"/>
+  <circle cx="57.4" cy="33.6" r="1.9" fill="#0b1526"/>
+  <path d="M58.5 32.2l4.5-2M58.8 34.6l4.8 1.2" stroke="#0b1526" stroke-width="1.1" stroke-linecap="round"/>
+</svg>

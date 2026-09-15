@@ -1,4 +1,4 @@
-/* ConfigCollector design system
+/* Packrat design system
    Dark slate chrome (navbar, auth, terminal) over a light working surface,
    with a teal/cyan accent and a faint network-topology pattern behind the
    content - the look of an operations console rather than a generic admin
@@ -32,7 +32,8 @@
   --radius-lg: 14px;
   --topology-light: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480' viewBox='0 0 480 480'%3E%3Cg fill='none' stroke='%230f766e' stroke-opacity='0.11' stroke-width='1.2'%3E%3Cpath d='M48 72L184 136L336 88L432 184L296 272L136 248L48 72M184 136L136 248M336 88L296 272M136 248L72 392L232 432L392 368L296 272M232 432L184 136M392 368L432 184'/%3E%3C/g%3E%3Cg fill='%230f766e' fill-opacity='0.18'%3E%3Ccircle cx='48' cy='72' r='4'/%3E%3Ccircle cx='184' cy='136' r='5.5'/%3E%3Ccircle cx='336' cy='88' r='4'/%3E%3Ccircle cx='432' cy='184' r='4'/%3E%3Ccircle cx='296' cy='272' r='5.5'/%3E%3Ccircle cx='136' cy='248' r='4'/%3E%3Ccircle cx='72' cy='392' r='4'/%3E%3Ccircle cx='232' cy='432' r='5.5'/%3E%3Ccircle cx='392' cy='368' r='4'/%3E%3C/g%3E%3C/svg%3E");
   --topology-dark: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480' viewBox='0 0 480 480'%3E%3Cg fill='none' stroke='%2322d3ee' stroke-opacity='0.16' stroke-width='1.2'%3E%3Cpath d='M48 72L184 136L336 88L432 184L296 272L136 248L48 72M184 136L136 248M336 88L296 272M136 248L72 392L232 432L392 368L296 272M232 432L184 136M392 368L432 184'/%3E%3C/g%3E%3Cg fill='%2322d3ee' fill-opacity='0.35'%3E%3Ccircle cx='48' cy='72' r='4'/%3E%3Ccircle cx='184' cy='136' r='5.5'/%3E%3Ccircle cx='336' cy='88' r='4'/%3E%3Ccircle cx='432' cy='184' r='4'/%3E%3Ccircle cx='296' cy='272' r='5.5'/%3E%3Ccircle cx='136' cy='248' r='4'/%3E%3Ccircle cx='72' cy='392' r='4'/%3E%3Ccircle cx='232' cy='432' r='5.5'/%3E%3Ccircle cx='392' cy='368' r='4'/%3E%3C/g%3E%3C/svg%3E");
-  --brand-mark: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='2.6' fill='%2322d3ee'/%3E%3Ccircle cx='4.5' cy='6' r='2'/%3E%3Ccircle cx='19.5' cy='6' r='2'/%3E%3Ccircle cx='12' cy='20' r='2'/%3E%3Cpath d='M10 10.6L6.2 7.3M14 10.6l3.8-3.3M12 14.6V18'/%3E%3C/svg%3E");
+  --brand-mark: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E %3Cpath d='M15 44c-6 0-9-4.5-6.5-8.5S18 32 18 38' fill='none' stroke='%23d08a4a' stroke-width='3' stroke-linecap='round'/%3E %3Cpath d='M15 44h-5' fill='none' stroke='%23d08a4a' stroke-width='3' stroke-linecap='round'/%3E %3Crect x='3' y='41' width='7' height='6' rx='1.2' fill='%23d08a4a'/%3E %3Cpath d='M4.5 42.5v3M6.5 42.5v3M8.5 42.5v3' stroke='%230b1526' stroke-width='0.9'/%3E %3Cellipse cx='33' cy='41' rx='18' ry='12' fill='%2322d3ee'/%3E %3Crect x='22' y='50.5' width='7' height='3.2' rx='1.6' fill='%2322d3ee'/%3E %3Crect x='35' y='50.5' width='7' height='3.2' rx='1.6' fill='%2322d3ee'/%3E %3Ccircle cx='42' cy='21.5' r='5.2' fill='%2322d3ee'/%3E%3Ccircle cx='42' cy='21.5' r='2.6' fill='%230b1526'/%3E %3Ccircle cx='54' cy='21.5' r='5.2' fill='%2322d3ee'/%3E%3Ccircle cx='54' cy='21.5' r='2.6' fill='%230b1526'/%3E %3Ccircle cx='48' cy='31' r='10' fill='%2322d3ee'/%3E %3Ccircle cx='51' cy='29.5' r='1.8' fill='%230b1526'/%3E %3Ccircle cx='57.4' cy='33.6' r='1.9' fill='%230b1526'/%3E %3Cpath d='M58.5 32.2l4.5-2M58.8 34.6l4.8 1.2' stroke='%230b1526' stroke-width='1.1' stroke-linecap='round'/%3E %3C/svg%3E");
+  --brand-mark-light: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E %3Cpath d='M15 44c-6 0-9-4.5-6.5-8.5S18 32 18 38' fill='none' stroke='%23d08a4a' stroke-width='3' stroke-linecap='round'/%3E %3Cpath d='M15 44h-5' fill='none' stroke='%23d08a4a' stroke-width='3' stroke-linecap='round'/%3E %3Crect x='3' y='41' width='7' height='6' rx='1.2' fill='%23d08a4a'/%3E %3Cpath d='M4.5 42.5v3M6.5 42.5v3M8.5 42.5v3' stroke='%230b1526' stroke-width='0.9'/%3E %3Cellipse cx='33' cy='41' rx='18' ry='12' fill='%230f766e'/%3E %3Crect x='22' y='50.5' width='7' height='3.2' rx='1.6' fill='%230f766e'/%3E %3Crect x='35' y='50.5' width='7' height='3.2' rx='1.6' fill='%230f766e'/%3E %3Ccircle cx='42' cy='21.5' r='5.2' fill='%230f766e'/%3E%3Ccircle cx='42' cy='21.5' r='2.6' fill='%230b1526'/%3E %3Ccircle cx='54' cy='21.5' r='5.2' fill='%230f766e'/%3E%3Ccircle cx='54' cy='21.5' r='2.6' fill='%230b1526'/%3E %3Ccircle cx='48' cy='31' r='10' fill='%230f766e'/%3E %3Ccircle cx='51' cy='29.5' r='1.8' fill='%230b1526'/%3E %3Ccircle cx='57.4' cy='33.6' r='1.9' fill='%230b1526'/%3E %3Cpath d='M58.5 32.2l4.5-2M58.8 34.6l4.8 1.2' stroke='%230b1526' stroke-width='1.1' stroke-linecap='round'/%3E %3C/svg%3E");
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   font-feature-settings: "cv11", "ss01";
@@ -732,10 +733,9 @@ a:hover {
 
 .auth-form h1::before {
   content: "";
-  width: 26px;
-  height: 26px;
-  background: var(--brand-mark) center / contain no-repeat;
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.5)) saturate(1.1) brightness(0.85);
+  width: 30px;
+  height: 30px;
+  background: var(--brand-mark-light) center / contain no-repeat;
 }
 
 .auth-form button[type="submit"] {

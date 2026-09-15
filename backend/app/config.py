@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # App
-    app_name: str = "ConfigCollector"
+    app_name: str = "Packrat"
     environment: str = "development"
 
     # Database - defaults to a local sqlite file so the app runs with zero setup.

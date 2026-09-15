@@ -105,7 +105,7 @@ export function Credentials() {
       <p className="page-subtitle">
         Reusable username/password sets for logging into devices. Secrets are encrypted at rest and
         never shown again after creation. TACACS+/RADIUS AAA (and any MFA on top of it) is configured
-        on the device itself - here you just tell ConfigCollector how to log in and how long to wait.
+        on the device itself - here you just tell Packrat how to log in and how long to wait.
         The default credential is used automatically for any device that doesn't have one of its own
         assigned, so most devices never need a credential picked individually.
       </p>

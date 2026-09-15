@@ -1,10 +1,24 @@
-# ConfigCollector
+# Packrat
 
-A multi-tenant SaaS tool for bulk-collecting device configurations. Drop in a
-list of network devices — Cisco switches, WLCs, firewalls, PDUs, console
-servers, and more — assign credentials, and pull their running
-configuration over SSH in one click (or paste in a list of hostnames to add
-hundreds of devices at once).
+<img src="website/assets/packrat-mark.svg" alt="Packrat" width="72" align="right" />
+
+**Hoards every config. Forgets nothing.**
+
+Packrat is a self-hosted, multi-tenant tool for network engineers. Drop in a
+list of devices - Cisco IOS/IOS-XE switches and routers, Nexus, Catalyst
+9800 and AireOS controllers, FortiGates, APC PDUs, Versa SD-WAN - and it
+logs into each one over SSH, stores the running configuration as a
+snapshot, diffs it against the last one, and does it again on a schedule.
+It also pushes firmware images onto device storage, bulk-checks DNS and
+ping, and opens a browser SSH terminal to any device.
+
+- **User guide**: [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - every page,
+  step by step, plus troubleshooting.
+- **Marketing site**: [website/](website/) - a static page ready to host.
+- **Developer notes**: the rest of this README.
+
+(The code, database and Docker service names still say `ConfigCollector`,
+the project's original working name. Only the product name changed.)
 
 ## Architecture
 

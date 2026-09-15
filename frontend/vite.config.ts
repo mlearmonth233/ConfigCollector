@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon-16x16.png", "favicon-32x32.png", "apple-touch-icon.png"],
       manifest: {
-        name: "ConfigCollector",
-        short_name: "ConfigCollector",
-        description: "Bulk network device config collection, scheduling, and backup",
+        name: "Packrat",
+        short_name: "Packrat",
+        description: "Hoards every network config. Forgets nothing. Bulk config backup, firmware push, DNS checks and SSH for network engineers.",
         start_url: "/",
         display: "standalone",
         theme_color: "#0f172a",

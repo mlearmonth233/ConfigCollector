@@ -550,7 +550,7 @@ export function Devices() {
             {devices.length === 0 && (
               <tr>
                 <td colSpan={9} className="empty-state">
-                  No devices yet. Add one or import a CSV.
+                  No devices yet. Add one, or paste a list of hostnames to bulk add.
                 </td>
               </tr>
             )}

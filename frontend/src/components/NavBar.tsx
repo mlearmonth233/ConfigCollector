@@ -8,7 +8,7 @@ export function NavBar() {
 
   return (
     <header className="navbar">
-      <div className="navbar-brand">ConfigCollector</div>
+      <div className="navbar-brand">Packrat</div>
       <nav className="navbar-links">
         <NavLink to="/devices" className={({ isActive }) => (isActive ? "active" : "")}>
           Devices
