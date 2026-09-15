@@ -84,16 +84,39 @@ class _SSHClientWithKeyboardInteractiveFallback(paramiko.SSHClient):
     Only engages after a first straightforward "password" attempt has
     already failed, so a device that already authenticates fine today is
     unaffected - this can only turn an existing failure into a success, never
-    the reverse."""
+    the reverse.
+
+    Before trying "password" at all, probes which methods the server
+    actually accepts via a "none" auth request (RFC 4252 SS5.2 - every SSH
+    server must answer this with its allowed-methods list, and it carries no
+    credential guess, so it isn't itself a failed login attempt) and skips
+    straight to keyboard-interactive when "password" isn't among them. Many
+    PDUs (APC switched PDUs especially) only ever accept keyboard-
+    interactive, and their embedded SSH stacks are commonly slow (some
+    deliberately throttle failed/rejected auth attempts as an anti-brute-
+    force measure) - submitting a real password guess to a method the
+    device already doesn't support, only to fall back afterwards, was
+    turning every PDU login into two auth round trips where one already
+    known to work would do."""
 
     def _auth(self, username, password, *args, **kwargs):
         transport = self.get_transport()
         assert transport is not None
+
         try:
-            transport.auth_password(username, password)
-            return
+            transport.auth_none(username)
+            allowed_types: list[str] = []
+        except paramiko.BadAuthenticationType as exc:
+            allowed_types = exc.allowed_types
         except ParamikoAuthenticationException:
-            pass
+            allowed_types = []
+
+        if not allowed_types or "password" in allowed_types:
+            try:
+                transport.auth_password(username, password)
+                return
+            except ParamikoAuthenticationException:
+                pass
 
         def _answer_every_prompt_with_the_password(title, instructions, prompt_list):
             return [password for _ in prompt_list]
