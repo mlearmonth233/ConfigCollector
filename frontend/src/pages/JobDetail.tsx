@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { apiClient, extractErrorMessage } from "../api/client";
 import { saveBlobResponse } from "../api/download";
@@ -18,7 +18,6 @@ const ACTIVE_STATUSES = new Set(["pending", "running"]);
 
 export function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>();
-  const navigate = useNavigate();
   const [job, setJob] = useState<JobDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);
@@ -34,8 +33,14 @@ export function JobDetail() {
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [retryTarget, setRetryTarget] = useState<Device[] | null>(null);
+  const [retryItemId, setRetryItemId] = useState<string | null>(null);
   const [retryEditTarget, setRetryEditTarget] = useState<Device | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // Bumped whenever a retry finishes starting - see the polling effect
+  // below, which depends on it purely to restart itself: a job that had
+  // already gone inactive (and so stopped polling) needs a fresh polling
+  // loop once a retry puts one of its items back in motion.
+  const [retryPollNonce, setRetryPollNonce] = useState(0);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [neighborCheck, setNeighborCheck] = useState<NeighborGapCheck | null>(null);
@@ -66,13 +71,14 @@ export function JobDetail() {
     };
   }, []);
 
-  function handleRetry(deviceId: string) {
+  function handleRetry(itemId: string, deviceId: string) {
     setRetryError(null);
     const device = devices.find((d) => d.id === deviceId);
     if (!device) {
       setRetryError("That device no longer exists, so it can't be retried.");
       return;
     }
+    setRetryItemId(itemId);
     setRetryEditTarget(device);
   }
 
@@ -80,6 +86,21 @@ export function JobDetail() {
     setDevices((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
     setRetryEditTarget(null);
     setRetryTarget([updated]);
+  }
+
+  function handleRetryStarted(updatedJob: JobDetailType) {
+    const itemId = retryItemId;
+    setRetryTarget(null);
+    setRetryItemId(null);
+    setJob(updatedJob);
+    if (itemId) {
+      setExpandedConsoles((prev) => new Set(prev).add(itemId));
+    }
+    // The job may have already gone inactive (and so stopped polling) - a
+    // retry needs to be watched live the same as an original run.
+    hasAutoExpanded.current = true;
+    wasActive.current = true;
+    setRetryPollNonce((n) => n + 1);
   }
 
   async function handleCancel() {
@@ -196,7 +217,12 @@ export function JobDetail() {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [jobId]);
+    // retryPollNonce isn't read in here - it's only a signal to restart this
+    // effect (and so its polling interval) after a retry, since a job that
+    // had already gone inactive stops polling above and never restarts on
+    // its own otherwise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, retryPollNonce]);
 
   // Completed devices sink to the bottom so the ones still in progress (or
   // that need attention, like a failure) stay visible at the top without
@@ -368,7 +394,7 @@ export function JobDetail() {
                     <button
                       className="link-button"
                       style={{ marginLeft: 12 }}
-                      onClick={() => handleRetry(item.device_id!)}
+                      onClick={() => handleRetry(item.id, item.device_id!)}
                     >
                       Retry
                     </button>
@@ -400,16 +426,17 @@ export function JobDetail() {
         />
       )}
 
-      {retryTarget && (
+      {retryTarget && retryItemId && jobId && (
         <StartCollectionModal
           devices={retryTarget}
           deviceTypes={deviceTypes}
           credentials={credentials}
-          onClose={() => setRetryTarget(null)}
-          onStarted={(newJob) => {
+          retryContext={{ jobId, itemId: retryItemId }}
+          onClose={() => {
             setRetryTarget(null);
-            navigate(`/jobs/${newJob.id}`);
+            setRetryItemId(null);
           }}
+          onStarted={handleRetryStarted}
         />
       )}
     </div>

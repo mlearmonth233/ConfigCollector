@@ -4,15 +4,23 @@ import { extractErrorMessage } from "../api/client";
 import { jobsApi } from "../api/resources";
 import type { Credential, Device, DeviceType, JobDetail } from "../api/types";
 
+interface RetryContext {
+  jobId: string;
+  itemId: string;
+}
+
 interface Props {
   devices: Device[];
   deviceTypes: DeviceType[];
   credentials: Credential[];
   onClose: () => void;
   onStarted: (job: JobDetail) => void;
+  // When set, this modal retries one existing job item in place instead of
+  // starting a brand new job - `devices` must be exactly that one device.
+  retryContext?: RetryContext;
 }
 
-export function StartCollectionModal({ devices, deviceTypes, credentials, onClose, onStarted }: Props) {
+export function StartCollectionModal({ devices, deviceTypes, credentials, onClose, onStarted, retryContext }: Props) {
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const credentialMap = useMemo(() => new Map(credentials.map((c) => [c.id, c])), [credentials]);
   const orgDefaultCredential = useMemo(() => credentials.find((c) => c.is_default), [credentials]);
@@ -66,12 +74,26 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
     setError(null);
     setSubmitting(true);
     try {
-      const { data } = await jobsApi.create({
-        deviceIds: devices.map((d) => d.id),
-        commandsByDeviceType: commandsByType,
-        credentialOtps: otps,
-      });
-      onStarted(data);
+      if (retryContext) {
+        const device = devices[0];
+        const primaryCred = (device.credential_id ? credentialMap.get(device.credential_id) : undefined) ?? orgDefaultCredential;
+        const fallbackCred = primaryCred?.fallback_credential_id
+          ? credentialMap.get(primaryCred.fallback_credential_id)
+          : undefined;
+        const { data } = await jobsApi.retryItem(retryContext.jobId, retryContext.itemId, {
+          commands: commandsByType[device.device_type]?.trim() || undefined,
+          credential_otp: primaryCred ? otps[primaryCred.id] : undefined,
+          fallback_otp: fallbackCred ? otps[fallbackCred.id] : undefined,
+        });
+        onStarted(data);
+      } else {
+        const { data } = await jobsApi.create({
+          deviceIds: devices.map((d) => d.id),
+          commandsByDeviceType: commandsByType,
+          credentialOtps: otps,
+        });
+        onStarted(data);
+      }
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -83,7 +105,11 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Start collection ({devices.length} device{devices.length === 1 ? "" : "s"})</h2>
+          <h2>
+            {retryContext
+              ? `Retry ${devices[0]?.name ?? "device"}`
+              : `Start collection (${devices.length} device${devices.length === 1 ? "" : "s"})`}
+          </h2>
           <div className="modal-header-actions">
             <button onClick={onClose}>Cancel</button>
           </div>
@@ -136,7 +162,7 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
         </div>
         <div className="modal-footer">
           <button onClick={handleSubmit} disabled={submitting}>
-            {submitting ? "Starting…" : "Start collection"}
+            {retryContext ? (submitting ? "Retrying…" : "Retry") : submitting ? "Starting…" : "Start collection"}
           </button>
         </div>
       </div>

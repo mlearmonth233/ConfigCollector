@@ -21,6 +21,17 @@ class JobCreate(BaseModel):
     credential_otps: dict[str, str] | None = None
 
 
+class JobItemRetry(BaseModel):
+    # Same per-device-type command override create_job's
+    # commands_by_device_type carries, just scoped to this one device -
+    # None falls back to the device's own custom_commands, then the org's
+    # saved default for its type, then the registry default, exactly as a
+    # fresh collection would.
+    commands: str | None = None
+    credential_otp: str | None = None
+    fallback_otp: str | None = None
+
+
 class JobItemOut(BaseModel):
     id: UUID
     device_id: UUID | None

@@ -85,6 +85,12 @@ export interface JobCreatePayload {
   credentialOtps?: Record<string, string>;
 }
 
+export interface JobItemRetryPayload {
+  commands?: string;
+  credential_otp?: string;
+  fallback_otp?: string;
+}
+
 export const jobsApi = {
   list: () => apiClient.get<Job[]>("/api/jobs"),
   create: ({ deviceIds, commandsByDeviceType, credentialOtps }: JobCreatePayload) =>
@@ -98,6 +104,8 @@ export const jobsApi = {
   remove: (id: string) => apiClient.delete(`/api/jobs/${id}`),
   clearFinished: () => apiClient.delete<{ deleted: number }>("/api/jobs"),
   checkNeighborGaps: (id: string) => apiClient.get<NeighborGapCheck>(`/api/jobs/${id}/neighbor-gaps`),
+  retryItem: (jobId: string, itemId: string, payload: JobItemRetryPayload) =>
+    apiClient.post<JobDetail>(`/api/jobs/${jobId}/items/${itemId}/retry`, payload),
 };
 
 export const snapshotsApi = {

@@ -14,10 +14,19 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.credential import Credential, MfaMode
 from app.models.device import Device
-from app.models.job import CollectionJob, CollectionJobItem, JobStatus
+from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.schedule import Schedule
 from app.models.user import User
-from app.schemas.job import JobClearResult, JobCreate, JobDetailOut, JobItemOut, JobOut, NeighborGapCheckOut, NeighborGapOut
+from app.schemas.job import (
+    JobClearResult,
+    JobCreate,
+    JobDetailOut,
+    JobItemOut,
+    JobItemRetry,
+    JobOut,
+    NeighborGapCheckOut,
+    NeighborGapOut,
+)
 from app.services.device_types import parse_command_list, resolve_commands
 from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 from app.services.neighbor_discovery import extract_neighbors, has_neighbor_command, normalize_device_name
@@ -237,13 +246,9 @@ async def create_and_dispatch_job(
 
     dispatch_specs = []
     for item, device in zip(items, devices):
-        raw_override = commands_by_type.get(device.device_type)
-        if raw_override:
-            commands_override = parse_command_list(raw_override)
-        elif not device.custom_commands and device.device_type in org_default_commands:
-            commands_override = org_default_commands[device.device_type]
-        else:
-            commands_override = None
+        commands_override = _resolve_commands_override(
+            device, commands_by_type.get(device.device_type), org_default_commands
+        )
         credential = _effective_credential(device)
         otp = credential_otps.get(str(credential.id)) if credential else None
         fallback = credential.fallback_credential if credential else None
@@ -310,6 +315,123 @@ async def cancel_job(
             item.status = JobStatus.CANCELLED
             item.finished_at = now
     await db.commit()
+
+    return await fetch_job_detail(db, job_id, user.org_id)
+
+
+@router.post("/{job_id}/items/{item_id}/retry", response_model=JobDetailOut)
+async def retry_job_item(
+    job_id: UUID,
+    item_id: UUID,
+    payload: JobItemRetry,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobDetailOut:
+    """Re-runs one device without spinning up a new job - unlike starting a
+    fresh collection (a brand new CollectionJob, disconnected from this
+    one's history/URL/downloads), this resets the existing item in place
+    and re-dispatches it, so the retry's outcome lands right back in the
+    same job the user is already looking at."""
+    job = await _get_owned_job(db, job_id, user.org_id)
+    item = next((i for i in job.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job item not found")
+    if item.status in ACTIVE_JOB_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This device is still running - wait for it to finish before retrying",
+        )
+    if item.device_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This device no longer exists, so it can't be retried",
+        )
+
+    device = await db.scalar(
+        select(Device)
+        .options(selectinload(Device.credential).selectinload(Credential.fallback_credential))
+        .where(Device.id == item.device_id, Device.org_id == user.org_id)
+    )
+    if device is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This device no longer exists, so it can't be retried",
+        )
+
+    org_default_credential = await db.scalar(
+        select(Credential)
+        .options(selectinload(Credential.fallback_credential))
+        .where(Credential.org_id == user.org_id, Credential.is_default.is_(True))
+    )
+    credential = device.credential or org_default_credential
+    if credential is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"{device.name} has no credential assigned and no org-wide default credential is "
+                "configured"
+            ),
+        )
+    fallback = credential.fallback_credential
+    if credential.mfa_mode == MfaMode.PASSCODE and not payload.credential_otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A one-time passcode is required for credential '{credential.name}' before retrying",
+        )
+    if fallback is not None and fallback.mfa_mode == MfaMode.PASSCODE and not payload.fallback_otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A one-time passcode is required for fallback credential '{fallback.name}' before retrying",
+        )
+
+    org_overrides = await get_org_command_overrides(db, user.org_id)
+    org_default_commands = {
+        device_type: parse_command_list(profile.commands) for device_type, profile in org_overrides.items()
+    }
+    if not payload.commands and not _has_resolvable_commands(
+        device.device_type, device.custom_commands, org_default_commands.get(device.device_type)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"{device.name} has no default command for its type and no custom command "
+                "configured - specify one before retrying"
+            ),
+        )
+    commands_override = _resolve_commands_override(device, payload.commands, org_default_commands)
+
+    if item.snapshot is not None:
+        # A previously COMPLETED item's snapshot would otherwise sit
+        # alongside a fresh one under the same job_item_id once collection
+        # succeeds again, breaking the one-snapshot-per-item relationship.
+        await db.delete(item.snapshot)
+
+    item.status = JobStatus.PENDING
+    item.error_message = None
+    item.used_fallback_credential = False
+    item.started_at = None
+    item.finished_at = None
+    if item.live_output:
+        item.live_output += "\n\n===== Retrying =====\n\n"
+
+    # A prior cancel_requested must not immediately cancel this fresh
+    # attempt the moment it reaches its first command (see collector.py's
+    # should_cancel) - retrying is exactly the user asking this device to
+    # run again despite that.
+    job.cancel_requested = False
+    job.status = JobStatus.RUNNING
+    job.finished_at = None
+    await db.commit()
+
+    collect_device_task.apply_async(
+        args=[str(item.id)],
+        kwargs={
+            "commands_override": commands_override,
+            "otp": payload.credential_otp,
+            "fallback_otp": payload.fallback_otp,
+            "remaining": [],
+        },
+    )
 
     return await fetch_job_detail(db, job_id, user.org_id)
 
@@ -492,6 +614,23 @@ def _has_resolvable_commands(
         return True
     except ValueError:
         return False
+
+
+def _resolve_commands_override(
+    device: Device, raw_override: str | None, org_default_commands: dict[str, list[str]]
+) -> list[str] | None:
+    """None means "no override" - resolve_commands() falls back to the
+    device's own custom_commands, then the registry default, at collection
+    time. An org's saved Commands-page default sits between a device's own
+    custom_commands and this run's own override: it applies whenever the
+    device has no custom_commands of its own and nothing more specific was
+    supplied for this run. Shared by a fresh job's per-device dispatch loop
+    and a single-item retry, so both resolve commands identically."""
+    if raw_override:
+        return parse_command_list(raw_override)
+    if not device.custom_commands and device.device_type in org_default_commands:
+        return org_default_commands[device.device_type]
+    return None
 
 
 def _to_job_out(job: CollectionJob) -> JobOut:
