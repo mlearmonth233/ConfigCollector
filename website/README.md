@@ -36,12 +36,70 @@ Search `index.html` for these and replace them:
   package, a Chrome extension, a game). It is fine as a working name; do a
   proper clearance search before spending money on it.
 
-## Taking payments
+## Taking payments (Stripe)
 
-The Colony and Warren buttons are `mailto:` links so you can sell by hand
-first. When you want self-serve checkout, the smallest change is to swap
-the Colony button's `href` for a Stripe Payment Link (create one in the
-Stripe dashboard, no code needed) and leave Warren as a contact link.
+The Colony tier checks out through a Stripe Payment Link: Stripe hosts the
+payment page, handles cards / Apple Pay / Google Pay, sends receipts and
+invoices, and gives customers a billing portal to change card or cancel.
+Nothing runs on your side, so the site stays static. Warren stays a
+`mailto:` link because it is quoted per fleet. Until you paste a real link
+the Colony button keeps its email fallback, so a half-configured deploy
+never ships a dead Buy button.
+
+Set-up, about twenty minutes in the Stripe dashboard:
+
+1. **Create the product.** Products → Add product: "Packrat Colony",
+   recurring, USD 79.00 monthly. Optional: add a yearly price too.
+2. **Create the Payment Link.** Payment Links → New → pick the Colony
+   price. In the link's options turn on:
+   - *Free trial*: 30 days (matches the button text).
+   - *Collect tax automatically* (Stripe Tax) if you sell outside your own
+     tax jurisdiction, and *Collect customers' addresses* so tax is right.
+   - *Allow promotion codes* if you plan to hand out discounts.
+   - *Confirmation page*: "Don't show confirmation page, redirect
+     customers to your website" with the URL
+     `https://<your site>/thanks.html?session_id={CHECKOUT_SESSION_ID}`
+     (keep the placeholder literally; Stripe fills it in).
+3. **Paste the link.** In `index.html`, set `STRIPE_PAYMENT_LINK` in the
+   script at the foot of the page to the `https://buy.stripe.com/...` URL.
+4. **Turn on the billing portal.** Settings → Billing → Customer portal:
+   allow customers to update payment methods and cancel. The link to it
+   is included in Stripe's receipt emails automatically.
+5. **Test it.** Stripe gives every link a test-mode twin. Paste the test
+   link first, check out with card `4242 4242 4242 4242`, confirm you land
+   on `thanks.html` with a reference shown, then swap in the live link.
+6. **Emails.** Settings → Emails: turn on receipts for successful
+   payments and set the support address; `thanks.html` and the FAQ point
+   customers at `support@packrat.app`, so create that mailbox.
+
+Stripe's fees come off each payment; nothing else is needed for a
+subscription product with no per-customer fulfilment.
+
+## Later: licence keys
+
+Today every tier is the same download and device caps run on the honour
+system. When you want the app itself to know a customer has paid, three
+pieces are needed. The website side is already shaped for it:
+
+1. **Issue a key on payment.** A Stripe webhook (`checkout.session.completed`)
+   hits a small serverless function (Cloudflare Worker, Netlify or Vercel
+   function). It generates a signed key carrying the tier, device limit
+   and expiry, stores it against the Stripe customer id, and emails it.
+   `thanks.html` receives the `session_id` in its URL and has a marked
+   spot to show the key, fetched from that same function.
+2. **Renewals and cancellations.** The same webhook handles
+   `invoice.paid` (extend expiry) and `customer.subscription.deleted`
+   (mark the key ended). Signed keys with an expiry mean the app can check
+   validity offline; a monthly "phone home" is optional.
+3. **In the app.** A Licence section on Settings where an admin pastes
+   the key; the backend verifies the signature with an embedded public
+   key and exposes tier and device limit. Whether the limit is a reminder
+   or a hard stop is a product decision to make then.
+
+Alternatively, Lemon Squeezy or Paddle act as merchant of record (they
+handle VAT and sales tax worldwide) and Lemon Squeezy issues licence keys
+out of the box; if tax handling becomes a burden, switching the Colony
+button to one of their checkout links is the same one-line change.
 
 ## Refreshing the screenshots
 

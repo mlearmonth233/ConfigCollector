@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>Packrat - Welcome to the Colony</title>
+<link rel="icon" type="image/svg+xml" href="assets/packrat-mark.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+<style>
+  :root {
+    --navy: #0b1526; --cyan: #22d3ee; --teal: #0f766e; --teal-ink: #0b5a54; --copper: #d08a4a; --copper-deep: #a8652b;
+    --bg: #f3f6f9; --surface: #ffffff; --surface-2: #e9eff5; --ink: #0f172a; --ink-2: #34445a; --muted: #5f6f82; --line: #d5dee8; --ok: #16a34a;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --radius: 14px; --gutter: clamp(16px, 5vw, 64px); --measure: 62ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1829; --surface: #132238; --surface-2: #1a2c46; --ink: #e8eef6; --ink-2: #c3cfdd;
+      --muted: #8fa0b5; --line: #24384f; --teal: #2dd4bf; --teal-ink: #5eead4; --copper: #e0a06a; --copper-deep: #d08a4a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1829; --surface: #132238; --surface-2: #1a2c46; --ink: #e8eef6; --ink-2: #c3cfdd;
+    --muted: #8fa0b5; --line: #24384f; --teal: #2dd4bf; --teal-ink: #5eead4; --copper: #e0a06a; --copper-deep: #d08a4a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--teal-ink); }
+  h1, h2, h3 { font-family: var(--display); letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+  p { margin: 0; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: var(--gutter); }
+  .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--copper-deep); }
+  :focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+
+  .top { background: var(--navy); color: #fff; }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 16px; flex-wrap: wrap; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 800; font-size: 22px; color: #fff; text-decoration: none; letter-spacing: -0.02em; }
+  .brand img { width: 34px; height: 34px; filter: drop-shadow(0 0 8px rgba(34,211,238,.5)); }
+  .top nav a { color: #c7d5e6; text-decoration: none; font-size: 15px; }
+  .top nav a:hover { color: #fff; }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; font-weight: 600; text-decoration: none; font-size: 15.5px; border: 1px solid transparent; }
+  .btn-teal { background: var(--teal); color: #fff; }
+  .btn-outline { background: transparent; color: var(--ink); border-color: var(--line); }
+
+  main { padding-block: clamp(56px, 8vw, 104px); }
+  .hello { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(28px, 5vw, 72px); align-items: start; }
+  h1 { font-size: clamp(36px, 5vw, 60px); font-weight: 800; line-height: 1.02; margin-top: 14px; }
+  h1 em { font-style: normal; color: var(--teal); }
+  .lede { color: var(--ink-2); max-width: var(--measure); font-size: 18px; margin-top: 18px; }
+  .ref { margin-top: 18px; font-family: var(--mono); font-size: 13px; color: var(--muted); word-break: break-all; }
+  .ref b { color: var(--ink-2); font-weight: 500; }
+
+  .steps { counter-reset: step; display: grid; gap: 14px; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; }
+  .step::before { counter-increment: step; content: counter(step); font-family: var(--display); font-weight: 800; font-size: 30px; color: var(--copper); line-height: 1; }
+  .step h3 { font-size: 18px; margin-bottom: 6px; }
+  .step p { color: var(--ink-2); font-size: 15.5px; }
+  .step code { font-family: var(--mono); font-size: 13.5px; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+  .step .cta { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+  footer { background: var(--navy); color: #b9c8da; padding-block: 40px; font-size: 14.5px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+  footer a { color: #e6eef8; }
+
+  @media (max-width: 900px) { .hello { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/packrat-mark.svg" alt="" /> Packrat</a>
+    <nav aria-label="Site"><a href="index.html#pricing">Pricing</a></nav>
+  </div>
+</div>
+
+<main>
+  <div class="wrap hello">
+    <div>
+      <p class="eyebrow">Payment received</p>
+      <h1>Welcome to the <em>Colony.</em></h1>
+      <p class="lede">Your 30-day trial has started and nothing is charged until it ends. Stripe is emailing your receipt now; that email also carries the link to your billing portal, where you can change the card or cancel any time.</p>
+      <p class="ref" id="ref" hidden>Reference <b id="ref-value"></b> - quote this if you write to us about the order.</p>
+      <!-- Licence keys: when licensing ships, this is where the key goes.
+           The session_id in the URL identifies the Stripe Checkout Session;
+           a small serverless endpoint can exchange it for the key (or the
+           key can simply be emailed by the payment webhook). Until then
+           Colony is the same download as Nest, and the subscription is
+           what funds support and development. -->
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Get the software</h3>
+          <p>Colony is the same Packrat you may already be running. If not, grab it and follow the README: Windows with the bundled PowerShell scripts, Linux or macOS with Python and Node, or the Docker Compose stack for a server.</p>
+          <div class="cta">
+            <a class="btn btn-teal" href="https://github.com/mlearmonth233/ConfigCollector">Download Packrat</a>
+            <a class="btn btn-outline" href="https://github.com/mlearmonth233/ConfigCollector/blob/main/docs/USER_GUIDE.md">Read the user guide</a>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Move to Postgres when you outgrow the laptop</h3>
+          <p>The default SQLite file is fine for hundreds of devices. The Docker Compose file in the repository brings up Postgres, Redis, the worker and the scheduler in one command; the deployment guide walks through it.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Email support, next business day</h3>
+          <p>Write to <a href="mailto:support@packrat.app">support@packrat.app</a> from the address you paid with. Attach the log bundle from <code>Settings &rsaquo; Troubleshooting</code> and we can usually answer from the first reply.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><strong style="color:#fff">Packrat</strong> · Hoards every config. Forgets nothing.</div>
+    <div><a href="index.html">Home</a> · <a href="mailto:support@packrat.app">Support</a></div>
+  </div>
+</footer>
+
+<script>
+  // Stripe appends ?session_id={CHECKOUT_SESSION_ID} when the Payment Link's
+  // confirmation page is set to redirect here. Shown as an order reference;
+  // it is not a secret and grants nothing on its own.
+  (function () {
+    var id = new URLSearchParams(window.location.search).get("session_id");
+    if (!id || !/^cs_(test|live)_[A-Za-z0-9]+$/.test(id)) return;
+    document.getElementById("ref-value").textContent = id.slice(-12);
+    document.getElementById("ref").hidden = false;
+  })();
+</script>
+</body>
+</html>

@@ -320,7 +320,11 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
         <div><h3>Colony</h3><p class="who">For a team running a campus, a data center, or a few dozen branches.</p></div>
         <p class="price">$79<small>per month</small></p>
         <ul><li>Up to 500 devices</li><li>Unlimited users in your org</li><li>Unlimited snapshot history</li><li>Email support, next business day</li><li>Postgres and Docker deployment guide</li></ul>
-        <a class="btn btn-teal" href="mailto:sales@packrat.app?subject=Packrat%20Colony">Start a 30-day trial</a>
+        <!-- Stripe Payment Link for the Colony subscription. Create it in the
+             Stripe dashboard (see website/README.md, "Taking payments") and
+             paste the URL into STRIPE_PAYMENT_LINK in the script at the foot
+             of this page. Until then the button falls back to email. -->
+        <a class="btn btn-teal" id="buy-colony" href="mailto:sales@packrat.app?subject=Packrat%20Colony" data-fallback="mailto:sales@packrat.app?subject=Packrat%20Colony">Start a 30-day trial</a>
       </div>
       <div class="tier">
         <div><h3>Warren</h3><p class="who">For a fleet with thousands of devices, OT segments, and an audit calendar.</p></div>
@@ -329,7 +333,7 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
         <a class="btn btn-outline" href="mailto:sales@packrat.app?subject=Packrat%20Warren">Book a demo</a>
       </div>
     </div>
-    <p class="note">Prices in USD. Device counts are enforced by the honour system and a friendly reminder, not a kill switch. Your configs are yours and stay on your infrastructure at every tier.</p>
+    <p class="note">Prices in USD. Card payments are handled by Stripe; you get a receipt and invoice by email and can cancel any time from the billing portal. Device counts are enforced by the honour system and a friendly reminder, not a kill switch. Your configs are yours and stay on your infrastructure at every tier.</p>
   </div>
 </section>
 
@@ -342,6 +346,7 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
     <details><summary>We use TACACS+ with Duo. Will it cope?</summary><p>Yes. Set the credential's MFA mode to push and give it a generous wait, and Packrat pauses at login while you approve on your phone. For passcode-based MFA you enter a one-time code when starting a job and Packrat appends it to the password with the delimiter your AAA server expects.</p></details>
     <details><summary>Where does it run?</summary><p>On a Windows laptop with the bundled PowerShell scripts, on Linux or macOS with Python and Node, or as a Docker Compose stack with Postgres and Redis. The whole thing is a FastAPI backend, a Celery worker, and a React frontend.</p></details>
     <details><summary>How many devices can a job handle?</summary><p>Hundreds is routine. Devices are processed in a pipeline so one device's command output overlaps the next device's login, which is usually the slow part. DNS checks are chunked and have been run against ten thousand targets.</p></details>
+    <details><summary>How does paying work?</summary><p>The Colony button opens a Stripe checkout: card, Apple Pay or Google Pay, with a 30-day trial before the first charge. Stripe emails the receipt and a monthly invoice, and the link in that email opens a billing portal where you can change the card or cancel. Packrat is the same download on every tier; nothing to activate today. Warren is quoted per fleet, so that one is a conversation.</p></details>
     <details><summary>Why a rat?</summary><p>Packrats hoard. They collect anything that catches their eye and keep it in a nest forever. That is the entire product strategy, and also "packet rat" was right there.</p></details>
   </div>
 </section>
@@ -353,6 +358,27 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
     <div class="tag">Cisco, Catalyst, Nexus, FortiGate, APC and Versa are trademarks of their respective owners. Packrat is not affiliated with any of them.</div>
   </div>
 </footer>
+
+<script>
+  // ---- Stripe checkout -------------------------------------------------
+  // Paste the Payment Link from the Stripe dashboard here (Products ->
+  // Payment Links -> the Colony link). Set its confirmation page to
+  // "redirect to your website" with the URL
+  //   https://<your site>/thanks.html?session_id={CHECKOUT_SESSION_ID}
+  // While this still says REPLACE_ME the button keeps its email fallback,
+  // so a half-configured deploy never ships a dead Buy button.
+  var STRIPE_PAYMENT_LINK = "https://buy.stripe.com/REPLACE_ME";
+
+  (function () {
+    var button = document.getElementById("buy-colony");
+    if (!button) return;
+    if (STRIPE_PAYMENT_LINK && STRIPE_PAYMENT_LINK.indexOf("REPLACE_ME") === -1) {
+      button.href = STRIPE_PAYMENT_LINK;
+      button.rel = "noopener";
+      button.removeAttribute("data-fallback");
+    }
+  })();
+</script>
 <!-- ARTIFACT-END -->
 </body>
 </html>
