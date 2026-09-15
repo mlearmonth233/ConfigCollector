@@ -214,7 +214,7 @@ do - Mac users on Safari should use Chrome or Edge for the install option
 Devices can be added one at a time from the UI, or in bulk by pasting a
 list of hostnames (`Devices → Bulk add from hostnames`) - one per line (or
 comma-separated). Each name gets auto-detected the same way the single
-"Add device" form does (device type/role/network zone from the name, see
+"Add device" form does (device type/role from the name, see
 below), landed in a review table sorted by role code and then numerically
 (routers, then firewalls, then switches by tier, then WLCs, then PDUs/
 console servers - see `frontend/src/utils/deviceNameSort.ts`), so you can
@@ -239,10 +239,10 @@ a few firewall vendors, APC PDUs) rather than every vendor Netmiko can
 speak - add another in `backend/app/services/device_types.py` by mapping
 to a Netmiko driver name if a new one shows up.
 
-### Auto-detecting device type/role/zone from the name
+### Auto-detecting device type/role from the name
 
 Both the "Add device" form and the bulk-add review table can infer a
-device's type, role, and network zone from its **name**, based on a
+device's type and role from its **name**, based on a
 short-code naming convention (e.g. `GBGYSP01SWA001`):
 
 | Code in name | Role                 | Device type (when unambiguous) |
@@ -254,8 +254,6 @@ short-code naming convention (e.g. `GBGYSP01SWA001`):
 | `WLC`        | Wireless LAN controller | *(none - see below)*           |
 | `PDU`        | Power distribution unit | `apc_pdu`                       |
 | `CON`        | Console server          | *(none - no console-server device type is configured)* |
-
-`P0`/`O0` in the name similarly suggest the **network zone**, IT or OT.
 
 This is always just a starting guess, shown live as you type a name in the
 "Add device" form (and applied per-row in the bulk-add review table) -

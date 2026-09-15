@@ -1,20 +1,19 @@
 """Best-effort classification of a device from its name - role (access
-switch, core switch, firewall...), IT/OT zone, and a suggested device
-type - driven by *naming rules*.
+switch, core switch, firewall...) and a suggested device type - driven by
+*naming rules*.
 
 Every organization names devices differently: one embeds "SWA"/"SWC" role
-codes and a "P0"/"O0" zone marker ("GBGYSP01SWA001"), another spells it
-out ("den-core-sw01", "plant2-ot-acc-03"). So the rules are data, not
-code: an org defines its own (see models/hostname_rule.py and
-api/hostname_rules.py), and until it does, BUILTIN_RULES - the original
-convention - apply as a starting point it can copy and edit.
+codes ("GBGYSP01SWA001"), another spells it out ("den-core-sw01",
+"plant2-acc-03"). So the rules are data, not code: an org defines its own
+(see models/hostname_rule.py and api/hostname_rules.py), and until it
+does, BUILTIN_RULES - the original convention - apply as a starting point
+it can copy and edit.
 
 A rule is "when the hostname matches this pattern, it's this role and/or
-this zone, and (optionally) this device type". Rules are checked in order;
-the first match wins for each of role, zone and device type separately, so
-a role rule and a zone rule can both fire on one name. Everything detected
-is only ever a pre-fill for the Add-device form / bulk add - an explicitly
-supplied value always wins.
+this device type". Rules are checked in order; the first match wins for
+role and for device type separately, so a role rule and a type rule can
+both fire on one name. Everything detected is only ever a pre-fill for the
+Add-device form / bulk add - an explicitly supplied value always wins.
 """
 
 from __future__ import annotations
@@ -23,8 +22,6 @@ import enum
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-
-from app.models.device import NetworkZone
 
 # Roles this app knows how to label out of the box. An org's rules may name
 # any other role key (a lowercase slug), with its own label - see
@@ -55,7 +52,6 @@ class Rule:
     match_mode: MatchMode = MatchMode.CONTAINS
     device_role: str | None = None
     role_label: str | None = None
-    network_zone: NetworkZone | None = None
     device_type: str | None = None
 
     def matches(self, name: str) -> bool:
@@ -84,8 +80,8 @@ def validate_rule(rule: Rule) -> None:
             re.compile(rule.pattern, re.IGNORECASE)
         except re.error as exc:
             raise ValueError(f"'{rule.pattern}' is not a valid regular expression: {exc}") from exc
-    if rule.device_role is None and rule.network_zone is None and rule.device_type is None:
-        raise ValueError(f"Rule '{rule.pattern}' sets nothing - give it a role, a zone or a device type")
+    if rule.device_role is None and rule.device_type is None:
+        raise ValueError(f"Rule '{rule.pattern}' sets nothing - give it a role or a device type")
     if rule.device_role is not None and not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", rule.device_role):
         raise ValueError(
             f"Role key '{rule.device_role}' must be lowercase letters, digits and underscores (e.g. wan_edge)"
@@ -107,8 +103,6 @@ BUILTIN_RULES: tuple[Rule, ...] = (
     Rule("CON", device_role="console_server"),
     Rule("FWL", device_role="firewall", device_type="fortinet"),
     Rule("RTR", device_role="router", device_type="versa"),
-    Rule("P0", network_zone=NetworkZone.IT),
-    Rule("O0", network_zone=NetworkZone.OT),
 )
 
 
@@ -128,17 +122,15 @@ def roles_for_rules(rules: Iterable[Rule] | None) -> dict[str, str]:
 class Detection:
     device_role: str | None
     device_role_label: str | None
-    network_zone: NetworkZone | None
     suggested_device_type: str | None
 
 
 def detect(name: str, rules: Iterable[Rule] | None = None) -> Detection:
     """Applies `rules` (or BUILTIN_RULES when None/empty) to a hostname.
-    First match wins independently for role, zone and device type; a
-    device type comes from the first matching rule that names one, so a
-    zone-only rule never overrides a role rule's type suggestion."""
+    First match wins independently for role and device type; a device
+    type comes from the first matching rule that names one."""
     active = tuple(rules) if rules else BUILTIN_RULES
-    role = zone = device_type = None
+    role = device_type = None
     role_label = None
     labels = roles_for_rules(active)
     for rule in active:
@@ -147,11 +139,9 @@ def detect(name: str, rules: Iterable[Rule] | None = None) -> Detection:
         if role is None and rule.device_role:
             role = rule.device_role
             role_label = labels.get(role)
-        if zone is None and rule.network_zone is not None:
-            zone = rule.network_zone
         if device_type is None and rule.device_type:
             device_type = rule.device_type
-    return Detection(device_role=role, device_role_label=role_label, network_zone=zone, suggested_device_type=device_type)
+    return Detection(device_role=role, device_role_label=role_label, suggested_device_type=device_type)
 
 
 def device_type_for_role(role: str | None, rules: Iterable[Rule] | None = None) -> str | None:
@@ -171,10 +161,6 @@ def detect_device_role(name: str) -> str | None:
     return detect(name).device_role
 
 
-def detect_network_zone(name: str) -> NetworkZone | None:
-    return detect(name).network_zone
-
-
 def rules_from_rows(rows: Iterable) -> tuple[Rule, ...]:
     """Rule objects from an org's HostnameRule rows (duck-typed - any object
     with the same attribute names), in their saved order."""
@@ -184,7 +170,6 @@ def rules_from_rows(rows: Iterable) -> tuple[Rule, ...]:
             match_mode=MatchMode(r.match_mode) if not isinstance(r.match_mode, MatchMode) else r.match_mode,
             device_role=r.device_role,
             role_label=r.role_label,
-            network_zone=r.network_zone,
             device_type=r.device_type,
         )
         for r in sorted(rows, key=lambda r: r.sort_order)

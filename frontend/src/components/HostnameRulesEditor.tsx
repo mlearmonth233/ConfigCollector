@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { extractErrorMessage } from "../api/client";
 import { deviceRolesApi, deviceTypesApi, hostnameRulesApi } from "../api/resources";
-import type { DeviceDetection, DeviceRole, DeviceType, HostnameMatchMode, HostnameRule, NetworkZone } from "../api/types";
+import type { DeviceDetection, DeviceRole, DeviceType, HostnameMatchMode, HostnameRule } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 
 const MODE_LABELS: Record<HostnameMatchMode, string> = {
@@ -12,16 +12,14 @@ const MODE_LABELS: Record<HostnameMatchMode, string> = {
   regex: "matches regex",
 };
 
-const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
-
 const CUSTOM_ROLE = "__custom__";
 
 function emptyRule(): HostnameRule {
-  return { pattern: "", match_mode: "contains", device_role: null, role_label: null, network_zone: null, device_type: null };
+  return { pattern: "", match_mode: "contains", device_role: null, role_label: null, device_type: null };
 }
 
 /** The org's device-naming convention: an ordered list of "name matching X
- *  means role/zone/type Y" rules, with a live tester. Lives on Settings. */
+ *  means role/type Y" rules, with a live tester. Lives on Settings. */
 export function HostnameRulesEditor() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -145,9 +143,9 @@ export function HostnameRulesEditor() {
         )}
       </div>
       <p className="page-subtitle" style={{ marginTop: 0 }}>
-        How Packrat guesses a device's role, IT/OT zone and device type from its name when you add
-        devices. Rules run top to bottom; for each of role, zone and type the first matching rule wins,
-        so a role rule and a zone rule can both apply to one name. Everything guessed is only a pre-fill
+        How Packrat guesses a device's role and device type from its name when you add devices.
+        Rules run top to bottom; for role and for type the first matching rule wins, so a role rule
+        and a type rule can both apply to one name. Everything guessed is only a pre-fill
         you can change. {usingBuiltin && "Edit these built-in rules to describe your own convention, and save."}
       </p>
       {error && <div className="error-banner">{error}</div>}
@@ -160,7 +158,6 @@ export function HostnameRulesEditor() {
               <th>Match</th>
               <th>Pattern</th>
               <th>Role</th>
-              <th>Zone</th>
               <th>Device type</th>
               <th></th>
             </tr>
@@ -234,17 +231,6 @@ export function HostnameRulesEditor() {
                     )}
                   </td>
                   <td>
-                    <select
-                      value={r.network_zone ?? ""}
-                      onChange={(e) => update(i, { network_zone: (e.target.value || null) as NetworkZone | null })}
-                      disabled={!isAdmin}
-                    >
-                      <option value="">— no zone —</option>
-                      <option value="it">IT</option>
-                      <option value="ot">OT</option>
-                    </select>
-                  </td>
-                  <td>
                     <select value={r.device_type ?? ""} onChange={(e) => update(i, { device_type: e.target.value || null })} disabled={!isAdmin}>
                       <option value="">— don't guess —</option>
                       {deviceTypes.map((t) => (
@@ -315,7 +301,6 @@ export function HostnameRulesEditor() {
               ? "…"
               : [
                   testResult.device_role_label ?? "no role",
-                  testResult.network_zone ? ZONE_LABELS[testResult.network_zone] : "no zone",
                   testResult.suggested_device_type
                     ? deviceTypes.find((t) => t.key === testResult.suggested_device_type)?.label ?? testResult.suggested_device_type
                     : "no device type guess",

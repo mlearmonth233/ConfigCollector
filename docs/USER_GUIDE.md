@@ -161,8 +161,8 @@ credential to change its password.
 
 - **Add device**: name, host (IP or DNS name), SSH port, device type, and
   optional site. As you type the name, Packrat detects the role
-  (core, distribution, access, WLC, firewall, PDU) and the IT/OT zone from
-  your organization's naming rules and shows what it guessed. You can
+  (core, distribution, access, WLC, firewall, PDU) and the device type
+  from your organization's naming rules and shows what it guessed. You can
   override both. The rules themselves are yours to define; see
   [Device naming rules](#device-naming-rules) under Settings.
 - **Bulk add from hostnames**: paste a list of hostnames, one per line,
@@ -579,19 +579,17 @@ Packrat. Leaving the page closes every session.
 ### Device naming rules
 
 Every organization names devices differently. One embeds role codes like
-`SWA` (access switch) and `SWC` (core) with a `P0`/`O0` zone marker, as in
-`GBGYSP01SWA001`; another spells it out, as in `den-core-sw01` or
-`plant2-ot-acc-03`. The **Device naming rules** table on the Settings page
-tells Packrat how to read *your* names when it pre-fills role, zone and
-device type on Add device and bulk add.
+`SWA` (access switch) and `SWC` (core), as in `GBGYSP01SWA001`; another
+spells it out, as in `den-core-sw01` or `plant2-acc-03`. The **Device
+naming rules** table on the Settings page tells Packrat how to read *your*
+names when it pre-fills role and device type on Add device and bulk add.
 
 Each rule says: when the name **contains** / **starts with** / **ends
-with** / **matches regex** this pattern, it is this **role**, this
-**zone** (IT or OT), and optionally this **device type**. A rule may set
-any one of those or all three. Rules run top to bottom, and for role, zone
-and type separately the first matching rule wins, so one rule can supply
-the role and another the zone for the same name. Matching is case
-insensitive.
+with** / **matches regex** this pattern, it is this **role** and
+optionally this **device type**. A rule may set either or both. Rules run
+top to bottom, and for role and type separately the first matching rule
+wins, so one rule can supply the role and another the type for the same
+name. Matching is case insensitive.
 
 - The built-in convention is shown until you save your own. Edit it in
   place, or remove those rows and add yours, then **Save rules**.

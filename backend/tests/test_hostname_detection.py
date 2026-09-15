@@ -1,12 +1,10 @@
 import pytest
 from httpx import AsyncClient
 
-from app.models.device import NetworkZone
 from app.services.hostname_detection import (
     DEVICE_ROLES,
     detect,
     detect_device_role,
-    detect_network_zone,
     device_type_for_role,
 )
 
@@ -31,12 +29,6 @@ def test_detect_device_role_none_when_no_code_present():
     assert detect_device_role("random-hostname-1") is None
 
 
-def test_detect_network_zone():
-    assert detect_network_zone("GBGYSP01SWA001") == NetworkZone.IT
-    assert detect_network_zone("GBGYO01SWA001") == NetworkZone.OT
-    assert detect_network_zone("no-zone-marker-here") is None
-
-
 def test_device_type_for_role_omits_wlc_and_console_server():
     assert device_type_for_role("access_switch") == "cisco_ios"
     assert device_type_for_role("pdu") == "apc_pdu"
@@ -51,11 +43,10 @@ def test_device_type_for_role_omits_wlc_and_console_server():
     assert device_type_for_role(None) is None
 
 
-def test_detect_combines_role_zone_and_type():
+def test_detect_combines_role_and_type():
     result = detect("GBGYSP01SWA001")
     assert result.device_role == "access_switch"
     assert result.device_role_label == DEVICE_ROLES["access_switch"]
-    assert result.network_zone == NetworkZone.IT
     assert result.suggested_device_type == "cisco_ios"
 
 
@@ -86,7 +77,6 @@ async def test_detect_endpoint(client: AsyncClient, unique_email):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["device_role"] == "access_switch"
-    assert body["network_zone"] == "it"
     assert body["suggested_device_type"] == "cisco_ios"
 
 
@@ -100,7 +90,7 @@ async def test_device_roles_endpoint(client: AsyncClient, unique_email):
 
 
 @pytest.mark.asyncio
-async def test_create_device_auto_fills_type_role_zone_from_name(client: AsyncClient, unique_email):
+async def test_create_device_auto_fills_type_and_role_from_name(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
     resp = await client.post(
         "/api/devices",
@@ -111,7 +101,6 @@ async def test_create_device_auto_fills_type_role_zone_from_name(client: AsyncCl
     body = resp.json()
     assert body["device_type"] == "cisco_ios"
     assert body["device_role"] == "access_switch"
-    assert body["network_zone"] == "it"
 
 
 @pytest.mark.asyncio
@@ -139,14 +128,12 @@ async def test_create_device_explicit_values_win_over_detection(client: AsyncCli
             "host": "10.0.0.1",
             "device_type": "cisco_nxos",
             "device_role": "core_switch",
-            "network_zone": "ot",
         },
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["device_type"] == "cisco_nxos"
     assert body["device_role"] == "core_switch"
-    assert body["network_zone"] == "ot"
 
 
 @pytest.mark.asyncio

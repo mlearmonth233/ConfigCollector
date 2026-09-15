@@ -1,5 +1,5 @@
 """An org's device-naming rules (see services/hostname_detection.py) - how
-"Add device" and bulk add guess role, zone and device type from a name."""
+"Add device" and bulk add guess role and device type from a name."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
@@ -36,7 +36,6 @@ def _rule_from_in(item: HostnameRuleIn) -> Rule:
         match_mode=item.match_mode,
         device_role=item.device_role,
         role_label=item.role_label,
-        network_zone=item.network_zone,
         device_type=item.device_type,
     )
 
@@ -48,7 +47,6 @@ def _to_out(rules: tuple[Rule, ...]) -> list[HostnameRuleOut]:
             match_mode=r.match_mode,
             device_role=r.device_role,
             role_label=r.role_label,
-            network_zone=r.network_zone,
             device_type=r.device_type,
             sort_order=i,
         )
@@ -94,7 +92,6 @@ async def replace_rules(
             match_mode=r.match_mode.value,
             device_role=r.device_role,
             role_label=r.role_label,
-            network_zone=r.network_zone,
             device_type=r.device_type,
         )
         for i, r in enumerate(rules)
@@ -115,6 +112,5 @@ async def test_rules(payload: HostnameTestIn, user: User = Depends(get_current_u
     return DeviceDetectionOut(
         device_role=result.device_role,
         device_role_label=result.device_role_label,
-        network_zone=result.network_zone,
         suggested_device_type=result.suggested_device_type,
     )

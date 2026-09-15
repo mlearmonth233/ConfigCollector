@@ -3,8 +3,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.device import NetworkZone
-
 
 class DeviceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -20,7 +18,6 @@ class DeviceCreate(BaseModel):
     snmp_profile_id: UUID | None = None
     custom_commands: str | None = None
     device_role: str | None = None
-    network_zone: NetworkZone | None = None
 
 
 class DeviceUpdate(BaseModel):
@@ -34,7 +31,6 @@ class DeviceUpdate(BaseModel):
     clear_snmp_profile: bool = False  # explicit - snmp_profile_id=None alone means "don't change"
     custom_commands: str | None = None
     device_role: str | None = None
-    network_zone: NetworkZone | None = None
 
 
 class DeviceOut(BaseModel):
@@ -48,7 +44,6 @@ class DeviceOut(BaseModel):
     snmp_profile_id: UUID | None
     custom_commands: str | None
     device_role: str | None
-    network_zone: NetworkZone | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -57,7 +52,6 @@ class DeviceOut(BaseModel):
 class DeviceDetectionOut(BaseModel):
     device_role: str | None
     device_role_label: str | None
-    network_zone: NetworkZone | None
     suggested_device_type: str | None
 
 

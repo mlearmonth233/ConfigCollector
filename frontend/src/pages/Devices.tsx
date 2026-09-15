@@ -12,15 +12,12 @@ import type {
   DeviceRole,
   DeviceType,
   SnmpProfile,
-  NetworkZone,
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
 import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
 import { DeviceTypeOptions } from "../components/DeviceTypeOptions";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { sortByDeviceName } from "../utils/deviceNameSort";
-
-const ZONE_LABELS: Record<NetworkZone, string> = { it: "IT", ot: "OT" };
 
 /** Bumps a trailing number in a name by one, preserving zero-padding (e.g.
  * "GBGYSP01SWA001" -> "GBGYSP01SWA002") - the common case when duplicating
@@ -62,7 +59,6 @@ export function Devices() {
   const [port, setPort] = useState("22");
   const [deviceType, setDeviceType] = useState("");
   const [deviceRole, setDeviceRole] = useState("");
-  const [networkZone, setNetworkZone] = useState<"" | NetworkZone>("");
   const [site, setSite] = useState("");
   const [customCommands, setCustomCommands] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -73,7 +69,6 @@ export function Devices() {
   // typing more of the name won't overwrite it.
   const typeTouched = useRef(false);
   const roleTouched = useRef(false);
-  const zoneTouched = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
@@ -122,7 +117,7 @@ export function Devices() {
   }, [showAddForm]);
 
   // Debounced hostname detection: as the name field settles, ask the
-  // backend what device type/role/zone it suggests (see
+  // backend what device type/role it suggests (see
   // app.services.hostname_detection) and pre-fill anything not already
   // touched by hand.
   useEffect(() => {
@@ -138,7 +133,6 @@ export function Devices() {
         setDetection(data);
         if (!typeTouched.current && data.suggested_device_type) setDeviceType(data.suggested_device_type);
         if (!roleTouched.current) setDeviceRole(data.device_role ?? "");
-        if (!zoneTouched.current) setNetworkZone(data.network_zone ?? "");
       } catch {
         // Best-effort only - a failed detection call shouldn't block adding
         // the device manually.
@@ -170,14 +164,12 @@ export function Devices() {
     setPort("22");
     setDeviceType("");
     setDeviceRole("");
-    setNetworkZone("");
     setSite("");
     setCustomCommands("");
     setSnmpProfileId("");
     setDetection(null);
     typeTouched.current = false;
     roleTouched.current = false;
-    zoneTouched.current = false;
   }
 
   function handleDuplicate(device: Device) {
@@ -187,7 +179,6 @@ export function Devices() {
     setPort(String(device.port));
     setDeviceType(device.device_type);
     setDeviceRole(device.device_role ?? "");
-    setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setSnmpProfileId(device.snmp_profile_id ?? "");
@@ -195,10 +186,9 @@ export function Devices() {
     // Every field just came from an existing device, not a fresh
     // auto-detect guess - mark them all touched so editing the name
     // afterward (e.g. bumping "001" further) can't silently overwrite
-    // type/role/zone with a differing detection result.
+    // type/role with a differing detection result.
     typeTouched.current = true;
     roleTouched.current = true;
-    zoneTouched.current = true;
     setShowAddForm(true);
   }
 
@@ -209,16 +199,14 @@ export function Devices() {
     setPort(String(device.port));
     setDeviceType(device.device_type);
     setDeviceRole(device.device_role ?? "");
-    setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setSnmpProfileId(device.snmp_profile_id ?? "");
     setDetection(null);
     // Editing an existing device shouldn't have typing in the name field
-    // re-trigger auto-detection and clobber its current type/role/zone.
+    // re-trigger auto-detection and clobber its current type/role.
     typeTouched.current = true;
     roleTouched.current = true;
-    zoneTouched.current = true;
     setShowAddForm(true);
   }
 
@@ -233,7 +221,6 @@ export function Devices() {
         port: Number(port) || 22,
         device_type: deviceType || undefined,
         device_role: deviceRole || undefined,
-        network_zone: (networkZone || undefined) as NetworkZone | undefined,
         site: site || undefined,
         custom_commands: customCommands || undefined,
         snmp_profile_id: snmpProfileId || undefined,
@@ -366,10 +353,9 @@ export function Devices() {
             <label>
               Name
               <input ref={nameInputRef} value={name} onChange={(e) => setName(e.target.value)} required />
-              {detection && (detection.device_role_label || detection.network_zone) && (
+              {detection && detection.device_role_label && (
                 <span className="field-hint">
-                  Detected from name: {detection.device_role_label ?? "unknown role"}
-                  {detection.network_zone ? ` · ${ZONE_LABELS[detection.network_zone]}` : ""}
+                  Detected from name: {detection.device_role_label}
                   {!detection.suggested_device_type &&
                     detection.device_role_label &&
                     " — pick a device type below (can't be guessed for this role)."}
@@ -414,20 +400,6 @@ export function Devices() {
                     {r.label}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
-              Network zone (optional)
-              <select
-                value={networkZone}
-                onChange={(e) => {
-                  zoneTouched.current = true;
-                  setNetworkZone(e.target.value as "" | NetworkZone);
-                }}
-              >
-                <option value="">— none / auto-detect —</option>
-                <option value="it">IT</option>
-                <option value="ot">OT</option>
               </select>
             </label>
             <label>
@@ -495,7 +467,6 @@ export function Devices() {
               <th>Port</th>
               <th>Type</th>
               <th>Role</th>
-              <th>Zone</th>
               <th>Site</th>
               <th></th>
             </tr>
@@ -530,7 +501,6 @@ export function Devices() {
                 <td>{d.port}</td>
                 <td>{deviceTypeMap.get(d.device_type)?.label ?? d.device_type}</td>
                 <td>{d.device_role ? (deviceRoleMap.get(d.device_role)?.label ?? d.device_role) : "—"}</td>
-                <td>{d.network_zone ? ZONE_LABELS[d.network_zone] : "—"}</td>
                 <td>{d.site ?? "—"}</td>
                 <td>
                   <button className="link-button" onClick={() => handleEdit(d)}>

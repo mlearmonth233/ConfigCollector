@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models.device import Device, NetworkZone
+from app.models.device import Device
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
@@ -83,7 +83,7 @@ async def detect_device(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DeviceDetectionOut:
-    """Best-effort role/zone/device_type guess from a device name, per the
+    """Best-effort role/device_type guess from a device name, per the
     org's naming rules (see /api/hostname-rules), for the "Add device" form
     and bulk add to pre-fill - always just a starting point, never applied
     without the caller's say-so."""
@@ -91,7 +91,6 @@ async def detect_device(
     return DeviceDetectionOut(
         device_role=result.device_role,
         device_role_label=result.device_role_label,
-        network_zone=result.network_zone,
         suggested_device_type=result.suggested_device_type,
     )
 
@@ -127,10 +126,9 @@ async def create_device(
     catalog = await load_catalog(db, user.org_id)
     rules = await load_rules(db, user.org_id)
     try:
-        device_role, network_zone, device_type = _resolve_detected_fields(
+        device_role, device_type = _resolve_detected_fields(
             name=data["name"],
             device_role=data.get("device_role"),
-            network_zone=data.get("network_zone"),
             device_type=data.get("device_type"),
             catalog=catalog,
             rules=rules,
@@ -138,7 +136,6 @@ async def create_device(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     data["device_role"] = device_role
-    data["network_zone"] = network_zone
     data["device_type"] = device_type
 
     device = Device(org_id=user.org_id, **data)
@@ -203,18 +200,16 @@ def _resolve_detected_fields(
     *,
     name: str,
     device_role: str | None,
-    network_zone: NetworkZone | None,
     device_type: str | None,
     catalog: Catalog,
     rules: tuple[Rule, ...] | None = None,
-) -> tuple[str | None, NetworkZone | None, str]:
-    """Fills in device_role/network_zone/device_type from the device's name
+) -> tuple[str | None, str]:
+    """Fills in device_role/device_type from the device's name
     wherever the caller didn't supply one explicitly - an explicit value
     always wins. Raises ValueError (callers translate to a 400 or a
     per-row CSV import error) if device_type still can't be determined."""
     guess = detect(name, rules)
     effective_role = device_role or guess.device_role
-    effective_zone = network_zone or guess.network_zone
 
     if device_type:
         effective_type = device_type
@@ -238,7 +233,7 @@ def _resolve_detected_fields(
         raise ValueError(f"device_type could not be determined automatically for '{name}'{hint} - specify one")
 
     _check_device_type(effective_type, catalog)
-    return effective_role, effective_zone, effective_type
+    return effective_role, effective_type
 
 
 def _check_device_type(device_type: str, catalog: Catalog) -> None:

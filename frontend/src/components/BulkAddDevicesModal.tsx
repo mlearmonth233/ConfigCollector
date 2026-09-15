@@ -3,7 +3,7 @@ import { useState } from "react";
 import { extractErrorMessage } from "../api/client";
 import { devicesApi } from "../api/resources";
 import { DeviceTypeOptions } from "./DeviceTypeOptions";
-import type { DeviceImportResult, DeviceRole, DeviceType, NetworkZone } from "../api/types";
+import type { DeviceImportResult, DeviceRole, DeviceType } from "../api/types";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
 interface BulkRow {
@@ -13,7 +13,6 @@ interface BulkRow {
   port: string;
   device_type: string;
   device_role: string;
-  network_zone: "" | NetworkZone;
   site: string;
 }
 
@@ -25,8 +24,8 @@ interface Props {
 }
 
 /** Paste a dump of hostnames -> one row per name, each auto-detected the
- * same way the single "Add device" form does (device type/role/network
- * zone from the name) -> reviewed/adjusted in an editable table -> saved
+ * same way the single "Add device" form does (device type/role from the
+ * name) -> reviewed/adjusted in an editable table -> saved
  * all at once. Host defaults to the hostname itself, since this only
  * makes sense for a network where switch/WLC/PDU names actually resolve. */
 export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone }: Props) {
@@ -77,7 +76,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
             port: "22",
             device_type: d?.suggested_device_type ?? "",
             device_role: d?.device_role ?? "",
-            network_zone: (d?.network_zone ?? "") as "" | NetworkZone,
             site: "",
           };
         })
@@ -108,7 +106,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
             port: Number(r.port) || 22,
             device_type: r.device_type || undefined,
             device_role: r.device_role || undefined,
-            network_zone: (r.network_zone || undefined) as NetworkZone | undefined,
             site: r.site || undefined,
           })
         )
@@ -138,8 +135,8 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
           {rows === null ? (
             <>
               <p className="page-subtitle" style={{ marginTop: 0 }}>
-                Paste a list of hostnames, one per line (or comma-separated). Device type, role, and
-                network zone get auto-detected from each name, same as adding one at a time - you'll
+                Paste a list of hostnames, one per line (or comma-separated). Device type and role
+                get auto-detected from each name, same as adding one at a time - you'll
                 review and can adjust everything before anything is saved.
               </p>
               <label>
@@ -167,7 +164,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
                     <th>Port</th>
                     <th>Type</th>
                     <th>Role</th>
-                    <th>Zone</th>
                     <th>Site</th>
                     <th></th>
                   </tr>
@@ -204,16 +200,6 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
                               {role.label}
                             </option>
                           ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          value={r.network_zone}
-                          onChange={(e) => updateRow(i, { network_zone: e.target.value as "" | NetworkZone })}
-                        >
-                          <option value="">—</option>
-                          <option value="it">IT</option>
-                          <option value="ot">OT</option>
                         </select>
                       </td>
                       <td>

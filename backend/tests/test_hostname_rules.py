@@ -5,7 +5,6 @@ convention instead of the built-in one."""
 import pytest
 from httpx import AsyncClient
 
-from app.models.device import NetworkZone
 from app.services.hostname_detection import BUILTIN_RULES, MatchMode, Rule, detect, device_type_for_role, roles_for_rules, validate_rule
 
 pytestmark = pytest.mark.asyncio
@@ -16,8 +15,8 @@ pytestmark = pytest.mark.asyncio
 DENVER_RULES = (
     Rule("-core-", device_role="core_switch", device_type="cisco_nxos"),
     Rule("-acc-", device_role="access_switch", device_type="cisco_ios"),
-    Rule("^den-", MatchMode.REGEX, network_zone=NetworkZone.IT),
-    Rule("plant", MatchMode.PREFIX, network_zone=NetworkZone.OT),
+    Rule("^den-", MatchMode.REGEX, device_type="cisco_ios"),
+    Rule("plant", MatchMode.PREFIX, device_role="ot_switch", role_label="Plant switch"),
     Rule("-fw", MatchMode.SUFFIX, device_role="firewall", device_type="fortinet"),
     Rule("-wan", device_role="wan_edge", role_label="WAN edge router", device_type="cisco_ios"),
 )
@@ -25,7 +24,7 @@ DENVER_RULES = (
 
 def test_custom_rules_replace_the_builtin_convention():
     result = detect("den-core-sw01", DENVER_RULES)
-    assert (result.device_role, result.network_zone, result.suggested_device_type) == ("core_switch", NetworkZone.IT, "cisco_nxos")
+    assert (result.device_role, result.suggested_device_type) == ("core_switch", "cisco_nxos")
     # The built-in "SWC" convention no longer applies once an org has rules...
     assert detect("GBGYSP01SWC001", DENVER_RULES).device_role is None
     # ...but still does when it has none.
@@ -34,23 +33,21 @@ def test_custom_rules_replace_the_builtin_convention():
 
 
 def test_match_modes():
-    assert detect("plant2-acc-03", DENVER_RULES).network_zone == NetworkZone.OT  # prefix
-    assert detect("my-plant-acc-03", DENVER_RULES).network_zone is None  # prefix doesn't match mid-name
+    assert detect("plant2-sw-03", DENVER_RULES).device_role == "ot_switch"  # prefix
+    assert detect("my-plant-sw-03", DENVER_RULES).device_role is None  # prefix doesn't match mid-name
     assert detect("edge-fw", DENVER_RULES).device_role == "firewall"  # suffix
     assert detect("edge-fw-2", DENVER_RULES).device_role is None
-    assert detect("DEN-ACC-SW77", DENVER_RULES).network_zone == NetworkZone.IT  # regex, case-insensitive
+    assert detect("DEN-SW77", DENVER_RULES).suggested_device_type == "cisco_ios"  # regex, case-insensitive
 
 
-def test_first_matching_rule_wins_independently_for_role_zone_and_type():
+def test_first_matching_rule_wins_independently_for_role_and_type():
     rules = (
         Rule("core", device_role="core_switch"),  # names no device type
         Rule("sw", device_role="access_switch", device_type="cisco_ios"),  # also matches, later
-        Rule("den", network_zone=NetworkZone.IT),
     )
     result = detect("den-core-sw1", rules)
     assert result.device_role == "core_switch"  # first role rule
     assert result.suggested_device_type == "cisco_ios"  # first rule that names a type
-    assert result.network_zone == NetworkZone.IT
 
 
 def test_custom_role_gets_a_label_and_shows_in_roles_list():
@@ -71,7 +68,7 @@ def test_device_type_for_role_follows_the_rules():
 
 def test_builtin_rules_reproduce_the_original_convention():
     result = detect("GBGYSP01SWA001", BUILTIN_RULES)
-    assert (result.device_role, result.network_zone, result.suggested_device_type) == ("access_switch", NetworkZone.IT, "cisco_ios")
+    assert (result.device_role, result.suggested_device_type) == ("access_switch", "cisco_ios")
     assert detect("GBGYO01WLC001").suggested_device_type is None
 
 
@@ -106,8 +103,8 @@ DENVER_PAYLOAD = {
     "rules": [
         {"pattern": "-core-", "match_mode": "contains", "device_role": "core_switch", "device_type": "cisco_nxos"},
         {"pattern": "-acc-", "match_mode": "contains", "device_role": "access_switch", "device_type": "cisco_ios"},
-        {"pattern": "^den-", "match_mode": "regex", "network_zone": "it"},
-        {"pattern": "plant", "match_mode": "prefix", "network_zone": "ot"},
+        {"pattern": "^den-", "match_mode": "regex", "device_type": "cisco_ios"},
+        {"pattern": "plant", "match_mode": "prefix", "device_role": "ot_switch", "role_label": "Plant switch"},
         {"pattern": "-wan", "match_mode": "contains", "device_role": "WAN Edge", "role_label": "WAN edge router", "device_type": "cisco_ios"},
     ]
 }
@@ -134,7 +131,6 @@ async def test_rules_default_to_builtin_and_can_be_replaced_and_reset(client: As
     assert detected.json() == {
         "device_role": "core_switch",
         "device_role_label": "Core switch",
-        "network_zone": "it",
         "suggested_device_type": "cisco_nxos",
     }
     assert (await client.get("/api/devices/detect", headers=_auth(token), params={"name": "GBGYSP01SWA001"})).json()["device_role"] is None
@@ -209,7 +205,7 @@ async def test_device_creation_follows_org_rules_including_custom_device_types(c
     saved = await client.put(
         "/api/hostname-rules",
         headers=_auth(token),
-        json={"rules": [{"pattern": "-leaf-", "device_role": "access_switch", "device_type": "arista_eos"}, {"pattern": "^dc", "match_mode": "regex", "network_zone": "it"}]},
+        json={"rules": [{"pattern": "-leaf-", "device_role": "access_switch", "device_type": "arista_eos"}, {"pattern": "^dc", "match_mode": "regex", "device_type": "arista_eos"}]},
     )
     assert saved.status_code == 200, saved.text
 
@@ -217,7 +213,6 @@ async def test_device_creation_follows_org_rules_including_custom_device_types(c
     assert device.status_code == 201, device.text
     assert device.json()["device_type"] == "arista_eos"
     assert device.json()["device_role"] == "access_switch"
-    assert device.json()["network_zone"] == "it"
 
     # A role given explicitly still maps to a type via the org's rules.
     device2 = await client.post(

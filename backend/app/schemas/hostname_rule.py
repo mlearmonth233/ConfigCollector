@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.device import NetworkZone
 from app.services.hostname_detection import MatchMode
 
 
@@ -9,7 +8,6 @@ class HostnameRuleIn(BaseModel):
     match_mode: MatchMode = MatchMode.CONTAINS
     device_role: str | None = None
     role_label: str | None = None
-    network_zone: NetworkZone | None = None
     device_type: str | None = None
 
     @field_validator("device_role")

@@ -24,8 +24,6 @@ export interface Credential {
   created_at: string;
 }
 
-export type NetworkZone = "it" | "ot";
-
 export interface Device {
   id: string;
   name: string;
@@ -37,7 +35,6 @@ export interface Device {
   snmp_profile_id: string | null;
   custom_commands: string | null;
   device_role: string | null;
-  network_zone: NetworkZone | null;
   created_at: string;
 }
 
@@ -49,7 +46,6 @@ export interface DeviceRole {
 export interface DeviceDetection {
   device_role: string | null;
   device_role_label: string | null;
-  network_zone: NetworkZone | null;
   suggested_device_type: string | null;
 }
 
@@ -319,7 +315,6 @@ export interface HostnameRule {
   match_mode: HostnameMatchMode;
   device_role: string | null;
   role_label: string | null;
-  network_zone: NetworkZone | null;
   device_type: string | null;
 }
 

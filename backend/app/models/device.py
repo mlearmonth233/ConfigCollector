@@ -1,19 +1,9 @@
-import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base_
-
-
-class NetworkZone(str, enum.Enum):
-    """Which network a device lives on, per the site naming convention
-    (a "P0"/"O0" marker embedded in the hostname) - see
-    app.services.hostname_detection."""
-
-    IT = "it"
-    OT = "ot"
 
 
 class Device(Base_):
@@ -43,7 +33,6 @@ class Device(Base_):
     # switch could be Cisco IOS or NX-OS), it's for organizing/reporting.
     # Auto-detected from the device's name when not given explicitly.
     device_role: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    network_zone: Mapped[NetworkZone | None] = mapped_column(Enum(NetworkZone), nullable=True)
 
     organization: Mapped["Organization"] = relationship(back_populates="devices")
     credential: Mapped["Credential | None"] = relationship(back_populates="devices")
