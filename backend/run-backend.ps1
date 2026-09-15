@@ -38,50 +38,8 @@ if ($Eager) {
     Write-Host "Eager mode: collection jobs will run synchronously in-process (no worker needed)."
 } else {
     $env:CELERY_TASK_ALWAYS_EAGER = "false"
-
-    $redisHost = "localhost"
-    $redisPort = 6379
-    if ($env:REDIS_URL) {
-        try {
-            $uri = [Uri]$env:REDIS_URL
-            if ($uri.Host) { $redisHost = $uri.Host }
-            if ($uri.Port -gt 0) { $redisPort = $uri.Port }
-        } catch {
-            # Fall back to the localhost:6379 default if REDIS_URL doesn't parse.
-        }
-    }
-
-    $probe = New-Object System.Net.Sockets.TcpClient
-    $connected = $false
-    try {
-        $result = $probe.BeginConnect($redisHost, $redisPort, $null, $null)
-        $connected = $result.AsyncWaitHandle.WaitOne(1500) -and $probe.Connected
-    } catch {
-        $connected = $false
-    } finally {
-        $probe.Close()
-    }
-
-    if (-not $connected) {
-        throw @"
-Can't reach Redis at ${redisHost}:${redisPort}.
-
-Real (non-eager) mode needs Redis running so the backend can hand jobs off
-to a Celery worker instead of blocking the HTTP request until every device
-finishes. On Windows without Docker, the easiest way to get this is Memurai
-(https://www.memurai.com/) - a free, native Windows Redis-compatible service.
-Install it, make sure the service is running, then start this script again.
-
-Then, in another window, start the worker:
-  .\run-worker.ps1
-
-Or, if you just want the old quick-testing behavior (no Redis/worker needed,
-but "Start collection" blocks until all devices finish), run:
-  .\run-backend.ps1 -Eager
-"@
-    }
-
-    Write-Host "Async mode: Redis reachable at ${redisHost}:${redisPort}. Make sure .\run-worker.ps1 is running too."
+    Assert-RedisReachable
+    Write-Host "Async mode: make sure .\run-worker.ps1 is running too."
 }
 
 Write-Host "Starting backend at http://localhost:8000 (docs at /docs)..."

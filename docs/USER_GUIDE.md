@@ -45,13 +45,17 @@ you use Schedules or snapshot retention.
    ```powershell
    .\run-dev.ps1
    ```
-   This opens separate windows for the backend, the worker, the scheduler
-   and the frontend. The first run installs dependencies and takes a few
-   minutes; later runs skip that when nothing changed.
+   This runs the backend, the worker, the scheduler and the frontend
+   together in the window you typed it in. Every line says which process
+   wrote it. Press Ctrl+C in that window to stop everything. The first run
+   installs dependencies and takes a few minutes; later runs skip that
+   when nothing changed.
 5. The frontend opens in your browser at http://localhost:5173.
 
-To run without Memurai (jobs then run inside the backend and "Start
-collection" waits until they finish), use `.\run-dev.ps1 -Eager`.
+Prefer them apart? `.\run-dev.ps1 -Panes` opens one Windows Terminal tab
+split into four panes, and `.\run-dev.ps1 -Windows` gives each process its
+own window. To run without Memurai (jobs then run inside the backend and
+"Start collection" waits until they finish), use `.\run-dev.ps1 -Eager`.
 
 ### Linux and macOS
 

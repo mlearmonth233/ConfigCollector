@@ -118,12 +118,24 @@ won't run as-is in PowerShell. Use the bundled scripts instead, which handle
 venv creation, dependency install, and the Windows-specific syntax for you:
 
 ```powershell
-.\backend\run-backend.ps1    # sets up + starts the backend (real async mode)
-.\backend\run-worker.ps1     # sets up + starts the Celery worker, in another window
-.\frontend\run-frontend.ps1  # sets up + starts the frontend, in another window
-# or, from the repo root, start all three at once (each in its own window):
+# From the repo root: backend, worker, scheduler and frontend in THIS window.
+# Ctrl+C stops all of them.
 .\run-dev.ps1
+.\run-dev.ps1 -Panes     # Windows Terminal: one tab split into four panes
+.\run-dev.ps1 -Windows   # a separate PowerShell window per process
+
+# Or run the pieces individually, each in its own window:
+.\backend\run-backend.ps1    # sets up + starts the backend (real async mode)
+.\backend\run-worker.ps1     # sets up + starts the Celery worker
+.\backend\run-beat.ps1       # sets up + starts the scheduler
+.\frontend\run-frontend.ps1  # sets up + starts the frontend
 ```
+
+In the single-window mode every log line names the process that wrote it
+(`[api:pid]`, `[worker:pid]`, `[beat:pid]`), and the same lines go to
+`backend\logs\packrat-*.log` one file per process, so the shared console
+stays readable. If one process dies (a port already in use, say) the
+launcher stops the others and says which one failed.
 
 By default these run in real async mode: the backend hands collection jobs
 off to the Celery worker instead of running them in-process, so `POST
