@@ -2,10 +2,10 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import GUID, Base_
+from app.models.base import GUID, Base_, UTCDateTime
 
 
 class JobStatus(str, enum.Enum):
@@ -43,8 +43,8 @@ class CollectionJob(Base_):
     org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     created_by_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # Set by jobs.py's cancel_job. A device still PENDING at that moment is
     # marked CANCELLED immediately; a device already authenticating or
     # mid-command-list can't be interrupted right away (a live SSH call is
@@ -86,8 +86,8 @@ class CollectionJobItem(Base_):
     # of just a static "authenticating..." status, which matters most for a
     # slow TACACS+/RADIUS round trip or a pending MFA approval.
     live_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     job: Mapped["CollectionJob"] = relationship(back_populates="items")
     device: Mapped["Device | None"] = relationship(back_populates="job_items")

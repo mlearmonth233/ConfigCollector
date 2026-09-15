@@ -150,7 +150,7 @@ export interface SnapshotDiff {
   diff: string[];
 }
 
-export type ScheduleFrequency = "every_n_hours" | "daily";
+export type ScheduleFrequency = "once" | "every_n_hours" | "daily" | "weekly" | "monthly";
 
 export interface Schedule {
   id: string;
@@ -158,9 +158,13 @@ export interface Schedule {
   enabled: boolean;
   device_ids: string[] | null; // null = every device in the org
   frequency: ScheduleFrequency;
-  interval_hours: number | null;
-  run_at_hour: number | null;
+  interval_hours: number | null; // every_n_hours
+  run_at_hour: number | null; // daily / weekly / monthly, in `timezone`
   run_at_minute: number | null;
+  day_of_week: number | null; // weekly: 0 = Monday ... 6 = Sunday
+  day_of_month: number | null; // monthly: 1..31 (clamped to shorter months)
+  run_once_at: string | null; // once
+  timezone: string | null; // IANA name; null = UTC
   next_run_at: string;
   last_run_at: string | null;
   last_job_id: string | null;

@@ -2,6 +2,7 @@ import os
 import sqlite3
 from collections.abc import AsyncGenerator
 
+from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -31,22 +32,48 @@ def _sqlite_path_from_url(url: str) -> str | None:
     return None
 
 
+def _add_missing_nullable_columns(conn: sqlite3.Connection, table, existing: dict[str, int]) -> bool:
+    """Brings `table` up to date in place when the only drift is new,
+    *nullable* columns the model has gained (the common case for a feature
+    that adds an optional field - e.g. Schedule's day_of_week/timezone) by
+    ALTER TABLE ... ADD COLUMN, which SQLite supports and which preserves
+    every existing row. Returns False, changing nothing, if any missing
+    column is NOT NULL: SQLite can't add one of those to a table that
+    already has rows without a default, so that drift still needs the
+    wipe-and-recreate fallback below."""
+    missing = [c for c in table.columns if c.name not in existing]
+    if not missing:
+        return True
+    if any(not c.nullable for c in missing):
+        return False
+    for column in missing:
+        column_type = column.type.compile(dialect=sqlite_dialect.dialect())
+        conn.execute(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column_type}')
+        existing[column.name] = 0
+    conn.commit()
+    print(
+        f"[ConfigCollector] Added new optional column(s) to local dev table '{table.name}': "
+        + ", ".join(c.name for c in missing)
+    )
+    return True
+
+
 def _table_drifted(conn: sqlite3.Connection, table) -> bool:
     """True if `table`'s actual SQLite structure no longer matches what the
-    SQLAlchemy model expects - either a column the model has that the table
-    doesn't (the original drift check), or a column that exists in both but
-    whose NOT NULL-ness disagrees (e.g. a column relaxed from required to
-    optional, like CollectionJobItem.device_id becoming nullable so a
-    device could be deleted without dragging its job history down with it -
-    SQLite keeps enforcing the old NOT NULL forever otherwise, since
-    changing the Python model doesn't retroactively ALTER an existing
-    table)."""
+    SQLAlchemy model expects in a way that can't be fixed in place - a
+    NOT NULL column the model has that the table doesn't, or a column that
+    exists in both but whose NOT NULL-ness disagrees (e.g. a column relaxed
+    from required to optional, like CollectionJobItem.device_id becoming
+    nullable so a device could be deleted without dragging its job history
+    down with it - SQLite keeps enforcing the old NOT NULL forever
+    otherwise, since changing the Python model doesn't retroactively ALTER
+    an existing table). Missing *nullable* columns are simply added (see
+    _add_missing_nullable_columns) and don't count as drift."""
     existing = {row[1]: row[3] for row in conn.execute(f"PRAGMA table_info('{table.name}')")}
     if not existing:
         return False  # table doesn't exist yet - create_all() will add it, not drift
 
-    expected_columns = {c.name for c in table.columns}
-    if not expected_columns.issubset(existing.keys()):
+    if not _add_missing_nullable_columns(conn, table, existing):
         return True
 
     for column in table.columns:
@@ -71,7 +98,9 @@ def _reset_sqlite_if_schema_drifted(db_path: str) -> None:
 
     conn = sqlite3.connect(db_path)
     try:
-        drifted = any(_table_drifted(conn, table) for table in Base.metadata.tables.values())
+        # Every table is checked (not any()-short-circuited) so each one's
+        # in-place column additions happen even if a later table drifts.
+        drifted = [table.name for table in Base.metadata.tables.values() if _table_drifted(conn, table)]
     finally:
         conn.close()
 

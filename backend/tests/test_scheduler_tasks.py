@@ -217,3 +217,72 @@ async def test_purge_expired_snapshots_skips_orgs_with_no_retention_set(client: 
 
     resp = await client.get(f"/api/snapshots/{old_snapshot_id}", headers=_auth(token))
     assert resp.status_code == 200
+
+
+async def test_one_time_schedule_runs_once_then_disables_itself(client: AsyncClient, unique_email):
+    token, org_id, user_id = await _register(client, unique_email)
+    await client.post(
+        "/api/credentials", headers=_auth(token), json={"name": "lab", "username": "admin", "password": "cisco123"}
+    )
+    device = await client.post(
+        "/api/devices", headers=_auth(token), json={"name": "once-sw1", "host": "192.0.2.40", "device_type": "cisco_ios"}
+    )
+    past = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db = tasks_module.SyncSessionLocal()
+    try:
+        schedule = Schedule(
+            org_id=org_id,
+            created_by_id=user_id,
+            name="one shot",
+            frequency=ScheduleFrequency.ONCE,
+            run_once_at=past,
+            next_run_at=past,
+            device_ids=device.json()["id"],
+        )
+        db.add(schedule)
+        db.commit()
+        schedule_id = str(schedule.id)
+    finally:
+        db.close()
+
+    tasks_module.run_due_schedules()
+
+    updated = _get_schedule(schedule_id)
+    assert updated.last_job_id is not None
+    assert updated.enabled is False  # finished - won't be picked up again
+    assert updated.next_run_at == past  # left as the moment it fired
+
+    # A second tick must not create another job.
+    tasks_module.run_due_schedules()
+    assert _get_schedule(schedule_id).last_job_id == updated.last_job_id
+
+
+async def test_daily_schedule_in_a_timezone_advances_to_the_local_hour(client: AsyncClient, unique_email):
+    token, org_id, user_id = await _register(client, unique_email)
+    past = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db = tasks_module.SyncSessionLocal()
+    try:
+        schedule = Schedule(
+            org_id=org_id,
+            created_by_id=user_id,
+            name="chicago nightly",
+            frequency=ScheduleFrequency.DAILY,
+            run_at_hour=2,
+            run_at_minute=0,
+            timezone="America/Chicago",
+            next_run_at=past,
+        )
+        db.add(schedule)
+        db.commit()
+        schedule_id = str(schedule.id)
+    finally:
+        db.close()
+
+    tasks_module.run_due_schedules()
+
+    from zoneinfo import ZoneInfo
+
+    updated = _get_schedule(schedule_id)
+    local = updated.next_run_at.astimezone(ZoneInfo("America/Chicago"))
+    assert (local.hour, local.minute) == (2, 0)
+    assert updated.next_run_at > datetime.now(timezone.utc)

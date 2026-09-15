@@ -116,24 +116,27 @@ export const snapshotsApi = {
     apiClient.get<SnapshotDiff>("/api/snapshots/diff", { params: { from_id: fromId, to_id: toId } }),
 };
 
-export interface ScheduleCreatePayload {
-  name: string;
-  device_ids?: string[];
+export interface ScheduleTimingPayload {
   frequency: ScheduleFrequency;
   interval_hours?: number;
   run_at_hour?: number;
   run_at_minute?: number;
+  day_of_week?: number;
+  day_of_month?: number;
+  run_once_at?: string; // ISO datetime
+  timezone?: string; // IANA name the time-of-day fields are in
 }
 
-export interface ScheduleUpdatePayload {
+export interface ScheduleCreatePayload extends ScheduleTimingPayload {
+  name: string;
+  device_ids?: string[];
+}
+
+export interface ScheduleUpdatePayload extends Partial<ScheduleTimingPayload> {
   name?: string;
   enabled?: boolean;
   device_ids?: string[];
   clear_device_ids?: boolean;
-  frequency?: ScheduleFrequency;
-  interval_hours?: number;
-  run_at_hour?: number;
-  run_at_minute?: number;
 }
 
 export const schedulesApi = {

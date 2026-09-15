@@ -82,3 +82,37 @@ def test_reset_wipes_file_when_a_column_is_notnull_but_should_now_be_nullable():
 def test_reset_does_nothing_for_a_file_that_does_not_exist():
     # Should not raise - this is the normal first-run case.
     _reset_sqlite_if_schema_drifted("/tmp/does-not-exist-configcollector-test.db")
+
+
+def test_missing_nullable_columns_are_added_in_place_keeping_data():
+    # A schedules table from before day_of_week/day_of_month/run_once_at/
+    # timezone existed, with a row in it. Those new columns are all
+    # nullable, so the file must be migrated in place (ALTER TABLE ADD
+    # COLUMN) rather than wiped - the user's schedules survive the upgrade.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE schedules ("
+            "id CHAR(36) PRIMARY KEY NOT NULL, org_id CHAR(36) NOT NULL, created_by_id CHAR(36) NOT NULL, "
+            "name VARCHAR(255) NOT NULL, enabled BOOLEAN NOT NULL, device_ids TEXT, "
+            "frequency VARCHAR(13) NOT NULL, interval_hours INTEGER, run_at_hour INTEGER, run_at_minute INTEGER, "
+            "next_run_at DATETIME NOT NULL, last_run_at DATETIME, last_job_id CHAR(36), created_at DATETIME NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO schedules (id, org_id, created_by_id, name, enabled, frequency, run_at_hour, run_at_minute, "
+            "next_run_at, created_at) VALUES ('s1', 'o1', 'u1', 'Nightly', 1, 'DAILY', 2, 0, "
+            "'2026-01-01 02:00:00', '2025-12-31 00:00:00')"
+        )
+        conn.commit()
+        conn.close()
+
+        _reset_sqlite_if_schema_drifted(db_path)
+
+        assert Path(db_path).exists()
+        conn = sqlite3.connect(db_path)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info('schedules')")}
+        rows = conn.execute("SELECT name, day_of_week, timezone FROM schedules").fetchall()
+        conn.close()
+        assert {"day_of_week", "day_of_month", "run_once_at", "timezone"} <= columns
+        assert rows == [("Nightly", None, None)]

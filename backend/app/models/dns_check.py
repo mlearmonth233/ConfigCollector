@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import GUID, Base_
+from app.models.base import GUID, Base_, UTCDateTime
 from app.models.job import JobStatus
 
 
@@ -21,8 +21,8 @@ class DnsCheckJob(Base_):
     org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     created_by_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="dns_check_jobs")
@@ -52,7 +52,7 @@ class DnsCheckJobItem(Base_):
     forward_ips: Mapped[str | None] = mapped_column(Text, nullable=True)
     reverse_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     reverse_hostname: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     job: Mapped["DnsCheckJob"] = relationship(back_populates="items")

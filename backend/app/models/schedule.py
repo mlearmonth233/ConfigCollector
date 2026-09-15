@@ -2,15 +2,18 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import GUID, Base_
+from app.models.base import GUID, Base_, UTCDateTime
 
 
 class ScheduleFrequency(str, enum.Enum):
+    ONCE = "once"  # a single run at run_once_at, then the schedule disables itself
     EVERY_N_HOURS = "every_n_hours"
     DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 class Schedule(Base_):
@@ -34,15 +37,30 @@ class Schedule(Base_):
     # schedule was created is automatically picked up by future runs.
     device_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Which timing columns below apply depends on frequency - see
+    # services/scheduling.py (validate_timing / compute_next_run_at) for the
+    # exact rules; the columns themselves are all nullable so a schedule of
+    # any one frequency simply leaves the others empty.
     frequency: Mapped[ScheduleFrequency] = mapped_column(Enum(ScheduleFrequency), nullable=False)
-    # Set (only) when frequency == EVERY_N_HOURS.
+    # EVERY_N_HOURS only.
     interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Set (only) when frequency == DAILY - time of day to run, in UTC.
+    # DAILY / WEEKLY / MONTHLY: time of day to run, in `timezone` (below).
     run_at_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     run_at_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # WEEKLY only: 0 = Monday ... 6 = Sunday.
+    day_of_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # MONTHLY only: 1..31, clamped to the last day of shorter months.
+    day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ONCE only: the single moment to run (stored as UTC).
+    run_once_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # IANA timezone name the time-of-day fields are in (e.g.
+    # "America/Chicago"); NULL means UTC. Recorded per schedule rather than
+    # per org since the person setting one up wants it in *their* local
+    # time, and a distributed team may not share one.
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # Nullable + SET NULL: a schedule shouldn't disappear (or block deletion
     # of the job it created) just because that job was later cleared - see
     # api/jobs.py's clear_finished_jobs/delete_job.

@@ -2,10 +2,10 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import GUID, Base_
+from app.models.base import GUID, Base_, UTCDateTime
 from app.models.job import JobStatus
 
 
@@ -59,8 +59,8 @@ class FirmwareUpgradeJob(Base_):
     )
     protocol: Mapped[TransferProtocol] = mapped_column(Enum(TransferProtocol), nullable=False)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="firmware_jobs")
@@ -89,8 +89,8 @@ class FirmwareUpgradeJobItem(Base_):
     # matters even more here, since a multi-minute image copy onto flash is
     # exactly the kind of thing you don't want to watch blind.
     live_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     job: Mapped["FirmwareUpgradeJob"] = relationship(back_populates="items")
     device: Mapped["Device | None"] = relationship()

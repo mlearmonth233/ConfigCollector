@@ -278,3 +278,124 @@ async def test_non_admin_cannot_manage_schedules(client: AsyncClient, unique_ema
         json={"name": "Nope", "frequency": "every_n_hours", "interval_hours": 1},
     )
     assert resp.status_code == 403
+
+
+async def test_create_weekly_schedule_lands_on_the_requested_weekday(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={
+            "name": "Sunday backup",
+            "frequency": "weekly",
+            "day_of_week": 6,
+            "run_at_hour": 1,
+            "run_at_minute": 15,
+            "timezone": "Europe/London",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["day_of_week"] == 6
+    assert body["timezone"] == "Europe/London"
+    from zoneinfo import ZoneInfo
+
+    local = _parse_utc(body["next_run_at"]).astimezone(ZoneInfo("Europe/London"))
+    assert local.weekday() == 6 and (local.hour, local.minute) == (1, 15)
+    assert _parse_utc(body["next_run_at"]) > datetime.now(timezone.utc)
+
+
+async def test_create_monthly_schedule(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Month end", "frequency": "monthly", "day_of_month": 31, "run_at_hour": 23, "run_at_minute": 0},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["day_of_month"] == 31
+    next_run = _parse_utc(body["next_run_at"])
+    assert next_run > datetime.now(timezone.utc)
+    assert next_run.day >= 28  # the 31st, or the last day of a shorter month
+
+
+async def test_create_one_time_schedule_uses_that_exact_moment(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    run_at = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Change window", "frequency": "once", "run_once_at": run_at.isoformat()},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert _parse_utc(body["next_run_at"]) == run_at
+    assert _parse_utc(body["run_once_at"]) == run_at
+
+
+async def test_create_one_time_schedule_in_the_past_is_rejected(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Too late", "frequency": "once", "run_once_at": "2000-01-01T00:00:00Z"},
+    )
+    assert resp.status_code == 422
+    assert "future" in resp.text
+
+
+async def test_create_weekly_schedule_without_day_is_rejected(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Bad", "frequency": "weekly", "run_at_hour": 1, "run_at_minute": 0},
+    )
+    assert resp.status_code == 422
+    assert "day_of_week" in resp.text
+
+
+async def test_create_schedule_with_unknown_timezone_is_rejected(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Bad tz", "frequency": "daily", "run_at_hour": 1, "run_at_minute": 0, "timezone": "Mars/Olympus"},
+    )
+    assert resp.status_code == 422
+    assert "timezone" in resp.text
+
+
+async def test_update_schedule_from_daily_to_weekly_recomputes(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    create_resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Switch", "frequency": "daily", "run_at_hour": 2, "run_at_minute": 0},
+    )
+    schedule_id = create_resp.json()["id"]
+
+    resp = await client.patch(
+        f"/api/schedules/{schedule_id}",
+        headers=_auth(token),
+        json={"frequency": "weekly", "day_of_week": 0, "run_at_hour": 4, "run_at_minute": 30, "timezone": "UTC"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["frequency"] == "weekly"
+    next_run = _parse_utc(body["next_run_at"])
+    assert next_run.weekday() == 0 and (next_run.hour, next_run.minute) == (4, 30)
+
+
+async def test_update_schedule_to_weekly_without_day_is_a_400(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    create_resp = await client.post(
+        "/api/schedules",
+        headers=_auth(token),
+        json={"name": "Switch", "frequency": "daily", "run_at_hour": 2, "run_at_minute": 0},
+    )
+    schedule_id = create_resp.json()["id"]
+    resp = await client.patch(f"/api/schedules/{schedule_id}", headers=_auth(token), json={"frequency": "weekly"})
+    assert resp.status_code == 400
+    assert "day_of_week" in resp.json()["detail"]

@@ -52,3 +52,8 @@ asyncssh==2.24.0
 # should use to reach the firmware transfer server - see
 # app/services/network_interfaces.py.
 psutil==6.1.0
+# Schedules interpret their time of day in the user's own IANA timezone via
+# the standard library's zoneinfo, which on Windows has no system zone
+# database to read from - this package is that database (a no-op on
+# Linux/macOS, where zoneinfo uses the OS's own /usr/share/zoneinfo).
+tzdata==2026.4

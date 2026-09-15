@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +13,7 @@ from app.models.schedule import Schedule, ScheduleFrequency
 from app.models.user import User
 from app.schemas.job import JobDetailOut
 from app.schemas.schedule import ScheduleCreate, ScheduleOut, ScheduleUpdate
+from app.services.scheduling import ScheduleTiming, compute_next_run_at, validate_timing
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 
@@ -29,24 +30,10 @@ def _serialize_device_ids(ids: list[UUID] | None) -> str | None:
     return ",".join(str(i) for i in ids)
 
 
-def compute_next_run_at(
-    frequency: ScheduleFrequency,
-    interval_hours: int | None,
-    run_at_hour: int | None,
-    run_at_minute: int | None,
-    *,
-    after: datetime,
-) -> datetime:
-    if frequency == ScheduleFrequency.EVERY_N_HOURS:
-        assert interval_hours is not None
-        return after + timedelta(hours=interval_hours)
-    # DAILY - next occurrence of run_at_hour:run_at_minute UTC, today if
-    # that hasn't passed yet, otherwise tomorrow.
-    assert run_at_hour is not None and run_at_minute is not None
-    candidate = after.replace(hour=run_at_hour, minute=run_at_minute, second=0, microsecond=0)
-    if candidate <= after:
-        candidate += timedelta(days=1)
-    return candidate
+def _as_utc(value: datetime) -> datetime:
+    # SQLite returns DateTime(timezone=True) columns naive; the app treats
+    # every stored datetime as UTC.
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 def _to_out(schedule: Schedule) -> ScheduleOut:
@@ -59,6 +46,10 @@ def _to_out(schedule: Schedule) -> ScheduleOut:
         interval_hours=schedule.interval_hours,
         run_at_hour=schedule.run_at_hour,
         run_at_minute=schedule.run_at_minute,
+        day_of_week=schedule.day_of_week,
+        day_of_month=schedule.day_of_month,
+        run_once_at=schedule.run_once_at,
+        timezone=schedule.timezone,
         next_run_at=schedule.next_run_at,
         last_run_at=schedule.last_run_at,
         last_job_id=schedule.last_job_id,
@@ -103,6 +94,9 @@ async def create_schedule(
     await _validate_device_ids(db, admin.org_id, payload.device_ids)
 
     now = datetime.now(timezone.utc)
+    next_run_at = compute_next_run_at(payload.timing(), after=now)
+    if next_run_at is None:  # a one-time schedule already in the past - validate_timing normally catches this
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="run_once_at must be in the future")
     schedule = Schedule(
         org_id=admin.org_id,
         created_by_id=admin.id,
@@ -112,9 +106,11 @@ async def create_schedule(
         interval_hours=payload.interval_hours,
         run_at_hour=payload.run_at_hour,
         run_at_minute=payload.run_at_minute,
-        next_run_at=compute_next_run_at(
-            payload.frequency, payload.interval_hours, payload.run_at_hour, payload.run_at_minute, after=now
-        ),
+        day_of_week=payload.day_of_week,
+        day_of_month=payload.day_of_month,
+        run_once_at=payload.run_once_at,
+        timezone=payload.timezone,
+        next_run_at=next_run_at,
     )
     db.add(schedule)
     await db.commit()
@@ -141,35 +137,33 @@ async def update_schedule(
     elif payload.clear_device_ids:
         schedule.device_ids = None
 
-    frequency_changed = payload.frequency is not None
-    if frequency_changed:
-        schedule.frequency = payload.frequency
-    if payload.interval_hours is not None:
-        schedule.interval_hours = payload.interval_hours
-    if payload.run_at_hour is not None:
-        schedule.run_at_hour = payload.run_at_hour
-    if payload.run_at_minute is not None:
-        schedule.run_at_minute = payload.run_at_minute
-
-    if frequency_changed or payload.interval_hours is not None or payload.run_at_hour is not None or payload.run_at_minute is not None:
-        if schedule.frequency == ScheduleFrequency.EVERY_N_HOURS and not schedule.interval_hours:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="interval_hours must be at least 1 for an every-N-hours schedule",
-            )
-        if schedule.frequency == ScheduleFrequency.DAILY and (
-            schedule.run_at_hour is None or schedule.run_at_minute is None
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="run_at_hour and run_at_minute are required for a daily schedule",
-            )
-        schedule.next_run_at = compute_next_run_at(
-            schedule.frequency,
-            schedule.interval_hours,
-            schedule.run_at_hour,
-            schedule.run_at_minute,
-            after=datetime.now(timezone.utc),
+    now = datetime.now(timezone.utc)
+    if payload.changes_timing():
+        for field in ScheduleUpdate.TIMING_FIELDS:
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(schedule, field, value)
+        timing = ScheduleTiming.from_schedule(schedule)
+        try:
+            validate_timing(timing, now=now)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        next_run_at = compute_next_run_at(timing, after=now)
+        if next_run_at is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="run_once_at must be in the future")
+        schedule.next_run_at = next_run_at
+        # A one-time schedule that had already fired (and so disabled
+        # itself) is being given a new moment - it's live again.
+        if schedule.frequency == ScheduleFrequency.ONCE and payload.enabled is None:
+            schedule.enabled = True
+    elif (
+        payload.enabled
+        and schedule.frequency == ScheduleFrequency.ONCE
+        and _as_utc(schedule.next_run_at) <= now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This one-time schedule has already run - give it a new date and time to run it again",
         )
 
     await db.commit()

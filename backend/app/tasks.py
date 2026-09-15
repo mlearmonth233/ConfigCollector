@@ -17,7 +17,7 @@ from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareUpgradeJob, FirmwareUpgradeJobItem, TransferProtocol
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.organization import Organization
-from app.models.schedule import Schedule, ScheduleFrequency
+from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
 from app.services.collector import (
     AuthenticationError,
@@ -30,6 +30,7 @@ from app.services.device_types import parse_command_list
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
+from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -644,26 +645,15 @@ def _parse_schedule_device_ids(raw: str | None) -> list[uuid.UUID] | None:
     return [uuid.UUID(x) for x in raw.split(",") if x.strip()]
 
 
-def _compute_next_run_at(
-    frequency: ScheduleFrequency,
-    interval_hours: int | None,
-    run_at_hour: int | None,
-    run_at_minute: int | None,
-    *,
-    after: datetime,
-) -> datetime:
-    # Kept in sync with (but not imported from) api/schedules.py's identical
-    # helper - that module imports from this one (collect_device_task), so
-    # importing back here would be circular. Both are tiny, pure, and
-    # covered by their own tests.
-    if frequency == ScheduleFrequency.EVERY_N_HOURS:
-        assert interval_hours is not None
-        return after + timedelta(hours=interval_hours)
-    assert run_at_hour is not None and run_at_minute is not None
-    candidate = after.replace(hour=run_at_hour, minute=run_at_minute, second=0, microsecond=0)
-    if candidate <= after:
-        candidate += timedelta(days=1)
-    return candidate
+def _advance_schedule(schedule: Schedule, now: datetime) -> None:
+    """Moves a schedule on to its next occurrence after `now` - or, for a
+    one-time schedule that has just had its one run, disables it (its
+    next_run_at is left as the moment it fired, so the UI can show when)."""
+    next_run_at = compute_next_run_at(ScheduleTiming.from_schedule(schedule), after=now)
+    if next_run_at is None:
+        schedule.enabled = False
+    else:
+        schedule.next_run_at = next_run_at
 
 
 @celery_app.task(name="app.tasks.run_due_schedules")
@@ -689,10 +679,7 @@ def run_due_schedules() -> None:
                 # or get stuck retrying the same failure forever - it's
                 # still advanced to its next occurrence.
                 db.rollback()
-                schedule.next_run_at = _compute_next_run_at(
-                    schedule.frequency, schedule.interval_hours, schedule.run_at_hour, schedule.run_at_minute,
-                    after=now,
-                )
+                _advance_schedule(schedule, now)
                 db.commit()
     finally:
         db.close()
@@ -760,9 +747,7 @@ def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
         schedule.last_run_at = now
         schedule.last_job_id = job.id
 
-    schedule.next_run_at = _compute_next_run_at(
-        schedule.frequency, schedule.interval_hours, schedule.run_at_hour, schedule.run_at_minute, after=now
-    )
+    _advance_schedule(schedule, now)
     db.commit()
 
 
