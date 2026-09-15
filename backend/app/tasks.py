@@ -21,6 +21,7 @@ from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem
 from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
+from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
 from app.services.collector import (
     AuthenticationError,
     CollectionCancelled,
@@ -33,6 +34,8 @@ from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
+from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
+from app.services.snmp_poll import SnmpAuth, SnmpError, format_report, poll_many
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -798,6 +801,121 @@ def purge_expired_snapshots() -> None:
                 ConfigSnapshot.job_item_id.in_(stale_item_ids),
                 ConfigSnapshot.collected_at < cutoff,
             ).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _snmp_auth_from_profile(profile: SnmpProfile) -> SnmpAuth:
+    """Decrypts a profile's secrets into the plain SnmpAuth the poller
+    uses - in memory only, for the length of the poll."""
+    return SnmpAuth(
+        version=profile.version,
+        community=decrypt_secret(profile.encrypted_community) if profile.encrypted_community else None,
+        username=profile.username,
+        security_level=profile.security_level,
+        auth_protocol=profile.auth_protocol,
+        auth_password=decrypt_secret(profile.encrypted_auth_password) if profile.encrypted_auth_password else None,
+        priv_protocol=profile.priv_protocol,
+        priv_password=decrypt_secret(profile.encrypted_priv_password) if profile.encrypted_priv_password else None,
+        context_name=profile.context_name,
+        port=profile.port,
+        timeout_seconds=profile.timeout_seconds,
+        retries=profile.retries,
+    )
+
+
+@celery_app.task(name="app.tasks.run_snmp_job_task", bind=True, max_retries=0)
+def run_snmp_job_task(self, job_id: str) -> None:
+    """Polls every device in an SnmpJob (see services/snmp_poll.py), in
+    chunks of SNMP_CHUNK_SIZE polled concurrently - same shape as
+    run_dns_check_job_task: one task for the whole job, results committed
+    per chunk so progress is visible and a cancel takes effect between
+    chunks. Which profile a device uses: the job's override if set, else
+    the device's own snmp_profile_id, else the org default."""
+    db = SyncSessionLocal()
+    try:
+        job = db.get(SnmpJob, job_id)
+        if job is None:
+            return
+        items = db.query(SnmpJobItem).filter(SnmpJobItem.job_id == job.id).order_by(SnmpJobItem.created_at).all()
+        override = db.get(SnmpProfile, job.snmp_profile_id) if job.snmp_profile_id else None
+        default_profile = (
+            db.query(SnmpProfile).filter(SnmpProfile.org_id == job.org_id, SnmpProfile.is_default.is_(True)).first()
+        )
+        extra_oids = [o for o in (job.extra_oids or "").split(", ") if o]
+
+        for chunk_start in range(0, len(items), SNMP_CHUNK_SIZE):
+            db.refresh(job)
+            if job.cancel_requested:
+                break
+            chunk = [i for i in items[chunk_start : chunk_start + SNMP_CHUNK_SIZE] if i.status == JobStatus.PENDING]
+            if not chunk:
+                continue
+
+            now = datetime.now(timezone.utc)
+            specs = []
+            runnable = []
+            for item in chunk:
+                item.started_at = now
+                device = item.device
+                profile = override or (db.get(SnmpProfile, device.snmp_profile_id) if device and device.snmp_profile_id else None) or default_profile
+                if device is None:
+                    item.status = JobStatus.FAILED
+                    item.error_message = "Device no longer exists"
+                    item.finished_at = now
+                elif profile is None:
+                    item.status = JobStatus.FAILED
+                    item.error_message = "No SNMP profile for this device and no org default SNMP profile"
+                    item.finished_at = now
+                else:
+                    item.status = JobStatus.RUNNING
+                    item.profile_name = profile.name
+                    specs.append((device.host, _snmp_auth_from_profile(profile), extra_oids))
+                    runnable.append(item)
+            db.commit()
+
+            if runnable:
+                # Narration is written once per chunk rather than streamed
+                # per line: a poll is short, and a DB commit per emitted
+                # line from inside the poller's thread would race this
+                # session.
+                results = _run_async_in_new_thread(lambda: poll_many(specs))
+                now = datetime.now(timezone.utc)
+                for item, spec, result in zip(runnable, specs, results):
+                    host, auth, _ = spec
+                    if isinstance(result, SnmpError):
+                        item.status = JobStatus.FAILED
+                        item.error_message = str(result)
+                        item.live_output = f"Polling {host}:{auth.port} over {auth.describe()}...\nERROR: {result}\n"
+                    elif isinstance(result, Exception):
+                        item.status = JobStatus.FAILED
+                        item.error_message = f"Unexpected error during SNMP poll: {result}"
+                        item.live_output = f"Polling {host}:{auth.port} over {auth.describe()}...\nERROR: {result}\n"
+                    else:
+                        item.report = format_report(
+                            item.device.name, host, auth, result, collected_at=now.strftime("%Y-%m-%d %H:%M:%S UTC")
+                        )
+                        summary = [
+                            f"Polling {host}:{auth.port} over {auth.describe()}...",
+                            f"System: {result.system.get('sysName') or '?'} - {(result.system.get('sysDescr') or '')[:80]}",
+                            f"Interfaces: {len(result.interfaces)} rows",
+                            f"Syslog history: {len(result.syslog)} entries"
+                            + ("" if result.syslog_supported else " (not supported by this device)"),
+                        ] + [f"Warning: {w}" for w in result.warnings]
+                        item.live_output = "\n".join(summary) + "\n"
+                        item.status = JobStatus.COMPLETED
+                    item.finished_at = now
+                db.commit()
+
+        statuses = [i.status for i in db.query(SnmpJobItem).filter(SnmpJobItem.job_id == job.id).all()]
+        if job.cancel_requested or any(s == JobStatus.CANCELLED for s in statuses):
+            job.status = JobStatus.CANCELLED
+        elif any(s == JobStatus.FAILED for s in statuses):
+            job.status = JobStatus.FAILED
+        else:
+            job.status = JobStatus.COMPLETED
+        job.finished_at = datetime.now(timezone.utc)
         db.commit()
     finally:
         db.close()

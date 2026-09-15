@@ -17,6 +17,7 @@ from app.api import (
     organizations,
     schedules,
     snapshots,
+    snmp,
     terminal,
     users,
 )
@@ -62,6 +63,7 @@ app.include_router(schedules.router)
 app.include_router(organizations.router)
 app.include_router(firmware.router)
 app.include_router(dns_check.router)
+app.include_router(snmp.router)
 app.include_router(terminal.router)
 
 

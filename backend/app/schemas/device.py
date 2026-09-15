@@ -17,6 +17,7 @@ class DeviceCreate(BaseModel):
     device_type: str | None = None
     site: str | None = None
     credential_id: UUID | None = None
+    snmp_profile_id: UUID | None = None
     custom_commands: str | None = None
     device_role: str | None = None
     network_zone: NetworkZone | None = None
@@ -29,6 +30,8 @@ class DeviceUpdate(BaseModel):
     device_type: str | None = None
     site: str | None = None
     credential_id: UUID | None = None
+    snmp_profile_id: UUID | None = None
+    clear_snmp_profile: bool = False  # explicit - snmp_profile_id=None alone means "don't change"
     custom_commands: str | None = None
     device_role: str | None = None
     network_zone: NetworkZone | None = None
@@ -42,6 +45,7 @@ class DeviceOut(BaseModel):
     device_type: str
     site: str | None
     credential_id: UUID | None
+    snmp_profile_id: UUID | None
     custom_commands: str | None
     device_role: str | None
     network_zone: NetworkZone | None

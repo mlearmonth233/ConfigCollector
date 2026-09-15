@@ -21,6 +21,10 @@ class Device(Base_):
 
     org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     credential_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("credentials.id"), nullable=True)
+    # SNMP profile for this device; NULL = the org's default SnmpProfile.
+    snmp_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("snmp_profiles.id", ondelete="SET NULL"), nullable=True
+    )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     host: Mapped[str] = mapped_column(String(255), nullable=False)

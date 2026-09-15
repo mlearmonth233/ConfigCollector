@@ -34,6 +34,7 @@ export interface Device {
   device_type: string;
   site: string | null;
   credential_id: string | null;
+  snmp_profile_id: string | null;
   custom_commands: string | null;
   device_role: string | null;
   network_zone: NetworkZone | null;
@@ -255,4 +256,58 @@ export interface DnsCheckJob {
 
 export interface DnsCheckJobDetail extends DnsCheckJob {
   items: DnsCheckJobItem[];
+}
+
+export type SnmpVersion = "v2c" | "v3";
+export type SnmpSecurityLevel = "noAuthNoPriv" | "authNoPriv" | "authPriv";
+export type SnmpAuthProtocol = "MD5" | "SHA" | "SHA224" | "SHA256" | "SHA384" | "SHA512";
+export type SnmpPrivProtocol = "DES" | "3DES" | "AES128" | "AES192" | "AES256";
+
+export interface SnmpProfile {
+  id: string;
+  name: string;
+  is_default: boolean;
+  version: SnmpVersion;
+  port: number;
+  timeout_seconds: number;
+  retries: number;
+  has_community: boolean;
+  username: string | null;
+  security_level: SnmpSecurityLevel | null;
+  auth_protocol: SnmpAuthProtocol | null;
+  has_auth_password: boolean;
+  priv_protocol: SnmpPrivProtocol | null;
+  has_priv_password: boolean;
+  context_name: string | null;
+  device_count: number;
+  created_at: string;
+}
+
+export interface SnmpJobItem {
+  id: string;
+  device_id: string | null;
+  device_name: string;
+  device_host: string | null;
+  profile_name: string | null;
+  status: JobStatus;
+  error_message: string | null;
+  live_output: string;
+  report: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface SnmpJob {
+  id: string;
+  status: JobStatus;
+  snmp_profile_id: string | null;
+  extra_oids: string[];
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  item_count: number;
+}
+
+export interface SnmpJobDetail extends SnmpJob {
+  items: SnmpJobItem[];
 }

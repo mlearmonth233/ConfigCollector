@@ -152,6 +152,8 @@ async def update_device(
 ) -> Device:
     device = await _get_owned_device(db, device_id, user.org_id)
     updates = payload.model_dump(exclude_unset=True)
+    if updates.pop("clear_snmp_profile", False):
+        updates["snmp_profile_id"] = None
     if "device_type" in updates:
         _validate_device_type(updates["device_type"], await load_catalog(db, user.org_id))
     for field, value in updates.items():

@@ -26,6 +26,9 @@ import type {
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
+  SnmpJob,
+  SnmpJobDetail,
+  SnmpProfile,
   TransferProtocol,
 } from "./types";
 
@@ -215,4 +218,37 @@ export const firmwareApi = {
   listJobs: () => apiClient.get<FirmwareJob[]>("/api/firmware/jobs"),
   getJob: (id: string) => apiClient.get<FirmwareJobDetail>(`/api/firmware/jobs/${id}`),
   cancelJob: (id: string) => apiClient.post<FirmwareJobDetail>(`/api/firmware/jobs/${id}/cancel`),
+};
+
+export interface SnmpProfilePayload {
+  name: string;
+  version: "v2c" | "v3";
+  port?: number;
+  timeout_seconds?: number;
+  retries?: number;
+  community?: string;
+  username?: string;
+  security_level?: string;
+  auth_protocol?: string;
+  auth_password?: string;
+  priv_protocol?: string;
+  priv_password?: string;
+  context_name?: string;
+  is_default?: boolean;
+}
+
+export const snmpApi = {
+  listProfiles: () => apiClient.get<SnmpProfile[]>("/api/snmp/profiles"),
+  createProfile: (data: SnmpProfilePayload) => apiClient.post<SnmpProfile>("/api/snmp/profiles", data),
+  updateProfile: (id: string, data: Partial<SnmpProfilePayload>) =>
+    apiClient.patch<SnmpProfile>(`/api/snmp/profiles/${id}`, data),
+  setDefaultProfile: (id: string) => apiClient.post<SnmpProfile>(`/api/snmp/profiles/${id}/set-default`),
+  removeProfile: (id: string) => apiClient.delete(`/api/snmp/profiles/${id}`),
+  createJob: (payload: { device_ids: string[]; snmp_profile_id?: string; extra_oids?: string[] }) =>
+    apiClient.post<SnmpJobDetail>("/api/snmp/jobs", payload),
+  listJobs: () => apiClient.get<SnmpJob[]>("/api/snmp/jobs"),
+  getJob: (id: string) => apiClient.get<SnmpJobDetail>(`/api/snmp/jobs/${id}`),
+  cancelJob: (id: string) => apiClient.post<SnmpJobDetail>(`/api/snmp/jobs/${id}/cancel`),
+  removeJob: (id: string) => apiClient.delete(`/api/snmp/jobs/${id}`),
+  clearFinished: () => apiClient.delete<{ deleted: number }>("/api/snmp/jobs"),
 };

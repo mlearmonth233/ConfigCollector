@@ -17,6 +17,8 @@ import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
 import { Help } from "./pages/Help";
 import { Settings } from "./pages/Settings";
+import { Snmp } from "./pages/Snmp";
+import { SnmpJobDetail } from "./pages/SnmpJobDetail";
 import { Terminal } from "./pages/Terminal";
 
 export function App() {
@@ -119,6 +121,22 @@ export function App() {
           element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/snmp"
+          element={
+            <ProtectedRoute>
+              <Snmp />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/snmp/jobs/:jobId"
+          element={
+            <ProtectedRoute>
+              <SnmpJobDetail />
             </ProtectedRoute>
           }
         />

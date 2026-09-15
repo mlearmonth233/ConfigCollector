@@ -35,3 +35,7 @@ class Organization(Base_):
     custom_device_types: Mapped[list["CustomDeviceType"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+    snmp_profiles: Mapped[list["SnmpProfile"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )
+    snmp_jobs: Mapped[list["SnmpJob"]] = relationship(back_populates="organization", cascade="all, delete-orphan")

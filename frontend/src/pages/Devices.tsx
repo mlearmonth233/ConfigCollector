@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
-import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi } from "../api/resources";
+import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi, snmpApi } from "../api/resources";
 import type {
   Credential,
   Device,
@@ -11,6 +11,7 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
+  SnmpProfile,
   NetworkZone,
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
@@ -39,6 +40,8 @@ export function Devices() {
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [deviceRoles, setDeviceRoles] = useState<DeviceRole[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [snmpProfiles, setSnmpProfiles] = useState<SnmpProfile[]>([]);
+  const [snmpProfileId, setSnmpProfileId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -95,6 +98,7 @@ export function Devices() {
       setDeviceTypes(typesRes.data);
       setDeviceRoles(rolesRes.data);
       setCredentials(credsRes.data);
+      snmpApi.listProfiles().then((r) => setSnmpProfiles(r.data)).catch(() => setSnmpProfiles([]));
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -169,6 +173,7 @@ export function Devices() {
     setNetworkZone("");
     setSite("");
     setCustomCommands("");
+    setSnmpProfileId("");
     setDetection(null);
     typeTouched.current = false;
     roleTouched.current = false;
@@ -185,6 +190,7 @@ export function Devices() {
     setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
+    setSnmpProfileId(device.snmp_profile_id ?? "");
     setDetection(null);
     // Every field just came from an existing device, not a fresh
     // auto-detect guess - mark them all touched so editing the name
@@ -206,6 +212,7 @@ export function Devices() {
     setNetworkZone((device.network_zone ?? "") as "" | NetworkZone);
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
+    setSnmpProfileId(device.snmp_profile_id ?? "");
     setDetection(null);
     // Editing an existing device shouldn't have typing in the name field
     // re-trigger auto-detection and clobber its current type/role/zone.
@@ -229,9 +236,10 @@ export function Devices() {
         network_zone: (networkZone || undefined) as NetworkZone | undefined,
         site: site || undefined,
         custom_commands: customCommands || undefined,
+        snmp_profile_id: snmpProfileId || undefined,
       };
       if (editingId) {
-        await devicesApi.update(editingId, payload);
+        await devicesApi.update(editingId, { ...payload, ...(snmpProfileId ? {} : { clear_snmp_profile: true }) } as Partial<Device>);
       } else {
         await devicesApi.create(payload);
       }
@@ -424,6 +432,19 @@ export function Devices() {
               Site (optional)
               <input value={site} onChange={(e) => setSite(e.target.value)} />
             </label>
+            {snmpProfiles.length > 0 && (
+              <label>
+                SNMP profile (optional)
+                <select value={snmpProfileId} onChange={(e) => setSnmpProfileId(e.target.value)}>
+                  <option value="">— org default{snmpProfiles.some((p) => p.is_default) ? ` (${snmpProfiles.find((p) => p.is_default)!.name})` : ""} —</option>
+                  {snmpProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.version})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="form-grid-span">
               Custom command(s) (comma-separated, overrides default for this device type)
               <input value={customCommands} onChange={(e) => setCustomCommands(e.target.value)} />

@@ -57,3 +57,7 @@ psutil==6.1.0
 # database to read from - this package is that database (a no-op on
 # Linux/macOS, where zoneinfo uses the OS's own /usr/share/zoneinfo).
 tzdata==2026.4
+# SNMP module (services/snmp_poll.py): polls system info, interface error
+# counters and the Cisco syslog-history table over SNMPv2c/v3. The lextudio
+# fork of pysnmp (7.x) - pure Python, asyncio-based, cross-platform.
+pysnmp==7.1.29

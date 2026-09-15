@@ -28,6 +28,9 @@ export function NavBar() {
         <NavLink to="/dns-check" className={({ isActive }) => (isActive ? "active" : "")}>
           DNS Check
         </NavLink>
+        <NavLink to="/snmp" className={({ isActive }) => (isActive ? "active" : "")}>
+          SNMP
+        </NavLink>
         <NavLink to="/terminal" className={({ isActive }) => (isActive ? "active" : "")}>
           Terminal
         </NavLink>

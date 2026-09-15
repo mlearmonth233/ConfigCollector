@@ -17,10 +17,11 @@ every page of the app in the order you will meet them.
 8. [Schedules](#8-schedules)
 9. [Firmware push](#9-firmware-push)
 10. [DNS Check](#10-dns-check)
-11. [Terminal](#11-terminal)
-12. [Settings](#12-settings)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Security notes](#14-security-notes)
+11. [SNMP](#11-snmp)
+12. [Terminal](#12-terminal)
+13. [Settings](#13-settings)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Security notes](#15-security-notes)
 
 ---
 
@@ -192,7 +193,7 @@ dropdown under "Your device types".
   of similar switches.
 - **History**: every stored config for this device, and the diff tool
   (section 7).
-- **SSH**: opens the Terminal page connected to this device (section 11).
+- **SSH**: opens the Terminal page connected to this device (section 12).
 - **Delete**: removes the device. Its past jobs and snapshots are kept,
   showing "deleted device".
 
@@ -439,7 +440,66 @@ firewall dropped ICMP, not that the device is down.
 
 ---
 
-## 11. Terminal
+## 11. SNMP
+
+**SNMP** page. Poll devices over SNMP for what they know about themselves,
+without logging in over SSH. Each poll produces one plain-text report per
+device containing:
+
+- **System**: sysName, sysDescr (platform and software version),
+  sysObjectID, uptime, contact and location.
+- **Interfaces**: every interface with its admin and operational status,
+  alias, and input/output error and discard counters. Interfaces with
+  errors stand out immediately.
+- **Syslog history**: the device's own log buffer via Cisco's
+  CISCO-SYSLOG-MIB, the same messages `show logging` prints, rendered as
+  `%FACILITY-SEVERITY-NAME: text`. On Cisco IOS the buffer must be
+  enabled with `logging history <size>` and `logging history <level>`.
+  Devices without this MIB simply report that it is not available.
+- **Extra OIDs**: anything else you name, walked and listed.
+
+### SNMP profiles
+
+A profile is how Packrat talks SNMP to a device. **Add profile** and pick a
+version:
+
+- **SNMPv2c**: a community string. Stored encrypted and never shown again.
+- **SNMPv3**: a username plus a **security level**. Use *authPriv*
+  (authenticated and encrypted) wherever the device supports it. For
+  authNoPriv and authPriv choose the **authentication protocol**
+  (SHA256, SHA, SHA224, SHA384, SHA512 or MD5) and its password; for
+  authPriv also the **privacy protocol** (AES128, AES192, AES256, 3DES or
+  DES) and its password. The protocols and passwords must match what is
+  configured on the device for that user. A **context name** is rarely
+  needed; leave it blank unless the device documentation says otherwise.
+- **UDP port**, **timeout** and **retries**: the defaults (161, 3 seconds,
+  1 retry) suit most networks. Lower the timeout if you poll many devices
+  that may be offline.
+
+Mark one profile as the **org default**; it is used for every device that
+has no profile of its own. Assign a different profile to a specific device
+with **Edit** on the Devices page. Editing a profile with a blank password
+or community keeps the current secret.
+
+### Polling
+
+Under **Poll devices**, tick the devices, optionally choose a **profile for
+this run** to use for every device regardless of their own assignment,
+optionally add **extra OIDs** (numeric, one per line, for example
+`1.3.6.1.4.1.9.9.109.1.1.1.1.7` for Cisco CPU utilisation), and press
+**Poll**. Devices are polled several at a time and the job page updates
+as they complete. Open a device's **Report** to read it in place, or
+**Download** it as a text file.
+
+A device that does not answer fails with "No SNMP response". For SNMPv2c a
+wrong community string looks identical to an unreachable device, because
+the device simply stays silent. SNMPv3 problems are reported more
+precisely: wrong authentication password, wrong privacy password, or an
+unknown user.
+
+---
+
+## 12. Terminal
 
 **Terminal** page, or the **SSH** button on any device row. An interactive
 SSH session in the browser using the device's credential (or the org
@@ -452,7 +512,7 @@ session.
 
 ---
 
-## 12. Settings
+## 13. Settings
 
 **Settings** page (admins).
 
@@ -462,7 +522,7 @@ session.
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 **"Could not establish an SSH session ... TCP connection to device failed"**
 The device is unreachable from the Packrat machine: wrong IP, DNS name,
@@ -496,6 +556,12 @@ The device could not reach Packrat's file server. Check the network
 interface you picked, that the port is not blocked, and for TFTP/FTP that
 the backend has permission to bind ports 69 and 21.
 
+**SNMP poll: "No SNMP response (timed out)"**
+The device has SNMP disabled, your Packrat machine is not in its SNMP
+access list, UDP 161 is blocked, or (for v2c) the community string is
+wrong. Test from the Packrat machine with `snmpwalk` or a similar tool
+using the same settings.
+
 **Windows: pip install fails with a `.tmp` file error**
 Two run scripts installed dependencies at the same time. Close the windows
 and start `run-dev.ps1` again; installs are now serialized.
@@ -506,7 +572,7 @@ timezone marker.
 
 ---
 
-## 14. Security notes
+## 15. Security notes
 
 - Device passwords and enable secrets are encrypted at rest with your
   `CREDENTIAL_ENCRYPTION_KEY` and decrypted only in memory for the length

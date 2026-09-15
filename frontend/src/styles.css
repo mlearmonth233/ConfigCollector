@@ -271,10 +271,10 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-/* Between tablet and a mid-size laptop there isn't room for nine nav links
-   plus the account label on one row - the label is the least important
-   thing in the bar, so it goes first. */
-@media (max-width: 1280px) and (min-width: 901px) {
+/* Below a wide desktop there isn't room for twelve nav links plus the
+   account label on one row - the label is the least important thing in
+   the bar, so it goes first (the Log out button stays). */
+@media (max-width: 1520px) and (min-width: 901px) {
   .navbar-user > span {
     display: none;
   }

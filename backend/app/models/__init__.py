@@ -8,6 +8,7 @@ from app.models.job import CollectionJob, CollectionJobItem
 from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
+from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
 from app.models.user import User
 
 # Every mapper must be imported before any of them is used - Organization's
@@ -31,4 +32,7 @@ __all__ = [
     "DnsCheckJob",
     "DnsCheckJobItem",
     "CustomDeviceType",
+    "SnmpProfile",
+    "SnmpJob",
+    "SnmpJobItem",
 ]
