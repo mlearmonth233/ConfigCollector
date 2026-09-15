@@ -22,6 +22,7 @@ from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
 from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
+from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig, SnmpMonitorState
 from app.services.collector import (
     AuthenticationError,
     CollectionCancelled,
@@ -36,6 +37,8 @@ from app.services.firmware_push import push_file, render_push_commands, transfer
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
 from app.services.snmp_poll import SnmpAuth, SnmpError, format_report, poll_many
+from app.services import snmp_monitor
+from app.services.snmp_monitor import EventFilter, SmtpSettings, Snapshot, diff_snapshots, format_email, parse_recipients
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -917,5 +920,172 @@ def run_snmp_job_task(self, job_id: str) -> None:
             job.status = JobStatus.COMPLETED
         job.finished_at = datetime.now(timezone.utc)
         db.commit()
+    finally:
+        db.close()
+
+
+# --- SNMP monitoring / alerting -----------------------------------------------------
+
+
+@celery_app.task(name="app.tasks.run_snmp_monitors")
+def run_snmp_monitors() -> None:
+    """Invoked every minute by Celery beat: runs a monitoring cycle for
+    every org whose monitor is enabled and due (see run_snmp_monitor_cycle).
+    One org's failure never stops the others."""
+    db = SyncSessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        due = (
+            db.query(SnmpMonitorConfig)
+            .filter(
+                SnmpMonitorConfig.enabled.is_(True),
+                (SnmpMonitorConfig.next_run_at.is_(None)) | (SnmpMonitorConfig.next_run_at <= now),
+            )
+            .all()
+        )
+        org_ids = [c.org_id for c in due]
+    finally:
+        db.close()
+    for org_id in org_ids:
+        try:
+            run_snmp_monitor_cycle(org_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _monitor_devices(db, config: SnmpMonitorConfig) -> list[Device]:
+    query = db.query(Device).filter(Device.org_id == config.org_id)
+    if config.device_ids:
+        ids = [uuid.UUID(x) for x in config.device_ids.split(",") if x.strip()]
+        query = query.filter(Device.id.in_(ids))
+    return query.order_by(Device.created_at).all()
+
+
+def run_snmp_monitor_cycle(org_id, *, force: bool = False) -> dict:
+    """One monitoring cycle for an org: snapshot every monitored device,
+    diff against its stored state, record SnmpAlerts for enabled events,
+    email the batch, store the new states, and schedule the next cycle.
+    Returns a small summary (also written to config.last_result). `force`
+    runs even when the monitor is disabled (the UI's "Run now")."""
+    db = SyncSessionLocal()
+    try:
+        config = db.query(SnmpMonitorConfig).filter(SnmpMonitorConfig.org_id == org_id).first()
+        if config is None or (not config.enabled and not force):
+            return {"skipped": True}
+        now = datetime.now(timezone.utc)
+        config.last_run_at = now
+        config.next_run_at = now + timedelta(minutes=config.interval_minutes)
+        db.commit()
+
+        devices = _monitor_devices(db, config)
+        override = db.get(SnmpProfile, config.snmp_profile_id) if config.snmp_profile_id else None
+        default_profile = (
+            db.query(SnmpProfile).filter(SnmpProfile.org_id == org_id, SnmpProfile.is_default.is_(True)).first()
+        )
+        states = {
+            s.device_id: s for s in db.query(SnmpMonitorState).filter(SnmpMonitorState.org_id == org_id).all()
+        }
+        filters = EventFilter(
+            link_down=config.alert_link_down,
+            link_up=config.alert_link_up,
+            ap_down=config.alert_ap_down,
+            ap_up=config.alert_ap_up,
+            device_down=config.alert_device_down,
+            device_up=config.alert_device_up,
+            syslog_max_level=config.alert_syslog_max_level,
+        )
+
+        specs = []
+        skipped_no_profile = 0
+        for device in devices:
+            profile = override or (db.get(SnmpProfile, device.snmp_profile_id) if device.snmp_profile_id else None) or default_profile
+            if profile is None:
+                skipped_no_profile += 1
+                continue
+            previous = states.get(device.id)
+            prev_snapshot = Snapshot.from_json(previous.snapshot_json) if previous else None
+            specs.append((device, _snmp_auth_from_profile(profile), prev_snapshot))
+
+        async def _snapshot_all():
+            semaphore = asyncio.Semaphore(SNMP_CHUNK_SIZE)
+
+            async def one(device, auth, prev):
+                async with semaphore:
+                    try:
+                        return await snmp_monitor.take_snapshot(
+                            device.host,
+                            auth,
+                            previous_syslog_index=prev.syslog_max_index if prev else 0,
+                            watch_syslog=config.alert_syslog_max_level is not None,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        return Snapshot(reachable=False, error=f"Unexpected error: {exc}")
+
+            return await asyncio.gather(*(one(*spec) for spec in specs))
+
+        snapshots = _run_async_in_new_thread(_snapshot_all) if specs else []
+
+        batch: list[tuple[str, snmp_monitor.Event]] = []
+        new_alerts: list[SnmpAlert] = []
+        for (device, _auth, prev_snapshot), snapshot in zip(specs, snapshots):
+            if prev_snapshot is None and not snapshot.reachable:
+                # Never seen it answer: don't alert "down" for a device that may
+                # simply not speak SNMP yet - but remember it, so the first
+                # successful answer isn't reported as a recovery either.
+                pass
+            events = diff_snapshots(device.name, prev_snapshot, snapshot, filters)
+            for ev in events:
+                batch.append((device.name, ev))
+                new_alerts.append(
+                    SnmpAlert(org_id=org_id, device_id=device.id, device_name=device.name, kind=ev.kind, subject=ev.subject, detail=ev.detail)
+                )
+            state = states.get(device.id)
+            if state is None:
+                state = SnmpMonitorState(org_id=org_id, device_id=device.id, snapshot_json=snapshot.to_json())
+                db.add(state)
+            else:
+                state.snapshot_json = snapshot.to_json()
+            state.updated_at = now
+        db.add_all(new_alerts)
+        db.commit()
+
+        summary = f"Polled {len(specs)} device(s)"
+        if skipped_no_profile:
+            summary += f", {skipped_no_profile} skipped (no SNMP profile)"
+        summary += f", {len(new_alerts)} alert(s)"
+        recipients = parse_recipients(config.recipients)
+        if new_alerts:
+            if recipients and config.smtp_host:
+                org = db.get(Organization, org_id)
+                subject, body = format_email(org.name if org else "your organization", batch)
+                try:
+                    snmp_monitor.send_email(
+                        SmtpSettings(
+                            host=config.smtp_host,
+                            port=config.smtp_port,
+                            username=config.smtp_username,
+                            password=decrypt_secret(config.encrypted_smtp_password) if config.encrypted_smtp_password else None,
+                            starttls=config.smtp_starttls,
+                            ssl=config.smtp_ssl,
+                            sender=config.smtp_from,
+                        ),
+                        recipients,
+                        subject,
+                        body,
+                    )
+                    for alert in new_alerts:
+                        alert.emailed = True
+                    summary += f", emailed {len(recipients)} recipient(s)"
+                except Exception as exc:  # noqa: BLE001
+                    for alert in new_alerts:
+                        alert.email_error = str(exc)[:1000]
+                    summary += f", EMAIL FAILED: {exc}"
+            else:
+                for alert in new_alerts:
+                    alert.email_error = "No recipients or SMTP server configured"
+                summary += ", not emailed (no recipients/SMTP configured)"
+        config.last_result = summary
+        db.commit()
+        return {"polled": len(specs), "alerts": len(new_alerts), "summary": summary}
     finally:
         db.close()

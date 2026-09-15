@@ -28,8 +28,10 @@ import type {
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
+  SnmpAlert,
   SnmpJob,
   SnmpJobDetail,
+  SnmpMonitorConfig,
   SnmpProfile,
   TransferProtocol,
 } from "./types";
@@ -260,4 +262,35 @@ export const hostnameRulesApi = {
   replace: (rules: HostnameRule[]) => apiClient.put<HostnameRules>("/api/hostname-rules", { rules }),
   test: (name: string, rules?: HostnameRule[]) =>
     apiClient.post<DeviceDetection>("/api/hostname-rules/test", { name, rules }),
+};
+
+export interface SnmpMonitorConfigPayload {
+  enabled: boolean;
+  interval_minutes: number;
+  device_ids?: string[] | null;
+  snmp_profile_id?: string | null;
+  alert_link_down: boolean;
+  alert_link_up: boolean;
+  alert_ap_down: boolean;
+  alert_ap_up: boolean;
+  alert_device_down: boolean;
+  alert_device_up: boolean;
+  alert_syslog_max_level: number | null;
+  recipients: string[];
+  smtp_host?: string | null;
+  smtp_port: number;
+  smtp_username?: string | null;
+  smtp_password?: string;
+  smtp_starttls: boolean;
+  smtp_ssl: boolean;
+  smtp_from?: string | null;
+}
+
+export const snmpMonitorApi = {
+  get: () => apiClient.get<SnmpMonitorConfig>("/api/snmp/monitor"),
+  update: (data: SnmpMonitorConfigPayload) => apiClient.put<SnmpMonitorConfig>("/api/snmp/monitor", data),
+  testEmail: () => apiClient.post<{ ok: boolean; message: string }>("/api/snmp/monitor/test-email"),
+  runNow: () => apiClient.post<SnmpMonitorConfig>("/api/snmp/monitor/run-now"),
+  listAlerts: () => apiClient.get<SnmpAlert[]>("/api/snmp/alerts"),
+  clearAlerts: () => apiClient.delete<{ deleted: number }>("/api/snmp/alerts"),
 };

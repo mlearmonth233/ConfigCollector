@@ -498,6 +498,43 @@ the device simply stays silent. SNMPv3 problems are reported more
 precisely: wrong authentication password, wrong privacy password, or an
 unknown user.
 
+### Alerts by email
+
+The **Alerts** section of the SNMP page turns polling into monitoring.
+When enabled, Packrat re-polls the chosen devices every few minutes,
+remembers what it saw, and emails you when something changes. The first
+poll of a device only records a baseline; alerts start with the first
+change after that.
+
+Events you can alert on:
+
+| Event | Fires when |
+|---|---|
+| Link down | An interface that was up, and is not administratively shut, goes down |
+| Link up | A down interface comes back |
+| Access point down | An AP disappears from its controller's AP table or stops being associated (Cisco WLCs, via the AIRESPACE-WIRELESS-MIB) |
+| Access point up | An AP joins or rejoins |
+| Device unreachable | A device that answered SNMP before stops answering |
+| Device reachable | It answers again |
+| Syslog | A new message appears in the device's syslog history at the chosen Cisco level (0 emergencies to 7 debugging) or worse |
+
+Fill in the **Email** section: recipient addresses (comma-separated), the
+SMTP server, port and security (STARTTLS on 587, SSL on 465, or none for
+an internal relay), an optional username and password, and an optional
+From address. The password is stored encrypted and never shown again.
+**Send test email** confirms the saved settings work before you rely on
+them. **Run a cycle now** polls immediately, which is also how you record
+the baseline without waiting for the timer.
+
+All events found in one cycle go into a single email, grouped by device,
+with a subject such as "[Packrat] 3 alerts: 2 link down, 1 access point
+down". Every event is also kept in the **Alert history** table with
+whether its email was sent, so a broken SMTP setting is visible rather
+than silent.
+
+Monitoring runs in the scheduler process ("beat"), the same one that runs
+Schedules. If alerts stop, check that window is open.
+
 ---
 
 ## 12. Terminal
@@ -579,6 +616,12 @@ credential's auth timeout so the next run waits long enough.
 **Commands run but output looks like it belongs to the previous command**
 Wrong device type for a WLC or PDU. Set it to the matching type; those use
 timing-based reads that cope with slow, chatty devices.
+
+**SNMP alerts never arrive**
+Check the Alert history: "not sent" with an SMTP error means the mail
+server settings are wrong; use Send test email to iterate. No alerts at
+all usually means the scheduler ("beat") process is not running, or the
+change happened before the baseline was recorded.
 
 **Scheduled backups never run**
 The scheduler ("beat") process is not running. On Windows it is the

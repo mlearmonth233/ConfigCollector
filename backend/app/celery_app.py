@@ -19,6 +19,8 @@ celery_app.conf.update(
     beat_schedule={
         "run-due-schedules": {"task": "app.tasks.run_due_schedules", "schedule": 60.0},
         "purge-expired-snapshots": {"task": "app.tasks.purge_expired_snapshots", "schedule": 3600.0},
+        # SNMP monitoring/alerting cycles (per-org interval, minimum 1 min).
+        "run-snmp-monitors": {"task": "app.tasks.run_snmp_monitors", "schedule": 60.0},
     },
 )
 

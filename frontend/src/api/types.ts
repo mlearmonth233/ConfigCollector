@@ -327,3 +327,44 @@ export interface HostnameRules {
   rules: (HostnameRule & { sort_order: number })[];
   using_builtin: boolean;
 }
+
+export type SnmpAlertKind = "link_down" | "link_up" | "ap_down" | "ap_up" | "device_down" | "device_up" | "syslog";
+
+export interface SnmpMonitorConfig {
+  enabled: boolean;
+  interval_minutes: number;
+  device_ids: string[] | null;
+  snmp_profile_id: string | null;
+  alert_link_down: boolean;
+  alert_link_up: boolean;
+  alert_ap_down: boolean;
+  alert_ap_up: boolean;
+  alert_device_down: boolean;
+  alert_device_up: boolean;
+  alert_syslog_max_level: number | null;
+  recipients: string[];
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_username: string | null;
+  has_smtp_password: boolean;
+  smtp_starttls: boolean;
+  smtp_ssl: boolean;
+  smtp_from: string | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_result: string | null;
+  monitored_device_count: number;
+}
+
+export interface SnmpAlert {
+  id: string;
+  device_id: string | null;
+  device_name: string;
+  kind: SnmpAlertKind;
+  kind_label: string;
+  subject: string;
+  detail: string | null;
+  emailed: boolean;
+  email_error: string | null;
+  created_at: string;
+}

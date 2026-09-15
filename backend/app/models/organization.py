@@ -42,3 +42,7 @@ class Organization(Base_):
     hostname_rules: Mapped[list["HostnameRule"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+    snmp_monitor_config: Mapped["SnmpMonitorConfig | None"] = relationship(
+        back_populates="organization", cascade="all, delete-orphan", uselist=False
+    )
+    snmp_alerts: Mapped[list["SnmpAlert"]] = relationship(back_populates="organization", cascade="all, delete-orphan")

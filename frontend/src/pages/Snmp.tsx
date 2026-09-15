@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { extractErrorMessage } from "../api/client";
 import { devicesApi, snmpApi, type SnmpProfilePayload } from "../api/resources";
 import type { Device, SnmpAuthProtocol, SnmpJob, SnmpPrivProtocol, SnmpProfile, SnmpSecurityLevel, SnmpVersion } from "../api/types";
+import { SnmpAlerting } from "../components/SnmpAlerting";
 import { StatusBadge } from "../components/StatusBadge";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
@@ -501,6 +502,9 @@ export function Snmp() {
           {starting ? "Starting…" : `Poll ${selectedIds.size} device${selectedIds.size === 1 ? "" : "s"}`}
         </button>
       </div>
+
+      {/* ---- alerting ---- */}
+      <SnmpAlerting devices={devices} profiles={profiles} />
 
       {/* ---- past jobs ---- */}
       <div className="page-header-row" style={{ marginTop: 36 }}>

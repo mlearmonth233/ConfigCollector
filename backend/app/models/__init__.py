@@ -10,6 +10,7 @@ from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
 from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
+from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig, SnmpMonitorState
 from app.models.user import User
 
 # Every mapper must be imported before any of them is used - Organization's
@@ -37,4 +38,7 @@ __all__ = [
     "SnmpJob",
     "SnmpJobItem",
     "HostnameRule",
+    "SnmpMonitorConfig",
+    "SnmpMonitorState",
+    "SnmpAlert",
 ]
