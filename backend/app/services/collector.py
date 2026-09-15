@@ -86,37 +86,25 @@ class _SSHClientWithKeyboardInteractiveFallback(paramiko.SSHClient):
     unaffected - this can only turn an existing failure into a success, never
     the reverse.
 
-    Before trying "password" at all, probes which methods the server
-    actually accepts via a "none" auth request (RFC 4252 SS5.2 - every SSH
-    server must answer this with its allowed-methods list, and it carries no
-    credential guess, so it isn't itself a failed login attempt) and skips
-    straight to keyboard-interactive when "password" isn't among them. Many
-    PDUs (APC switched PDUs especially) only ever accept keyboard-
-    interactive, and their embedded SSH stacks are commonly slow (some
-    deliberately throttle failed/rejected auth attempts as an anti-brute-
-    force measure) - submitting a real password guess to a method the
-    device already doesn't support, only to fall back afterwards, was
-    turning every PDU login into two auth round trips where one already
-    known to work would do."""
+    A prior version of this tried to skip the "password" attempt outright
+    (probing allowed methods first via a "none" auth request) for devices
+    that were known not to support it, to save PDU logins a round trip.
+    Reverted: on at least one real switch, that extra "none" request itself
+    triggered a hard disconnect (some devices count it against a strict
+    max-auth-tries setting, or simply don't tolerate an auth-method probe at
+    all), breaking a login that worked fine before - seen as both the
+    primary and fallback credential failing with the same "No existing
+    session" error. Always trying "password" first, exactly as before, is
+    the version with a proven track record across the whole fleet."""
 
     def _auth(self, username, password, *args, **kwargs):
         transport = self.get_transport()
         assert transport is not None
-
         try:
-            transport.auth_none(username)
-            allowed_types: list[str] = []
-        except paramiko.BadAuthenticationType as exc:
-            allowed_types = exc.allowed_types
+            transport.auth_password(username, password)
+            return
         except ParamikoAuthenticationException:
-            allowed_types = []
-
-        if not allowed_types or "password" in allowed_types:
-            try:
-                transport.auth_password(username, password)
-                return
-            except ParamikoAuthenticationException:
-                pass
+            pass
 
         def _answer_every_prompt_with_the_password(title, instructions, prompt_list):
             return [password for _ in prompt_list]

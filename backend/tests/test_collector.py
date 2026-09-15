@@ -96,49 +96,6 @@ def test_keyboard_interactive_fallback_used_when_password_auth_is_rejected():
     ]
 
 
-def test_password_auth_skipped_when_server_does_not_advertise_it():
-    # Real APC PDU firmware (and similar embedded gear) commonly only ever
-    # accepts keyboard-interactive - never "password" - and some such SSH
-    # stacks are slow (occasionally deliberately, as an anti-brute-force
-    # measure) to respond to a failed/rejected auth attempt. Submitting a
-    # real password guess to a method the device has already told us (via
-    # a "none" auth probe - RFC 4252 SS5.2, not itself a credentialed
-    # attempt) it doesn't support was turning every such login into two
-    # full auth round trips where one, known in advance to work, would do.
-    client = collector_module._SSHClientWithKeyboardInteractiveFallback()
-    transport = Mock()
-    transport.auth_none.side_effect = paramiko.BadAuthenticationType(
-        "Bad authentication type", ["keyboard-interactive"]
-    )
-    client.get_transport = Mock(return_value=transport)
-
-    client._auth("admin", "pdu-password")
-
-    transport.auth_none.assert_called_once_with("admin")
-    transport.auth_password.assert_not_called()
-    transport.auth_interactive.assert_called_once()
-    username, handler = transport.auth_interactive.call_args.args
-    assert username == "admin"
-    assert handler("title", "instructions", [("Password: ", False)]) == ["pdu-password"]
-
-
-def test_password_auth_still_tried_when_server_advertises_it():
-    # The probe must never stop a device that *does* support password auth
-    # from using it - this only skips a method the server has explicitly
-    # said it doesn't accept.
-    client = collector_module._SSHClientWithKeyboardInteractiveFallback()
-    transport = Mock()
-    transport.auth_none.side_effect = paramiko.BadAuthenticationType(
-        "Bad authentication type", ["password", "keyboard-interactive"]
-    )
-    client.get_transport = Mock(return_value=transport)
-
-    client._auth("admin", "cisco123")
-
-    transport.auth_password.assert_called_once_with("admin", "cisco123")
-    transport.auth_interactive.assert_not_called()
-
-
 def test_keyboard_interactive_fallback_still_raises_if_both_methods_fail():
     # A genuinely wrong credential must still fail loudly, exactly as before
     # this fallback existed - it should never mask a real auth failure.
