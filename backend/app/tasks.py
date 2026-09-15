@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.orm import object_session
 
 from app.celery_app import celery_app
 from app.config import get_settings
@@ -12,6 +13,7 @@ from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
+from app.models.custom_device_type import CustomDeviceType
 from app.models.device import Device
 from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareUpgradeJob, FirmwareUpgradeJobItem, TransferProtocol
@@ -26,7 +28,7 @@ from app.services.collector import (
     EnableModeError,
     collect_device_config,
 )
-from app.services.device_types import parse_command_list
+from app.services.device_types import DeviceTypeSpec, build_catalog, parse_command_list
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
@@ -128,6 +130,24 @@ def _resolve_credential(db, device: Device) -> Credential | None:
     return db.query(Credential).filter(Credential.org_id == device.org_id, Credential.is_default.is_(True)).first()
 
 
+def _resolve_spec(device: Device) -> DeviceTypeSpec:
+    """The DeviceTypeSpec for a device - a built-in type or one of its
+    org's custom types (see models/custom_device_type.py), looked up through
+    the session the device was loaded from. Raises CollectionError for a
+    type that no longer exists (a custom type deleted after the device was
+    created), so the item fails cleanly instead of crashing the task."""
+    db = object_session(device)
+    custom = db.query(CustomDeviceType).filter(CustomDeviceType.org_id == device.org_id).all() if db else []
+    catalog = build_catalog(custom)
+    spec = catalog.get(device.device_type)
+    if spec is None:
+        raise CollectionError(
+            f"Device type '{device.device_type}' no longer exists - it may have been deleted from custom "
+            "device types. Edit the device and pick a current type."
+        )
+    return spec
+
+
 def _collect_one_device(
     db,
     item: CollectionJobItem,
@@ -220,6 +240,7 @@ def _attempt_collection(
     fallback credential for the first two, never the last. Raises
     CollectionCancelled instead of any of those if should_cancel() notices a
     cancel request before running a command."""
+    spec = _resolve_spec(device)
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
     return collect_device_config(
@@ -238,6 +259,7 @@ def _attempt_collection(
         on_authenticated=on_authenticated,
         on_output=on_output,
         should_cancel=should_cancel,
+        spec=spec,
     )
 
 
@@ -418,6 +440,7 @@ def _attempt_push(
     one credential, then the rendered copy command(s). Same exception
     contract (AuthenticationError / EnableModeError / CommandExecutionError
     / CollectionCancelled) since it runs over the same device session."""
+    spec = _resolve_spec(device)
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
     return push_file(
@@ -435,6 +458,7 @@ def _attempt_push(
         on_authenticated=on_authenticated,
         on_output=on_output,
         should_cancel=should_cancel,
+        spec=spec,
     )
 
 

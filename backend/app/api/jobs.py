@@ -27,7 +27,8 @@ from app.schemas.job import (
     NeighborGapCheckOut,
     NeighborGapOut,
 )
-from app.services.device_types import parse_command_list, resolve_commands
+from app.api.custom_device_types import load_catalog
+from app.services.device_types import Catalog, parse_command_list, resolve_commands
 from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 from app.services.neighbor_discovery import extract_neighbors, has_neighbor_command, normalize_device_name
 from app.tasks import collect_device_task
@@ -211,13 +212,16 @@ async def create_and_dispatch_job(
     org_default_commands = {
         device_type: parse_command_list(profile.commands) for device_type, profile in org_overrides.items()
     }
+    catalog = await load_catalog(db, org_id)
 
     commands_by_type = commands_by_device_type or {}
     missing_command_devices = sorted(
         d.name
         for d in devices
         if not commands_by_type.get(d.device_type)
-        and not _has_resolvable_commands(d.device_type, d.custom_commands, org_default_commands.get(d.device_type))
+        and not _has_resolvable_commands(
+            d.device_type, d.custom_commands, org_default_commands.get(d.device_type), catalog
+        )
     )
     if missing_command_devices:
         raise HTTPException(
@@ -389,7 +393,10 @@ async def retry_job_item(
         device_type: parse_command_list(profile.commands) for device_type, profile in org_overrides.items()
     }
     if not payload.commands and not _has_resolvable_commands(
-        device.device_type, device.custom_commands, org_default_commands.get(device.device_type)
+        device.device_type,
+        device.custom_commands,
+        org_default_commands.get(device.device_type),
+        await load_catalog(db, user.org_id),
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -605,12 +612,12 @@ async def fetch_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> JobD
 
 
 def _has_resolvable_commands(
-    device_type: str, custom_commands: str | None, org_default: list[str] | None
+    device_type: str, custom_commands: str | None, org_default: list[str] | None, catalog: Catalog
 ) -> bool:
     if custom_commands or org_default:
         return True
     try:
-        resolve_commands(device_type, custom_commands)
+        resolve_commands(device_type, custom_commands, catalog)
         return True
     except ValueError:
         return False

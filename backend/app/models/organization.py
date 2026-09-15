@@ -32,3 +32,6 @@ class Organization(Base_):
     dns_check_jobs: Mapped[list["DnsCheckJob"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+    custom_device_types: Mapped[list["CustomDeviceType"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )

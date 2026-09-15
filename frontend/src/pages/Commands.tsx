@@ -4,6 +4,7 @@ import { extractErrorMessage } from "../api/client";
 import { commandProfilesApi } from "../api/resources";
 import type { CommandProfile } from "../api/types";
 import { CommandProfileCard } from "../components/CommandProfileCard";
+import { CustomDeviceTypesSection } from "../components/CustomDeviceTypesSection";
 
 export function Commands() {
   const [profiles, setProfiles] = useState<CommandProfile[]>([]);
@@ -52,6 +53,11 @@ export function Commands() {
       </p>
       {error && <div className="error-banner">{error}</div>}
 
+      <CustomDeviceTypesSection />
+
+      <h2 className="category-heading" style={{ textTransform: "none", marginTop: 8 }}>
+        Built-in device types
+      </h2>
       {loading ? (
         <p>Loading…</p>
       ) : (

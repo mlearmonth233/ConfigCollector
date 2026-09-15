@@ -15,6 +15,7 @@ import type {
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
 import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
+import { DeviceTypeOptions } from "../components/DeviceTypeOptions";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
@@ -385,11 +386,7 @@ export function Devices() {
                 }}
               >
                 <option value="">— select / auto-detect from name —</option>
-                {deviceTypes.map((t) => (
-                  <option key={t.key} value={t.key}>
-                    {t.label}
-                  </option>
-                ))}
+                <DeviceTypeOptions deviceTypes={deviceTypes} />
               </select>
             </label>
             <label>

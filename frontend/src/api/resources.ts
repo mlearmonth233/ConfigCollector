@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   CommandProfile,
+  CustomDeviceType,
   Credential,
   CurrentUser,
   Device,
@@ -56,6 +57,25 @@ export const credentialsApi = {
 
 export const deviceTypesApi = {
   list: () => apiClient.get<DeviceType[]>("/api/device-types"),
+};
+
+export interface CustomDeviceTypePayload {
+  key: string;
+  label: string;
+  category: string;
+  netmiko_driver: string;
+  default_commands: string[];
+  secret_supported: boolean;
+  timing_read: boolean;
+}
+
+export const customDeviceTypesApi = {
+  list: () => apiClient.get<CustomDeviceType[]>("/api/custom-device-types"),
+  drivers: () => apiClient.get<{ drivers: string[]; categories: string[] }>("/api/custom-device-types/netmiko-drivers"),
+  create: (data: CustomDeviceTypePayload) => apiClient.post<CustomDeviceType>("/api/custom-device-types", data),
+  update: (id: string, data: Partial<Omit<CustomDeviceTypePayload, "key">>) =>
+    apiClient.patch<CustomDeviceType>(`/api/custom-device-types/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/api/custom-device-types/${id}`),
 };
 
 export const deviceRolesApi = {

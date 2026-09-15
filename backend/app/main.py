@@ -7,6 +7,7 @@ from app.api import (
     auth,
     command_profiles,
     credentials,
+    custom_device_types,
     device_roles,
     device_types,
     devices,
@@ -52,6 +53,7 @@ app.include_router(users.router)
 app.include_router(credentials.router)
 app.include_router(devices.router)
 app.include_router(device_types.router)
+app.include_router(custom_device_types.router)
 app.include_router(device_roles.router)
 app.include_router(command_profiles.router)
 app.include_router(jobs.router)

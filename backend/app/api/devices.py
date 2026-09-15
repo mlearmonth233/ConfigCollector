@@ -19,7 +19,8 @@ from app.schemas.device import (
     DeviceReachabilityOut,
     DeviceUpdate,
 )
-from app.services.device_types import DEVICE_TYPE_REGISTRY
+from app.api.custom_device_types import load_catalog
+from app.services.device_types import Catalog
 from app.services.hostname_detection import detect, device_type_for_role
 from app.services.reachability import check_reachability
 
@@ -120,12 +121,14 @@ async def create_device(
     db: AsyncSession = Depends(get_db),
 ) -> Device:
     data = payload.model_dump()
+    catalog = await load_catalog(db, user.org_id)
     try:
         device_role, network_zone, device_type = _resolve_detected_fields(
             name=data["name"],
             device_role=data.get("device_role"),
             network_zone=data.get("network_zone"),
             device_type=data.get("device_type"),
+            catalog=catalog,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -150,7 +153,7 @@ async def update_device(
     device = await _get_owned_device(db, device_id, user.org_id)
     updates = payload.model_dump(exclude_unset=True)
     if "device_type" in updates:
-        _validate_device_type(updates["device_type"])
+        _validate_device_type(updates["device_type"], await load_catalog(db, user.org_id))
     for field, value in updates.items():
         setattr(device, field, value)
     await db.commit()
@@ -195,6 +198,7 @@ def _resolve_detected_fields(
     device_role: str | None,
     network_zone: NetworkZone | None,
     device_type: str | None,
+    catalog: Catalog,
 ) -> tuple[str | None, NetworkZone | None, str]:
     """Fills in device_role/network_zone/device_type from the device's name
     wherever the caller didn't supply one explicitly - an explicit value
@@ -225,21 +229,23 @@ def _resolve_detected_fields(
             hint = " - no recognizable role (access/core/distribution/server switch, WLC, PDU) was found in the name either"
         raise ValueError(f"device_type could not be determined automatically for '{name}'{hint} - specify one")
 
-    _check_device_type(effective_type)
+    _check_device_type(effective_type, catalog)
     return effective_role, effective_zone, effective_type
 
 
-def _check_device_type(device_type: str) -> None:
-    """Raises ValueError (not HTTPException) so callers - including the
-    per-row CSV import loop, which catches ValueError to record a row error
-    without aborting the rest of the batch - can handle it appropriately."""
-    if device_type not in DEVICE_TYPE_REGISTRY:
-        raise ValueError(f"unknown device_type '{device_type}'. Valid values: {', '.join(DEVICE_TYPE_REGISTRY)}")
+def _check_device_type(device_type: str, catalog: Catalog) -> None:
+    """Raises ValueError (not HTTPException) so callers that batch rows can
+    record a per-row error without aborting the rest. `catalog` is the
+    built-in registry plus the org's own custom types (see
+    custom_device_types.load_catalog), so a user-defined type is as valid
+    here as a built-in one."""
+    if device_type not in catalog:
+        raise ValueError(f"unknown device_type '{device_type}'. Valid values: {', '.join(catalog)}")
 
 
-def _validate_device_type(device_type: str) -> None:
+def _validate_device_type(device_type: str, catalog: Catalog) -> None:
     try:
-        _check_device_type(device_type)
+        _check_device_type(device_type, catalog)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

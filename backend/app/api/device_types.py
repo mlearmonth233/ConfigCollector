@@ -2,10 +2,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends
 
 from app.api.command_profiles import get_org_command_overrides
+from app.api.custom_device_types import load_catalog
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.user import User
-from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list
+from app.services.device_types import parse_command_list
 
 router = APIRouter(prefix="/api/device-types", tags=["device-types"])
 
@@ -20,8 +21,9 @@ async def list_device_types(
     # here (the "add device" form's hint, the start-collection dialog's
     # per-run prefill) always want the org's actual current default.
     overrides = await get_org_command_overrides(db, user.org_id)
+    catalog = await load_catalog(db, user.org_id)
     result = []
-    for key, spec in DEVICE_TYPE_REGISTRY.items():
+    for key, spec in catalog.items():
         override = overrides.get(key)
         commands = parse_command_list(override.commands) if override else list(spec.default_commands)
         result.append(
@@ -32,6 +34,9 @@ async def list_device_types(
                 "requires_custom_command": not commands,
                 "default_commands": commands,
                 "is_custom_default": override is not None,
+                # An org-defined type (see /api/custom-device-types) rather
+                # than a built-in one.
+                "custom": spec.custom,
             }
         )
     return result

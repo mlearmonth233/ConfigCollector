@@ -1,5 +1,6 @@
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
+from app.models.custom_device_type import CustomDeviceType
 from app.models.device import Device
 from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareImage, FirmwareUpgradeJob, FirmwareUpgradeJobItem
@@ -29,4 +30,5 @@ __all__ = [
     "FirmwareUpgradeJobItem",
     "DnsCheckJob",
     "DnsCheckJobItem",
+    "CustomDeviceType",
 ]

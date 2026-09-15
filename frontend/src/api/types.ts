@@ -59,6 +59,20 @@ export interface DeviceType {
   requires_custom_command: boolean;
   default_commands: string[];
   is_custom_default: boolean;
+  custom: boolean; // an org-defined type (see CustomDeviceType) rather than a built-in one
+}
+
+export interface CustomDeviceType {
+  id: string;
+  key: string;
+  label: string;
+  category: string;
+  netmiko_driver: string;
+  default_commands: string[];
+  secret_supported: boolean;
+  timing_read: boolean;
+  device_count: number;
+  created_at: string;
 }
 
 export interface CommandProfile {

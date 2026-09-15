@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { extractErrorMessage } from "../api/client";
 import { devicesApi } from "../api/resources";
+import { DeviceTypeOptions } from "./DeviceTypeOptions";
 import type { DeviceImportResult, DeviceRole, DeviceType, NetworkZone } from "../api/types";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
@@ -189,11 +190,7 @@ export function BulkAddDevicesModal({ deviceTypes, deviceRoles, onClose, onDone 
                       <td>
                         <select value={r.device_type} onChange={(e) => updateRow(i, { device_type: e.target.value })}>
                           <option value="">—</option>
-                          {deviceTypes.map((t) => (
-                            <option key={t.key} value={t.key}>
-                              {t.label}
-                            </option>
-                          ))}
+                          <DeviceTypeOptions deviceTypes={deviceTypes} />
                         </select>
                       </td>
                       <td>

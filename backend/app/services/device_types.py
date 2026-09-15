@@ -9,6 +9,7 @@ driver with no vendor-specific prompt handling - and the user is expected to
 supply the exact show command via Device.custom_commands.
 """
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 
@@ -19,6 +20,37 @@ class DeviceTypeSpec:
     netmiko_driver: str
     default_commands: tuple[str, ...]
     secret_supported: bool = True  # whether an "enable secret" concept applies
+    # How command output is read. None = decide from the driver/category
+    # (see uses_timing_read); a custom type sets this explicitly since the
+    # app can't know how a driver it has never met behaves.
+    timing_read: bool | None = None
+    # True for an org-defined type (see build_catalog), False for a
+    # built-in one from DEVICE_TYPE_REGISTRY.
+    custom: bool = False
+
+    @property
+    def uses_timing_read(self) -> bool:
+        """Whether commands run with Netmiko's timing-based read
+        (send_command_timing) instead of the prompt-pattern read. See the
+        long comment in collector.collect_device_config for why the
+        generic driver and WLCs need it."""
+        if self.timing_read is not None:
+            return self.timing_read
+        return self.netmiko_driver == "generic_termserver" or self.category == "wlc"
+
+    @classmethod
+    def from_custom(cls, row) -> "DeviceTypeSpec":
+        """A spec built from an org's CustomDeviceType row (duck-typed so
+        this module needs no import of the model layer)."""
+        return cls(
+            label=row.label,
+            category=row.category,
+            netmiko_driver=row.netmiko_driver,
+            default_commands=tuple(parse_command_list(row.default_commands or "")),
+            secret_supported=bool(row.secret_supported),
+            timing_read=bool(row.timing_read),
+            custom=True,
+        )
 
 
 # A full audit-style command set for Cisco IOS/NX-OS switches - interfaces,
@@ -208,11 +240,37 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
 }
 
 
-def get_device_type_spec(device_type: str) -> DeviceTypeSpec:
+Catalog = Mapping[str, DeviceTypeSpec]
+
+
+def build_catalog(custom_types: Iterable = ()) -> dict[str, DeviceTypeSpec]:
+    """Every device type an org can use: the built-in registry plus the
+    org's own CustomDeviceType rows (which may not shadow a built-in key -
+    the API enforces that). Callers that resolve a device's type (job
+    creation, the worker, the device-types listing) build one of these per
+    request/task rather than reaching for DEVICE_TYPE_REGISTRY directly, so
+    a custom type behaves exactly like a built-in one everywhere."""
+    catalog = dict(DEVICE_TYPE_REGISTRY)
+    for row in custom_types:
+        if row.key not in DEVICE_TYPE_REGISTRY:
+            catalog[row.key] = DeviceTypeSpec.from_custom(row)
+    return catalog
+
+
+def get_device_type_spec(device_type: str, catalog: Catalog | None = None) -> DeviceTypeSpec:
     try:
-        return DEVICE_TYPE_REGISTRY[device_type]
+        return (catalog if catalog is not None else DEVICE_TYPE_REGISTRY)[device_type]
     except KeyError as exc:
         raise ValueError(f"Unknown device_type '{device_type}'") from exc
+
+
+def list_netmiko_drivers() -> list[str]:
+    """The SSH platform names Netmiko can drive - what a custom device type
+    picks from. Telnet/serial variants are left out (the app only speaks
+    SSH), as are Netmiko's internal aliases."""
+    from netmiko.ssh_dispatcher import CLASS_MAPPER_BASE
+
+    return sorted(k for k in CLASS_MAPPER_BASE if not k.endswith(("_telnet", "_serial")))
 
 
 def parse_command_list(raw: str) -> list[str]:
@@ -222,12 +280,13 @@ def parse_command_list(raw: str) -> list[str]:
     return [c.strip() for c in raw.split(",") if c.strip()]
 
 
-def resolve_commands(device_type: str, custom_commands: str | None) -> list[str]:
+def resolve_commands(device_type: str, custom_commands: str | None, catalog: Catalog | None = None) -> list[str]:
     """custom_commands, when set on the Device, is a comma-separated override
-    of the registry's default_commands."""
+    of the type's default_commands (built-in registry or, via `catalog`, an
+    org's custom type)."""
     if custom_commands:
         return parse_command_list(custom_commands)
-    spec = get_device_type_spec(device_type)
+    spec = get_device_type_spec(device_type, catalog)
     if not spec.default_commands:
         raise ValueError(
             f"Device type '{device_type}' has no default command - set custom_commands on the device"

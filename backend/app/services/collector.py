@@ -21,7 +21,7 @@ from paramiko.kex_group14 import KexGroup14SHA256
 from paramiko.rsakey import RSAKey
 from paramiko.ssh_exception import AuthenticationException as ParamikoAuthenticationException
 
-from app.services.device_types import get_device_type_spec, resolve_commands
+from app.services.device_types import DeviceTypeSpec, get_device_type_spec, resolve_commands
 
 
 class _KexGroup14SHA1(KexGroup14SHA256):
@@ -179,8 +179,14 @@ def collect_device_config(
     on_authenticated: Callable[[], None] | None = None,
     on_output: Callable[[str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    spec: DeviceTypeSpec | None = None,
 ) -> str:
     """Connect, authenticate, and run the configured show/config command(s).
+
+    `spec`, if given, is the already-resolved DeviceTypeSpec for
+    `device_type` - how an org-defined custom type (which the built-in
+    registry can't know about) reaches this function. Omitted, the type is
+    looked up in the built-in registry.
 
     `on_authenticated`, if given, is called the moment the SSH login (and any
     TACACS+/MFA challenge behind it) has succeeded - before any commands are
@@ -208,8 +214,9 @@ def collect_device_config(
             on_output(text)
 
     try:
-        spec = get_device_type_spec(device_type)
-        commands = commands_override or resolve_commands(device_type, custom_commands)
+        if spec is None:
+            spec = get_device_type_spec(device_type)
+        commands = commands_override or resolve_commands(device_type, custom_commands, {device_type: spec})
     except ValueError as exc:
         # Unknown device_type, or a type with no default command (e.g. most
         # PDUs/console servers) and no custom_commands/override supplied -
@@ -231,6 +238,7 @@ def collect_device_config(
         otp_delimiter=otp_delimiter,
         on_authenticated=on_authenticated,
         on_output=on_output,
+        spec=spec,
     ) as conn:
         # "generic_termserver" (most PDUs, Opengear console servers)
         # and Cisco WLCs (both AireOS and Catalyst 9800) all use
@@ -267,7 +275,10 @@ def collect_device_config(
         # slow command apart from one that's already finished, which
         # is why well-behaved network-OS drivers still use the
         # normal pattern-based read below instead.
-        use_timing_read = spec.netmiko_driver == "generic_termserver" or spec.category == "wlc"
+        # A custom type says so explicitly (DeviceTypeSpec.timing_read)
+        # instead, since the app can't know how an unfamiliar driver
+        # behaves.
+        use_timing_read = spec.uses_timing_read
         outputs = []
         for command in commands:
             if should_cancel is not None and should_cancel():
@@ -302,6 +313,7 @@ def open_device_session(
     otp_delimiter: str = ",",
     on_authenticated: Callable[[], None] | None = None,
     on_output: Callable[[str], None] | None = None,
+    spec: DeviceTypeSpec | None = None,
 ) -> Iterator:
     """Connects, authenticates, and (where the device type supports it and
     a secret was given) enters enable mode, then yields the live Netmiko
@@ -323,7 +335,8 @@ def open_device_session(
             on_output(text)
 
     try:
-        spec = get_device_type_spec(device_type)
+        if spec is None:
+            spec = get_device_type_spec(device_type)
     except ValueError as exc:
         raise CollectionError(str(exc)) from exc
 

@@ -179,6 +179,11 @@ credential to change its password.
 Picking the wrong type is the most common cause of a "Pattern not
 detected" or "failed to enter enable mode" error.
 
+Not in the list? Add your own type (Juniper, Arista, Palo Alto, a Linux
+host, a console server) on the **Commands** page; see
+[Your own device types](#your-own-device-types). It then appears in this
+dropdown under "Your device types".
+
 ### Per-row actions
 
 - **Edit**: change any field, including a custom command list for just
@@ -214,6 +219,40 @@ of precedence at collection time is:
 
 Keep `term len 0` (or the platform equivalent) at the top of any Cisco
 list so output is not paginated. The built-in defaults already do this.
+
+### Your own device types
+
+The top of the **Commands** page lists the device types you have defined
+yourself, for any platform the built-in list does not cover. **Add device
+type** asks for:
+
+- **Name**: what you will see in dropdowns, e.g. "Juniper SRX firewall".
+- **Key**: a short identifier stored on devices (`juniper_srx`). It is
+  filled in from the name and cannot change once saved.
+- **Netmiko driver**: the CLI dialect Packrat should speak. Start typing to
+  search the list: `juniper_junos`, `arista_eos`, `paloalto_panos`,
+  `hp_procurve`, `linux`, `generic_termserver` and about a hundred more.
+  Use `linux` for anything with a shell and `generic_termserver` for a
+  plain prompt.
+- **Category**: switch, router, firewall, wireless controller, PDU,
+  server, console server or other. Only used for grouping.
+- **Commands to run**: one per line. This is where log collection goes:
+  `show log messages | last 500` on Junos, `show logging` on Arista,
+  `show log system` on PAN-OS, `journalctl -n 500 --no-pager` on Linux.
+  Put the platform's paging-off command first (`set cli screen-length 0`,
+  `terminal length 0`, `set cli pager off`).
+- **Read output by waiting for the channel to go quiet**: leave ticked for
+  any platform you have not proven here. Untick only if you know Netmiko's
+  prompt detection works for the driver, which makes reads faster.
+- **Has an enable mode**: tick for platforms that need the credential's
+  enable secret after login.
+
+A custom type behaves like a built-in one everywhere: it appears in the Add
+device and bulk-add dropdowns, jobs and schedules collect it, its output is
+stored as snapshots and diffed, and the same precedence rules apply (a
+device's own custom commands or a one-time override still win). Edit a type
+to change its commands for every device using it. A type in use by devices
+cannot be deleted until those devices are changed or removed.
 
 ---
 

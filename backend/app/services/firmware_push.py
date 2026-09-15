@@ -22,7 +22,7 @@ from collections.abc import Callable
 from app.config import get_settings
 from app.models.firmware import TransferProtocol
 from app.services.collector import CollectionCancelled, CommandExecutionError, open_device_session
-from app.services.device_types import parse_command_list
+from app.services.device_types import DeviceTypeSpec, parse_command_list
 
 settings = get_settings()
 
@@ -258,6 +258,7 @@ def push_file(
     on_output: Callable[[str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     timeout_seconds: float | None = None,
+    spec: DeviceTypeSpec | None = None,
 ) -> str:
     """Logs in (same auth/enable/error classification as config
     collection) and runs each already-rendered copy command through
@@ -284,6 +285,7 @@ def push_file(
         otp_delimiter=otp_delimiter,
         on_authenticated=on_authenticated,
         on_output=on_output,
+        spec=spec,
     ) as conn:
         prompt = conn.find_prompt().strip()
         for command in commands:
