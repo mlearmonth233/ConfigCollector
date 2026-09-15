@@ -21,7 +21,8 @@ from app.schemas.device import (
 )
 from app.api.custom_device_types import load_catalog
 from app.services.device_types import Catalog
-from app.services.hostname_detection import detect, device_type_for_role
+from app.api.hostname_rules import load_rules
+from app.services.hostname_detection import Rule, detect, device_type_for_role
 from app.services.reachability import check_reachability
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -80,11 +81,13 @@ async def clear_all_devices(
 async def detect_device(
     name: str = Query(min_length=1),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> DeviceDetectionOut:
-    """Best-effort role/zone/device_type guess from a device name, for the
-    "Add device" form (and CSV import) to pre-fill - always just a
-    starting point, never applied without the caller's say-so."""
-    result = detect(name)
+    """Best-effort role/zone/device_type guess from a device name, per the
+    org's naming rules (see /api/hostname-rules), for the "Add device" form
+    and bulk add to pre-fill - always just a starting point, never applied
+    without the caller's say-so."""
+    result = detect(name, await load_rules(db, user.org_id))
     return DeviceDetectionOut(
         device_role=result.device_role,
         device_role_label=result.device_role_label,
@@ -122,6 +125,7 @@ async def create_device(
 ) -> Device:
     data = payload.model_dump()
     catalog = await load_catalog(db, user.org_id)
+    rules = await load_rules(db, user.org_id)
     try:
         device_role, network_zone, device_type = _resolve_detected_fields(
             name=data["name"],
@@ -129,6 +133,7 @@ async def create_device(
             network_zone=data.get("network_zone"),
             device_type=data.get("device_type"),
             catalog=catalog,
+            rules=rules,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -201,12 +206,13 @@ def _resolve_detected_fields(
     network_zone: NetworkZone | None,
     device_type: str | None,
     catalog: Catalog,
+    rules: tuple[Rule, ...] | None = None,
 ) -> tuple[str | None, NetworkZone | None, str]:
     """Fills in device_role/network_zone/device_type from the device's name
     wherever the caller didn't supply one explicitly - an explicit value
     always wins. Raises ValueError (callers translate to a 400 or a
     per-row CSV import error) if device_type still can't be determined."""
-    guess = detect(name)
+    guess = detect(name, rules)
     effective_role = device_role or guess.device_role
     effective_zone = network_zone or guess.network_zone
 
@@ -216,7 +222,7 @@ def _resolve_detected_fields(
         # An explicitly-given role is the source of truth for the
         # type-from-role mapping, even if it disagrees with what the name
         # would have suggested.
-        effective_type = device_type_for_role(device_role)
+        effective_type = device_type_for_role(device_role, rules)
     else:
         effective_type = guess.suggested_device_type
 

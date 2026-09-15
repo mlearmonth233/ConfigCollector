@@ -15,6 +15,8 @@ import type {
   FirmwareImage,
   FirmwareJob,
   FirmwareJobDetail,
+  HostnameRule,
+  HostnameRules,
   Job,
   JobDetail,
   MfaMode,
@@ -251,4 +253,11 @@ export const snmpApi = {
   cancelJob: (id: string) => apiClient.post<SnmpJobDetail>(`/api/snmp/jobs/${id}/cancel`),
   removeJob: (id: string) => apiClient.delete(`/api/snmp/jobs/${id}`),
   clearFinished: () => apiClient.delete<{ deleted: number }>("/api/snmp/jobs"),
+};
+
+export const hostnameRulesApi = {
+  get: () => apiClient.get<HostnameRules>("/api/hostname-rules"),
+  replace: (rules: HostnameRule[]) => apiClient.put<HostnameRules>("/api/hostname-rules", { rules }),
+  test: (name: string, rules?: HostnameRule[]) =>
+    apiClient.post<DeviceDetection>("/api/hostname-rules/test", { name, rules }),
 };

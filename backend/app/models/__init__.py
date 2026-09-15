@@ -4,6 +4,7 @@ from app.models.custom_device_type import CustomDeviceType
 from app.models.device import Device
 from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareImage, FirmwareUpgradeJob, FirmwareUpgradeJobItem
+from app.models.hostname_rule import HostnameRule
 from app.models.job import CollectionJob, CollectionJobItem
 from app.models.organization import Organization
 from app.models.schedule import Schedule
@@ -35,4 +36,5 @@ __all__ = [
     "SnmpProfile",
     "SnmpJob",
     "SnmpJobItem",
+    "HostnameRule",
 ]

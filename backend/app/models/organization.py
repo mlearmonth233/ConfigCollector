@@ -39,3 +39,6 @@ class Organization(Base_):
         back_populates="organization", cascade="all, delete-orphan"
     )
     snmp_jobs: Mapped[list["SnmpJob"]] = relationship(back_populates="organization", cascade="all, delete-orphan")
+    hostname_rules: Mapped[list["HostnameRule"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { credentialsApi, deviceRolesApi, devicesApi, deviceTypesApi, snmpApi } from "../api/resources";
@@ -373,6 +373,8 @@ export function Devices() {
                   {!detection.suggested_device_type &&
                     detection.device_role_label &&
                     " — pick a device type below (can't be guessed for this role)."}
+                  {" · "}
+                  <Link to="/settings#naming">naming rules</Link>
                 </span>
               )}
             </label>

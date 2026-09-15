@@ -13,6 +13,7 @@ from app.api import (
     devices,
     dns_check,
     firmware,
+    hostname_rules,
     jobs,
     organizations,
     schedules,
@@ -56,6 +57,7 @@ app.include_router(devices.router)
 app.include_router(device_types.router)
 app.include_router(custom_device_types.router)
 app.include_router(device_roles.router)
+app.include_router(hostname_rules.router)
 app.include_router(command_profiles.router)
 app.include_router(jobs.router)
 app.include_router(snapshots.router)

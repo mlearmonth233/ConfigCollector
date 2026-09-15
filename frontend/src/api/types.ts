@@ -311,3 +311,19 @@ export interface SnmpJob {
 export interface SnmpJobDetail extends SnmpJob {
   items: SnmpJobItem[];
 }
+
+export type HostnameMatchMode = "contains" | "prefix" | "suffix" | "regex";
+
+export interface HostnameRule {
+  pattern: string;
+  match_mode: HostnameMatchMode;
+  device_role: string | null;
+  role_label: string | null;
+  network_zone: NetworkZone | null;
+  device_type: string | null;
+}
+
+export interface HostnameRules {
+  rules: (HostnameRule & { sort_order: number })[];
+  using_builtin: boolean;
+}

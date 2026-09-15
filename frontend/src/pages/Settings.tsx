@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { extractErrorMessage } from "../api/client";
 import { organizationApi } from "../api/resources";
 import type { OrganizationSettings } from "../api/types";
+import { HostnameRulesEditor } from "../components/HostnameRulesEditor";
 
 export function Settings() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
@@ -86,6 +87,9 @@ export function Settings() {
           </div>
         </form>
       )}
+
+      <div id="naming" />
+      <HostnameRulesEditor />
     </div>
   );
 }
