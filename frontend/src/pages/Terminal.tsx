@@ -1,36 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XTerm } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
 
-import { API_BASE_URL, extractErrorMessage, getToken } from "../api/client";
+import { extractErrorMessage } from "../api/client";
 import { credentialsApi, devicesApi } from "../api/resources";
 import type { Credential, Device } from "../api/types";
+import { TerminalSession, type SessionHandle, type SessionState } from "../components/TerminalSession";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
-type SessionState = "idle" | "connecting" | "connected" | "closed";
-
-const TERMINAL_THEME = {
-  background: "#0b1220",
-  foreground: "#d7dee9",
-  cursor: "#22d3ee",
-  cursorAccent: "#0b1220",
-  selectionBackground: "rgba(34, 211, 238, 0.28)",
-  black: "#0b1220",
-  brightBlack: "#475569",
-  red: "#f87171",
-  green: "#4ade80",
-  yellow: "#facc15",
-  blue: "#60a5fa",
-  magenta: "#c084fc",
-  cyan: "#22d3ee",
-  white: "#e2e8f0",
-};
-
-function websocketBase(): string {
-  return API_BASE_URL.replace(/^http/, "ws");
+interface Tab {
+  id: string;
+  device: Device;
+  initialOtp: string;
+  state: SessionState;
 }
+
+let tabCounter = 0;
+
+const STATE_LABEL: Record<SessionState, string> = {
+  connecting: "Connecting…",
+  connected: "Connected",
+  closed: "Disconnected",
+};
 
 export function Terminal() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -39,13 +29,10 @@ export function Terminal() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState(searchParams.get("device") ?? "");
   const [otp, setOtp] = useState("");
-  const [state, setState] = useState<SessionState>("idle");
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<XTerm | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const observerRef = useRef<ResizeObserver | null>(null);
+  const [reconnectOtp, setReconnectOtp] = useState("");
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const handles = useRef(new Map<string, SessionHandle>());
 
   useEffect(() => {
     let cancelled = false;
@@ -64,93 +51,78 @@ export function Terminal() {
     };
   }, []);
 
-  const selectedDevice = useMemo(() => devices.find((d) => d.id === selectedId), [devices, selectedId]);
-  const effectiveCredential = useMemo(() => {
-    if (!selectedDevice) return undefined;
-    return (
-      (selectedDevice.credential_id ? credentials.find((c) => c.id === selectedDevice.credential_id) : undefined) ??
-      credentials.find((c) => c.is_default)
-    );
-  }, [selectedDevice, credentials]);
-  const needsOtp = effectiveCredential?.mfa_mode === "passcode";
+  const credentialFor = useCallback(
+    (device: Device | undefined): Credential | undefined => {
+      if (!device) return undefined;
+      return (
+        (device.credential_id ? credentials.find((c) => c.id === device.credential_id) : undefined) ??
+        credentials.find((c) => c.is_default)
+      );
+    },
+    [credentials],
+  );
 
-  function teardown() {
-    observerRef.current?.disconnect();
-    observerRef.current = null;
-    wsRef.current?.close();
-    wsRef.current = null;
-    termRef.current?.dispose();
-    termRef.current = null;
-    fitRef.current = null;
+  const selectedDevice = useMemo(() => devices.find((d) => d.id === selectedId), [devices, selectedId]);
+  const selectedCredential = credentialFor(selectedDevice);
+  const needsOtp = selectedCredential?.mfa_mode === "passcode";
+
+  const activeTab = tabs.find((t) => t.id === activeId) ?? null;
+  const activeNeedsOtp = credentialFor(activeTab?.device)?.mfa_mode === "passcode";
+  const liveCount = tabs.filter((t) => t.state !== "closed").length;
+
+  // Tabs for the same device are told apart by a counter: "HQ-CORE-SW01 (2)".
+  const labels = useMemo(() => {
+    const seen = new Map<string, number>();
+    const result = new Map<string, { name: string; count: number }>();
+    for (const tab of tabs) {
+      const n = (seen.get(tab.device.id) ?? 0) + 1;
+      seen.set(tab.device.id, n);
+      result.set(tab.id, { name: tab.device.name, count: n });
+    }
+    return result;
+  }, [tabs]);
+
+  function openSession() {
+    if (!selectedDevice) return;
+    tabCounter += 1;
+    const id = `session-${tabCounter}-${Date.now()}`;
+    setTabs((prev) => [...prev, { id, device: selectedDevice, initialOtp: needsOtp ? otp.trim() : "", state: "connecting" }]);
+    setActiveId(id);
+    setOtp("");
   }
 
-  // Dispose of any live session if the page is left.
-  useEffect(() => teardown, []);
+  const onState = useCallback((id: string, state: SessionState) => {
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, state } : t)));
+  }, []);
 
-  function sendResize(ws: WebSocket, term: XTerm) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  const onHandle = useCallback((id: string, handle: SessionHandle | null) => {
+    if (handle) handles.current.set(id, handle);
+    else handles.current.delete(id);
+  }, []);
+
+  function closeTab(id: string) {
+    const index = tabs.findIndex((t) => t.id === id);
+    const remaining = tabs.filter((t) => t.id !== id);
+    setTabs(remaining);
+    if (activeId === id) {
+      const neighbour = remaining[Math.min(index, remaining.length - 1)];
+      setActiveId(neighbour?.id ?? null);
     }
   }
 
-  function connect() {
-    if (!selectedDevice || !containerRef.current) return;
-    teardown();
-    setState("connecting");
-
-    const term = new XTerm({
-      cursorBlink: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-      fontSize: 13,
-      lineHeight: 1.2,
-      scrollback: 5000,
-      theme: TERMINAL_THEME,
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(containerRef.current);
-    fit.fit();
-    termRef.current = term;
-    fitRef.current = fit;
-
-    const token = getToken() ?? "";
-    const query = new URLSearchParams({ token, cols: String(term.cols), rows: String(term.rows) });
-    if (needsOtp && otp.trim()) query.set("otp", otp.trim());
-    const ws = new WebSocket(`${websocketBase()}/api/terminal/${selectedDevice.id}?${query.toString()}`);
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setState("connected");
-      term.focus();
-      sendResize(ws, term);
-    };
-    ws.onmessage = (event) => {
-      if (typeof event.data === "string") term.write(event.data);
-      else term.write(new Uint8Array(event.data as ArrayBuffer));
-    };
-    ws.onerror = () => {
-      term.write("\r\n\x1b[31mConnection error - is the backend reachable?\x1b[0m\r\n");
-    };
-    ws.onclose = () => {
-      term.write("\r\n\x1b[90m[Session closed]\x1b[0m\r\n");
-      setState("closed");
-      setOtp("");
-    };
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "input", data }));
-    });
-
-    const observer = new ResizeObserver(() => {
-      fit.fit();
-      sendResize(ws, term);
-    });
-    observer.observe(containerRef.current);
-    observerRef.current = observer;
+  function closeAll() {
+    setTabs([]);
+    setActiveId(null);
   }
 
-  function disconnect() {
-    wsRef.current?.close();
+  function disconnectActive() {
+    if (activeId) handles.current.get(activeId)?.disconnect();
+  }
+
+  function reconnectActive() {
+    if (!activeId) return;
+    handles.current.get(activeId)?.reconnect(activeNeedsOtp ? reconnectOtp.trim() : "");
+    setReconnectOtp("");
   }
 
   function handleDeviceChange(id: string) {
@@ -158,22 +130,41 @@ export function Terminal() {
     setSearchParams(id ? { device: id } : {}, { replace: true });
   }
 
-  const live = state === "connecting" || state === "connected";
+  function onTabKey(event: KeyboardEvent<HTMLDivElement>, index: number) {
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const next = tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      if (next) setActiveId(next.id);
+    } else if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      closeTab(tabs[index].id);
+    }
+  }
+
+  function onTabAuxClick(event: MouseEvent<HTMLDivElement>, id: string) {
+    if (event.button === 1) {
+      event.preventDefault();
+      closeTab(id);
+    }
+  }
+
+  const canOpen = Boolean(selectedDevice) && (!needsOtp || otp.trim().length > 0);
 
   return (
     <div className="page page-wide">
       <h1>Terminal</h1>
       <p className="page-subtitle">
-        An interactive SSH session to a device, right here in the browser - logging in with the same
-        credential a collection would use (the device's own, or the org default), including
-        TACACS+/MFA handling. Nothing typed here is recorded by this app.
+        Interactive SSH sessions in the browser, logging in with the same credential a collection would use
+        (the device's own, or the org default), including TACACS+/MFA handling. Open as many devices as you
+        need - each one gets its own tab and stays connected while you work in another. Nothing typed here
+        is recorded by this app.
       </p>
       {loadError && <div className="error-banner">{loadError}</div>}
 
       <div className="terminal-toolbar">
         <label>
           Device
-          <select value={selectedId} onChange={(e) => handleDeviceChange(e.target.value)} disabled={live}>
+          <select value={selectedId} onChange={(e) => handleDeviceChange(e.target.value)}>
             <option value="">— pick a device —</option>
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
@@ -184,36 +175,120 @@ export function Terminal() {
         </label>
         {needsOtp && (
           <label>
-            Passcode for "{effectiveCredential?.name}"
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="e.g. 123456" disabled={live} />
+            Passcode for "{selectedCredential?.name}"
+            <input
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="e.g. 123456"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canOpen) openSession();
+              }}
+            />
           </label>
         )}
         <div className="terminal-toolbar-actions">
-          {!live ? (
-            <button onClick={connect} disabled={!selectedDevice || (needsOtp && !otp.trim())}>
-              {state === "closed" ? "Reconnect" : "Connect"}
-            </button>
-          ) : (
-            <button className="button-like" onClick={disconnect}>
-              Disconnect
-            </button>
+          <button onClick={openSession} disabled={!canOpen}>
+            {tabs.length ? "Open in new tab" : "Connect"}
+          </button>
+          {activeTab && (
+            <>
+              <span className={`terminal-state terminal-state-${activeTab.state}`}>
+                {STATE_LABEL[activeTab.state]}
+                {activeTab.state === "connected" && ` to ${activeTab.device.name}`}
+              </span>
+              {activeTab.state === "closed" ? (
+                <>
+                  {activeNeedsOtp && (
+                    <input
+                      className="terminal-otp-inline"
+                      value={reconnectOtp}
+                      onChange={(e) => setReconnectOtp(e.target.value)}
+                      placeholder="New passcode"
+                      aria-label="Passcode for reconnect"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && reconnectOtp.trim()) reconnectActive();
+                      }}
+                    />
+                  )}
+                  <button className="button-like" onClick={reconnectActive} disabled={activeNeedsOtp && !reconnectOtp.trim()}>
+                    Reconnect
+                  </button>
+                </>
+              ) : (
+                <button className="button-like" onClick={disconnectActive}>
+                  Disconnect
+                </button>
+              )}
+            </>
           )}
-          <span className={`terminal-state terminal-state-${state}`}>
-            {state === "idle" && "Not connected"}
-            {state === "connecting" && "Connecting…"}
-            {state === "connected" && `Connected to ${selectedDevice?.name ?? "device"}`}
-            {state === "closed" && "Disconnected"}
-          </span>
         </div>
       </div>
 
       <div className="terminal-shell">
-        {state === "idle" && (
-          <div className="terminal-placeholder">
-            <span className="terminal-placeholder-prompt">$</span> Pick a device and connect to open a session.
+        {tabs.length > 0 && (
+          <div className="terminal-tabs" role="tablist" aria-label="Open sessions">
+            {tabs.map((tab, index) => {
+              const label = labels.get(tab.id)!;
+              const text = label.count > 1 ? `${label.name} (${label.count})` : label.name;
+              return (
+                <div
+                  key={tab.id}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={tab.id === activeId}
+                  title={`${tab.device.name} · ${tab.device.host} - ${STATE_LABEL[tab.state]}`}
+                  className={`terminal-tab terminal-tab-${tab.state}${tab.id === activeId ? " active" : ""}`}
+                  onClick={() => setActiveId(tab.id)}
+                  onAuxClick={(e) => onTabAuxClick(e, tab.id)}
+                  onKeyDown={(e) => onTabKey(e, index)}
+                >
+                  <span className="terminal-tab-dot" aria-hidden="true" />
+                  <span className="terminal-tab-name">{text}</span>
+                  <button
+                    type="button"
+                    className="terminal-tab-close"
+                    aria-label={`Close ${text}`}
+                    title="Close tab"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            <div className="terminal-tabs-actions">
+              <span className="terminal-tabs-summary">
+                {liveCount} of {tabs.length} live
+              </span>
+              {tabs.length > 1 && (
+                <button type="button" className="terminal-tabs-closeall" onClick={closeAll}>
+                  Close all
+                </button>
+              )}
+            </div>
           </div>
         )}
-        <div ref={containerRef} className="terminal-surface" />
+        {tabs.length === 0 && (
+          <div className="terminal-placeholder">
+            <span className="terminal-placeholder-prompt">$</span> Pick a device and connect to open a session. Connect
+            again with another device to add a tab.
+          </div>
+        )}
+        {tabs.length === 0 && <div className="terminal-surface" aria-hidden="true" />}
+        {tabs.map((tab) => (
+          <TerminalSession
+            key={tab.id}
+            sessionId={tab.id}
+            device={tab.device}
+            initialOtp={tab.initialOtp}
+            visible={tab.id === activeId}
+            onState={onState}
+            onHandle={onHandle}
+          />
+        ))}
       </div>
     </div>
   );

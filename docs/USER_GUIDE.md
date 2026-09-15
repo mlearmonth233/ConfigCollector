@@ -539,14 +539,28 @@ Schedules. If alerts stop, check that window is open.
 
 ## 12. Terminal
 
-**Terminal** page, or the **SSH** button on any device row. An interactive
-SSH session in the browser using the device's credential (or the org
+**Terminal** page, or the **SSH** button on any device row. Interactive
+SSH sessions in the browser using each device's credential (or the org
 default), including MFA handling. If the credential uses passcode MFA, a
 field appears for the current code.
 
-Press **Connect**. The terminal resizes with the window. Nothing you type
-is stored by Packrat. Press **Disconnect** or close the tab to end the
-session.
+Pick a device and press **Connect**. To work on several devices at once,
+pick the next device and press **Open in new tab**: every session gets
+its own tab along the top of the terminal, and each stays connected while
+you type in another. The tab's dot shows its state (amber connecting,
+green connected, grey disconnected). Opening the same device twice gives
+it a numbered tab, for example `HQ-CORE-SW01 (2)`.
+
+- Click a tab to switch to it; the arrow keys move between tabs when one
+  has focus.
+- The **×** on a tab (or a middle click) closes that session. **Close
+  all** ends every session.
+- **Disconnect** and **Reconnect** in the toolbar act on the tab you are
+  looking at. A reconnect keeps the earlier output above and, for
+  passcode MFA, asks for a fresh code.
+
+The terminal resizes with the window. Nothing you type is stored by
+Packrat. Leaving the page closes every session.
 
 ---
 
