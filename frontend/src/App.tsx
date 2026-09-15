@@ -15,6 +15,7 @@ import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
+import { Help } from "./pages/Help";
 import { Settings } from "./pages/Settings";
 import { Terminal } from "./pages/Terminal";
 
@@ -118,6 +119,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/help"
+          element={
+            <ProtectedRoute>
+              <Help />
             </ProtectedRoute>
           }
         />

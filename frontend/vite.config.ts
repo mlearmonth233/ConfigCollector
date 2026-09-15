@@ -33,5 +33,10 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    // The in-app Help page renders docs/USER_GUIDE.md from the repo root
+    // (one source for the guide, in the app and on GitHub) - Vite's dev
+    // server only serves files under the frontend folder unless told the
+    // parent is allowed too.
+    fs: { allow: [".."] },
   },
 });

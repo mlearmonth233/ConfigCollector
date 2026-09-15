@@ -1098,3 +1098,168 @@ a:hover {
     padding: 22px 16px 48px;
   }
 }
+
+/* ---- Help: the user guide rendered in-app --------------------------- */
+
+.help-page {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+}
+
+.help-toc {
+  position: sticky;
+  top: 76px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 18px 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.help-toc-title {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.help-toc ol {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.help-toc a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.help-toc a:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.help-toc-foot {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.doc {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 36px clamp(20px, 4vw, 48px) 48px;
+  max-width: 860px;
+  line-height: 1.65;
+  font-size: 15.5px;
+}
+
+.doc h1 {
+  margin: 0 0 10px;
+  font-size: 30px;
+}
+
+.doc h2 {
+  margin: 44px 0 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 22px;
+  scroll-margin-top: 84px;
+}
+
+.doc h3 {
+  margin: 26px 0 8px;
+  font-size: 16.5px;
+  scroll-margin-top: 84px;
+}
+
+.doc p,
+.doc ul,
+.doc ol {
+  margin: 0 0 12px;
+}
+
+.doc li + li {
+  margin-top: 4px;
+}
+
+.doc hr {
+  display: none;
+}
+
+.doc a {
+  color: var(--primary);
+}
+
+.doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.doc pre {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  background: var(--bg-deep);
+  color: var(--text-on-dark);
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.doc pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+.doc th,
+.doc td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc th {
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+}
+
+.doc strong {
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .help-page {
+    grid-template-columns: 1fr;
+  }
+
+  .help-toc {
+    position: static;
+  }
+}

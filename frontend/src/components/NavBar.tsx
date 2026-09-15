@@ -37,6 +37,9 @@ export function NavBar() {
         <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
           Settings
         </NavLink>
+        <NavLink to="/help" className={({ isActive }) => (isActive ? "active" : "")}>
+          Help
+        </NavLink>
       </nav>
       <div className="navbar-user">
         <span>
