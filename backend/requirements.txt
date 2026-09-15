@@ -31,10 +31,24 @@ passlib==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
-cryptography==43.0.1
+# asyncssh (added for the firmware-upgrade SCP/SFTP server, below) requires
+# cryptography>=48.0.1 - bumped from 43.0.1 to satisfy that.
+cryptography==50.0.1
 netmiko==4.4.0
 celery==5.4.0
 redis==5.1.1
 httpx==0.27.2
 pytest==8.3.3
 pytest-asyncio==0.24.0
+# Firmware upgrade transfer servers: pyftpdlib serves FTP, asyncssh serves
+# SCP/SFTP - both pure-Python and cross-platform (Windows included). TFTP
+# has no equivalent dependency here since RFC 1350's read-only subset is
+# simple enough to hand-roll (see app/services/transfer_servers.py) rather
+# than pull in a whole extra package for it.
+pyftpdlib==2.2.0
+asyncssh==2.24.0
+# Enumerates this machine's own network interfaces/IPv4 addresses (cross-
+# platform, including Windows) so the user can pick which one devices
+# should use to reach the firmware transfer server - see
+# app/services/network_interfaces.py.
+psutil==6.1.0

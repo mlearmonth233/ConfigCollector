@@ -1,14 +1,19 @@
+import asyncio
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 
 from app.celery_app import celery_app
+from app.config import get_settings
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.device import Device
+from app.models.firmware import FirmwareUpgradeJob, FirmwareUpgradeJobItem, TransferProtocol
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJob, CollectionJobItem, JobStatus
 from app.models.organization import Organization
 from app.models.schedule import Schedule, ScheduleFrequency
@@ -21,6 +26,9 @@ from app.services.collector import (
     collect_device_config,
 )
 from app.services.device_types import parse_command_list
+from app.services.transfer_servers import serve_file
+
+settings = get_settings()
 
 
 @celery_app.task(name="app.tasks.collect_device_task", bind=True, max_retries=0)
@@ -297,6 +305,232 @@ def _finalize_job_if_done(db, job_id) -> None:
     # CANCELLED takes priority over FAILED: it's the most relevant top-level
     # fact once the user has stepped in, even if another device happened to
     # fail on its own before/after the cancel request.
+    if any(s == JobStatus.CANCELLED for s in statuses):
+        job.status = JobStatus.CANCELLED
+    elif any(s == JobStatus.FAILED for s in statuses):
+        job.status = JobStatus.FAILED
+    else:
+        job.status = JobStatus.COMPLETED
+    job.finished_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+_FIRMWARE_PROTOCOL_PORTS = {
+    TransferProtocol.TFTP: lambda: settings.firmware_tftp_port,
+    TransferProtocol.FTP: lambda: settings.firmware_ftp_port,
+    TransferProtocol.SCP: lambda: settings.firmware_scp_port,
+}
+
+
+@celery_app.task(name="app.tasks.firmware_upgrade_device_task", bind=True, max_retries=0)
+def firmware_upgrade_device_task(
+    self,
+    job_item_id: str,
+    commands_by_device_type: dict[str, str],
+    protocol: str,
+    server_host: str,
+    otp: str | None = None,
+    remaining: list[dict] | None = None,
+) -> None:
+    """Firmware upgrades run strictly one device at a time - unlike
+    collect_device_task's authentication-overlap pipeline, there's no
+    upside here to overlapping one device still fetching/installing an
+    image with the next one authenticating, and real downside (multiple
+    devices pulling a possibly-large image over the same transfer server/
+    network link at once, or a staggered rollout the user specifically
+    wanted serialized)."""
+    remaining = remaining or []
+
+    def dispatch_next() -> None:
+        if not remaining:
+            return
+        next_item, *rest = remaining
+        firmware_upgrade_device_task.apply_async(
+            args=[next_item["item_id"], commands_by_device_type, protocol, server_host],
+            kwargs={"otp": next_item["otp"], "remaining": rest},
+        )
+
+    db = SyncSessionLocal()
+    try:
+        item = db.get(FirmwareUpgradeJobItem, job_item_id)
+        if item is None:
+            dispatch_next()
+            return
+
+        if item.status == JobStatus.CANCELLED:
+            dispatch_next()
+            _finalize_firmware_job_if_done(db, item.job_id)
+            return
+
+        try:
+            _upgrade_one_device(db, item, commands_by_device_type, protocol, server_host, otp)
+        except Exception as exc:  # noqa: BLE001
+            # Same reasoning as collect_device_task's own catch-all: without
+            # this, an unexpected error here would silently stop the rest
+            # of the queue from ever being attempted.
+            db.rollback()
+            item.status = JobStatus.FAILED
+            item.error_message = f"Unexpected error during upgrade: {exc}"
+            item.finished_at = datetime.now(timezone.utc)
+            db.commit()
+
+        dispatch_next()
+        _finalize_firmware_job_if_done(db, item.job_id)
+    finally:
+        db.close()
+
+
+def _run_async_in_new_thread(coro_factory):
+    """Runs the coroutine `coro_factory()` produces to completion, on a
+    brand-new event loop in a dedicated thread - not just asyncio.run()
+    directly, since this task can execute (in Celery's eager mode - used by
+    tests, and available in production via CELERY_TASK_ALWAYS_EAGER)
+    synchronously inside a caller's *already-running* asyncio loop (the
+    async request handler that queued it). asyncio.run() refuses to nest
+    inside one of those; a freshly spawned thread never has one, so this
+    works the same whether or not the caller does."""
+    result: dict = {}
+
+    def _target() -> None:
+        try:
+            result["value"] = asyncio.run(coro_factory())
+        except BaseException as exc:  # noqa: BLE001
+            result["error"] = exc
+
+    thread = threading.Thread(target=_target)
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
+def _render_upgrade_commands(raw_commands: str, *, host: str, port: int, protocol: str, filename: str) -> list[str]:
+    """Substitutes a job's transfer-server details into a user-supplied,
+    comma-separated upgrade command template (see FirmwareJobCreate's
+    docstring for the placeholders) - split out as its own function so the
+    substitution itself is unit-testable without a real device or DB."""
+    return [
+        cmd.format(host=host, port=port, protocol=protocol, filename=filename) for cmd in parse_command_list(raw_commands)
+    ]
+
+
+def _upgrade_one_device(
+    db,
+    item: FirmwareUpgradeJobItem,
+    commands_by_device_type: dict[str, str],
+    protocol: str,
+    server_host: str,
+    otp: str | None,
+) -> None:
+    item.status = JobStatus.AUTHENTICATING
+    item.started_at = datetime.now(timezone.utc)
+    db.commit()
+
+    device = item.device
+    credential = _resolve_credential(db, device)
+
+    if credential is None:
+        item.status = JobStatus.FAILED
+        item.error_message = "Device has no credential assigned"
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    raw_commands = commands_by_device_type.get(device.device_type)
+    if not raw_commands:
+        item.status = JobStatus.FAILED
+        item.error_message = f"No upgrade command template supplied for device type '{device.device_type}'"
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    job = db.get(FirmwareUpgradeJob, item.job_id)
+    image = job.firmware_image if job else None
+    if image is None:
+        item.status = JobStatus.FAILED
+        item.error_message = "Firmware image no longer exists"
+        item.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    transfer_protocol = TransferProtocol(protocol)
+    port = _FIRMWARE_PROTOCOL_PORTS[transfer_protocol]()
+    commands = _render_upgrade_commands(
+        raw_commands, host=server_host, port=port, protocol=protocol, filename=image.original_filename
+    )
+    image_path = Path(settings.firmware_storage_dir) / str(job.org_id) / image.stored_filename
+
+    on_authenticated = _make_firmware_authenticated_callback(db, item)
+    on_output = _make_firmware_output_callback(db, item)
+    should_cancel = _make_firmware_should_cancel(db, item.job_id)
+
+    try:
+        async def _run() -> str:
+            async with serve_file(transfer_protocol, image_path, server_host):
+                return await asyncio.to_thread(
+                    _attempt_collection, device, credential, otp, commands, on_authenticated, on_output, should_cancel
+                )
+
+        _run_async_in_new_thread(_run)
+        item.status = JobStatus.COMPLETED
+    except CollectionCancelled:
+        item.status = JobStatus.CANCELLED
+    except CollectionError as exc:
+        item.status = JobStatus.FAILED
+        item.error_message = str(exc)
+        on_output(f"\nERROR: {exc}\n")
+
+    item.finished_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def _make_firmware_authenticated_callback(db, item: FirmwareUpgradeJobItem):
+    def _on_authenticated() -> None:
+        try:
+            item.status = JobStatus.RUNNING
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    return _on_authenticated
+
+
+def _make_firmware_output_callback(db, item: FirmwareUpgradeJobItem):
+    def _on_output(text: str) -> None:
+        try:
+            item.live_output = (item.live_output or "") + text
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+    return _on_output
+
+
+def _make_firmware_should_cancel(db, job_id):
+    def _should_cancel() -> bool:
+        try:
+            return bool(
+                db.execute(select(FirmwareUpgradeJob.cancel_requested).where(FirmwareUpgradeJob.id == job_id)).scalar()
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    return _should_cancel
+
+
+def _finalize_firmware_job_if_done(db, job_id) -> None:
+    job = db.get(FirmwareUpgradeJob, job_id)
+    if job is None:
+        return
+
+    statuses = [
+        s
+        for (s,) in db.query(FirmwareUpgradeJobItem.status).filter(FirmwareUpgradeJobItem.job_id == job.id).all()
+    ]
+    if any(s in ACTIVE_JOB_STATUSES for s in statuses):
+        return
+
     if any(s == JobStatus.CANCELLED for s in statuses):
         job.status = JobStatus.CANCELLED
     elif any(s == JobStatus.FAILED for s in statuses):

@@ -23,3 +23,9 @@ class Organization(Base_):
     schedules: Mapped[list["Schedule"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
+    firmware_images: Mapped[list["FirmwareImage"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )
+    firmware_jobs: Mapped[list["FirmwareUpgradeJob"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )

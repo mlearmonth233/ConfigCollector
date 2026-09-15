@@ -30,6 +30,27 @@ class Settings(BaseSettings):
     # Netmiko connection defaults
     device_connect_timeout: int = 20
 
+    # Firmware upgrade: uploaded image files are stored on local disk (not
+    # the DB - these can be hundreds of MB, far past what's sane for a text
+    # column) under this directory, one file per FirmwareImage row.
+    firmware_storage_dir: str = "./firmware_images"
+    # TFTP/FTP's own well-known ports (69, 21) are privileged (<1024) on
+    # both Linux and Windows - binding them needs the process to run
+    # elevated. Defaulted here to those standard ports since most vendor
+    # "copy tftp:"/"copy ftp:" implementations assume them and can't be told
+    # to use another one; SCP's port is freely choosable on the device side
+    # (given as part of the scp:// URL), so it defaults to a plain,
+    # non-privileged port instead.
+    firmware_tftp_port: int = 69
+    firmware_ftp_port: int = 21
+    firmware_scp_port: int = 2222
+    # How long an upgrade job's transfer server stays up waiting for every
+    # target device to finish pulling the file, before it's torn down
+    # regardless - a safety bound so a stuck/never-connecting device doesn't
+    # leave a file server (and the firmware image it's serving) exposed
+    # indefinitely.
+    firmware_transfer_timeout_seconds: int = 60 * 20
+
 
 @lru_cache
 def get_settings() -> Settings:

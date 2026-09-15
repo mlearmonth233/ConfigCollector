@@ -9,16 +9,21 @@ import type {
   DeviceReachability,
   DeviceRole,
   DeviceType,
+  FirmwareImage,
+  FirmwareJob,
+  FirmwareJobDetail,
   Job,
   JobDetail,
   MfaMode,
   NeighborGapCheck,
+  NetworkInterface,
   OrganizationSettings,
   Schedule,
   ScheduleFrequency,
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
+  TransferProtocol,
 } from "./types";
 
 export const authApi = {
@@ -133,4 +138,31 @@ export const organizationApi = {
   get: () => apiClient.get<OrganizationSettings>("/api/organization"),
   update: (data: { snapshot_retention_days?: number; clear_retention?: boolean }) =>
     apiClient.patch<OrganizationSettings>("/api/organization", data),
+};
+
+export interface FirmwareJobCreatePayload {
+  firmware_image_id: string;
+  device_ids: string[];
+  protocol: TransferProtocol;
+  server_host: string;
+  commands_by_device_type: Record<string, string>;
+  credential_otps?: Record<string, string>;
+}
+
+export const firmwareApi = {
+  listImages: () => apiClient.get<FirmwareImage[]>("/api/firmware/images"),
+  uploadImage: (file: File, label?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post<FirmwareImage>("/api/firmware/images", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+      params: label ? { label } : undefined,
+    });
+  },
+  removeImage: (id: string) => apiClient.delete(`/api/firmware/images/${id}`),
+  listNetworkInterfaces: () => apiClient.get<NetworkInterface[]>("/api/firmware/network-interfaces"),
+  createJob: (payload: FirmwareJobCreatePayload) => apiClient.post<FirmwareJobDetail>("/api/firmware/jobs", payload),
+  listJobs: () => apiClient.get<FirmwareJob[]>("/api/firmware/jobs"),
+  getJob: (id: string) => apiClient.get<FirmwareJobDetail>(`/api/firmware/jobs/${id}`),
+  cancelJob: (id: string) => apiClient.post<FirmwareJobDetail>(`/api/firmware/jobs/${id}/cancel`),
 };

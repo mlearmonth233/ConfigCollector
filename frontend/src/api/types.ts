@@ -171,3 +171,44 @@ export interface OrganizationSettings {
   name: string;
   snapshot_retention_days: number | null;
 }
+
+export type TransferProtocol = "tftp" | "ftp" | "scp";
+
+export interface FirmwareImage {
+  id: string;
+  original_filename: string;
+  label: string | null;
+  size_bytes: number;
+  created_at: string;
+}
+
+export interface NetworkInterface {
+  name: string;
+  address: string;
+}
+
+export interface FirmwareJobItem {
+  id: string;
+  device_id: string | null;
+  device_name: string;
+  status: JobStatus;
+  error_message: string | null;
+  live_output: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface FirmwareJob {
+  id: string;
+  firmware_image_id: string | null;
+  protocol: TransferProtocol;
+  status: JobStatus;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  item_count: number;
+}
+
+export interface FirmwareJobDetail extends FirmwareJob {
+  items: FirmwareJobItem[];
+}
