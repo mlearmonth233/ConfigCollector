@@ -23,6 +23,7 @@ import type {
   InventoryCommandCoverage,
   Job,
   JobDetail,
+  Licence,
   LogOverview,
   LogTail,
   MfaMode,
@@ -348,4 +349,10 @@ export const inventoryApi = {
   exportXlsx: () => apiClient.get<Blob>("/api/inventory/export.xlsx", { responseType: "blob" }),
   coverage: () => apiClient.get<InventoryCommandCoverage[]>("/api/inventory/commands"),
   addCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/inventory/commands/${deviceType}`),
+};
+
+export const licenceApi = {
+  get: () => apiClient.get<Licence>("/api/licence"),
+  apply: (key: string) => apiClient.put<Licence>("/api/licence", { key }),
+  remove: () => apiClient.delete<Licence>("/api/licence"),
 };

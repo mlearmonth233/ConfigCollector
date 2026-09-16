@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { extractErrorMessage } from "../api/client";
 import { devicesApi, schedulesApi, type ScheduleTimingPayload } from "../api/resources";
 import type { Device, Schedule, ScheduleFrequency } from "../api/types";
+import { useLicence } from "../context/LicenceContext";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -75,6 +77,7 @@ function defaultRunOnceAt(): string {
 }
 
 export function Schedules() {
+  const { hasFeature } = useLicence();
   const navigate = useNavigate();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -252,9 +255,12 @@ export function Schedules() {
       <div className="page-header-row">
         <h1>Schedules</h1>
         <div className="page-actions">
-          <button onClick={toggleForm}>{showForm ? "Cancel" : "Add schedule"}</button>
+          <button onClick={toggleForm} disabled={!hasFeature("schedules")} title={hasFeature("schedules") ? undefined : "Scheduled backups are part of Colony and Warren"}>
+            {showForm ? "Cancel" : "Add schedule"}
+          </button>
         </div>
       </div>
+      <UpgradeNotice feature="schedules">Existing schedules are kept but do not run, and new ones cannot be added, until a licence key is applied.</UpgradeNotice>
 
       {error && <div className="error-banner">{error}</div>}
       <p className="page-subtitle" style={{ marginTop: 0 }}>

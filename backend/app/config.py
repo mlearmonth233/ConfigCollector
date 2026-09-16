@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # treated as a previous key, so moving off it needs no configuration.
     credential_encryption_previous_keys: str = ""
 
+    # Development/test only: behave as this tier ("colony" or "warren")
+    # without a licence key. Ignored unless ENVIRONMENT is development or
+    # test, so a production install always needs a real key.
+    licence_override_tier: str = ""
+
     # Login brute-force protection (core/login_guard.py): after
     # login_max_failures failed attempts from one IP or against one account
     # within login_window_minutes, further attempts get 429 for a lockout

@@ -11,6 +11,7 @@ from sqlalchemy.orm import object_session
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.core.encryption import decrypt_secret
+from app.core.licence import effective_retention_days
 from app.core.totp import totp_code
 from app.db_sync import SyncSessionLocal
 from app.models.alerting import AlertSettings
@@ -38,6 +39,7 @@ from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.job_reaper import reap_stale_jobs as _reap_stale_jobs
+from app.services.licensing import get_licence_sync
 from app.services import alerting, ping_monitor
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
@@ -808,6 +810,9 @@ def run_due_schedules() -> None:
         if due:
             log.info("%d schedule(s) due", len(due))
         for schedule in due:
+            if not get_licence_sync(db, schedule.org_id).has("schedules"):
+                log.debug("Schedule '%s' (%s) skipped: scheduled backups are not part of this organization's tier", schedule.name, schedule.id)
+                continue
             try:
                 _run_one_schedule(db, schedule, now)
                 log.info("Schedule '%s' (%s) started a collection job; next run %s", schedule.name, schedule.id, schedule.next_run_at)
@@ -917,9 +922,12 @@ def purge_expired_snapshots() -> None:
     db = SyncSessionLocal()
     try:
         now = datetime.now(timezone.utc)
-        orgs = db.query(Organization).filter(Organization.snapshot_retention_days.isnot(None)).all()
-        for org in orgs:
-            cutoff = now - timedelta(days=org.snapshot_retention_days)
+        # Every org: the tier may cap retention even when no limit is set.
+        for org in db.query(Organization).all():
+            days = effective_retention_days(org.snapshot_retention_days, get_licence_sync(db, org.id))
+            if days is None:
+                continue
+            cutoff = now - timedelta(days=days)
             stale_item_ids = (
                 db.query(CollectionJobItem.id)
                 .join(CollectionJob, CollectionJob.id == CollectionJobItem.job_id)
@@ -930,7 +938,7 @@ def purge_expired_snapshots() -> None:
                 ConfigSnapshot.collected_at < cutoff,
             ).delete(synchronize_session=False)
             if deleted:
-                log.info("Retention: deleted %d snapshot(s) older than %d days for org %s", deleted, org.snapshot_retention_days, org.id)
+                log.info("Retention: deleted %d snapshot(s) older than %d days for org %s", deleted, days, org.id)
         db.commit()
     finally:
         db.close()
@@ -1073,7 +1081,7 @@ def run_snmp_monitors() -> None:
             )
             .all()
         )
-        org_ids = [c.org_id for c in due]
+        org_ids = [c.org_id for c in due if get_licence_sync(db, c.org_id).has("snmp_monitoring")]
     finally:
         db.close()
     for org_id in org_ids:

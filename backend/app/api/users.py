@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
+from app.services.licensing import check_user_limit
 from app.core.security import hash_password
 from app.database import get_db
 from app.models.user import User
@@ -28,6 +29,7 @@ async def create_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    await check_user_limit(db, admin.org_id)
     existing = await db.scalar(select(User).where(User.email == payload.email))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")

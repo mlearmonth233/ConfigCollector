@@ -581,3 +581,27 @@ export interface InventoryCommandCoverage {
   missing: string[];
   is_custom_profile: boolean;
 }
+
+// --- Licence -----------------------------------------------------------------
+
+export type LicenceTier = "nest" | "colony" | "warren";
+export type LicenceFeature = "schedules" | "alert_delivery" | "snmp_monitoring" | "firmware_push" | "inventory_export" | "multi_user";
+
+export interface Licence {
+  tier: LicenceTier;
+  tier_label: string;
+  valid: boolean;
+  key_id: string | null;
+  customer: string | null;
+  issued_at: string | null;
+  expires_at: string | null;
+  problem: string | null;
+  features: LicenceFeature[];
+  all_features: Record<LicenceFeature, string>;
+  max_devices: number | null;
+  device_count: number;
+  max_users: number | null;
+  user_count: number;
+  max_retention_days: number | null;
+  has_key: boolean;
+}

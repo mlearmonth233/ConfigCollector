@@ -450,6 +450,14 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
   every stored secret with the current key at start-up
   (`services/secret_rekey.py`). Secrets no key can read are counted in the
   API log and have to be re-entered.
+- **Licence tiers.** `backend/app/core/licence.py` defines Nest (free: 10
+  devices, 1 user, 14-day history, manual backups) and the paid tiers that
+  unlock schedules, alert delivery, SNMP monitoring, firmware push, the
+  inventory export and more users. Keys are Ed25519-signed by
+  `backend/scripts/make_licence.py` (private key never in the repo) and
+  verified offline; paid endpoints answer 402 with an explanation on Nest.
+  `LICENCE_OVERRIDE_TIER=warren` makes a development or test install behave
+  as Warren without a key and is ignored in production.
 - **Login rate limiting.** Five failed logins from one IP or against one
   account lock further attempts out for 30 seconds, doubling per repeat up
   to 15 minutes (`LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`,

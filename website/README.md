@@ -108,31 +108,36 @@ Set-up, about twenty minutes in the Stripe dashboard:
 Stripe's fees come off each payment; nothing else is needed for a
 subscription product with no per-customer fulfilment.
 
-## Later: licence keys
+## Licence keys
 
-Today every tier is the same download and device caps run on the honour
-system. When you want the app itself to know a customer has paid, three
-pieces are needed. The website side is already shaped for it:
+Tiers are enforced in the app (backend/app/core/licence.py is the single
+source of truth): with no key an organization is **Nest** (10 devices, 1
+user, 14 days of history, manual backups only); a signed key makes it
+**Colony** or **Warren**. Keys are Ed25519-signed and checked offline, so a
+customer's install never phones home.
 
-1. **Issue a key on payment.** A Stripe webhook (`checkout.session.completed`)
-   hits a small serverless function (Cloudflare Worker, Netlify or Vercel
-   function). It generates a signed key carrying the tier, device limit
-   and expiry, stores it against the Stripe customer id, and emails it.
-   `thanks.html` receives the `session_id` in its URL and has a marked
-   spot to show the key, fetched from that same function.
-2. **Renewals and cancellations.** The same webhook handles
-   `invoice.paid` (extend expiry) and `customer.subscription.deleted`
-   (mark the key ended). Signed keys with an expiry mean the app can check
-   validity offline; a monthly "phone home" is optional.
-3. **In the app.** A Licence section on Settings where an admin pastes
-   the key; the backend verifies the signature with an embedded public
-   key and exposes tier and device limit. Whether the limit is a reminder
-   or a hard stop is a product decision to make then.
+Issuing a key, today by hand after the Stripe email arrives:
 
-Alternatively, Lemon Squeezy or Paddle act as merchant of record (they
-handle VAT and sales tax worldwide) and Lemon Squeezy issues licence keys
-out of the box; if tax handling becomes a burden, switching the Colony
-button to one of their checkout links is the same one-line change.
+```powershell
+# once, on your own machine; keep backend\licensing\private.pem out of git (it is gitignored) and back it up
+python backend\scripts\make_licence.py --init      # prints the public key to paste into app/core/licence.py if you ever rotate
+# per customer
+python backend\scripts\make_licence.py --tier colony --customer "Acme Ltd" --expires 2027-09-16
+```
+
+Email the printed `PKR1....` string to the customer; they paste it under
+Settings › Licence. `--expires` should match the subscription (add a few
+days of grace); a perpetual Warren deal simply omits it. `--show KEY`
+decodes any key. For your own installs, issue yourself a Warren key.
+
+Automating it later is the same three pieces as before, now with the
+signing already in place: a Stripe webhook (`checkout.session.completed`,
+`invoice.paid`, `customer.subscription.deleted`) on a small serverless
+function that calls the same signing code, stores the key against the
+Stripe customer and emails it; `thanks.html` already receives the
+`session_id` and has a marked spot to show the key. Lemon Squeezy or
+Paddle remain an option as merchant of record if sales tax becomes a
+burden.
 
 ## Refreshing the screenshots
 

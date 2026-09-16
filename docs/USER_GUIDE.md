@@ -788,6 +788,30 @@ Packrat. Leaving the page closes every session.
   snapshots are deleted once an hour by the scheduler process. Leave empty
   to keep everything forever.
 
+### Licence
+
+Packrat has three tiers. Without a key an organization is on **Nest**, the
+free tier; a licence key makes it **Colony** or **Warren**. The key arrives
+by email after checkout: paste it here, press **Apply key**, and the paid
+features switch on immediately. Keys are checked inside your own install,
+so nothing phones home; an expired key drops the organization back to Nest
+without deleting anything.
+
+| | Nest (free) | Colony / Warren |
+|---|---|---|
+| Devices | up to 10 | 500 / unlimited |
+| Users | 1 | unlimited |
+| Config history | 14 days | unlimited |
+| Manual backups, history and diffs, Monitor, Terminal and console, DNS Check, SNMP polling, Inventory view | yes | yes |
+| Scheduled backups and config-change alerts | - | yes |
+| Alerts sent by email, Teams and Slack (they are still recorded on Nest) | - | yes |
+| SNMP monitoring, firmware push, inventory Excel export | - | yes |
+
+The card shows the tier in effect, devices and users used against the
+limit, and which features are unlocked. A page whose feature is not in
+your tier says so at the top and keeps whatever you had set up. Only an
+admin can apply or remove a key.
+
 ### Device naming rules
 
 Every organization names devices differently. One embeds role codes like

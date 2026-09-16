@@ -6,6 +6,8 @@ import { snmpMonitorApi } from "../api/resources";
 import type { Device, SnmpMonitorConfig, SnmpProfile } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { sortByDeviceName } from "../utils/deviceNameSort";
+import { useLicence } from "../context/LicenceContext";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 const SYSLOG_LEVELS = [
   [0, "0 - emergencies"],
@@ -27,6 +29,7 @@ interface Props {
  * raise an alert. Where alerts go, and the alert history, live on the
  * Alerts page. */
 export function SnmpAlerting({ devices, profiles }: Props) {
+  const { hasFeature } = useLicence();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [config, setConfig] = useState<SnmpMonitorConfig | null>(null);
@@ -171,11 +174,12 @@ export function SnmpAlerting({ devices, profiles }: Props) {
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="info-banner">{notice}</div>}
 
+      <UpgradeNotice feature="snmp_monitoring">Manual SNMP polls above stay free; continuous monitoring with change alerts needs a licence key.</UpgradeNotice>
       <form className="card-form" onSubmit={handleSave} style={{ marginTop: 12 }}>
         <fieldset disabled={!isAdmin} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <div className="form-grid">
             <label className="checkbox-label" style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} disabled={!hasFeature("snmp_monitoring")} />
               <span>
                 <strong>Enable SNMP monitoring</strong>
               </span>

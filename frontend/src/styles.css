@@ -1768,3 +1768,44 @@ a:hover {
     display: none;
   }
 }
+
+/* ---------- licence tiers ---------- */
+.upgrade-notice {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 10px 0 14px;
+  font-size: 13.5px;
+  color: #78350f;
+}
+
+.upgrade-notice a {
+  font-weight: 600;
+}
+
+.licence-features {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+  font-size: 13.5px;
+}
+
+.licence-features li.on span[aria-hidden] {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.licence-features li.off {
+  color: var(--text-muted);
+}
+
+@media (max-width: 700px) {
+  .licence-features {
+    grid-template-columns: 1fr;
+  }
+}

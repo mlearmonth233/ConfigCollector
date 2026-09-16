@@ -6,6 +6,8 @@ import { inventoryApi } from "../api/resources";
 import type { Inventory as InventoryData, InventoryCommandCoverage } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { formatLocalDateTime } from "../utils/formatDate";
+import { useLicence } from "../context/LicenceContext";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 type Tab = "devices" | "hardware" | "neighbors" | "aps" | "unmanaged" | "endpoints" | "coverage";
 
@@ -43,6 +45,7 @@ function dash(value: string | null | undefined): string {
  * CDP/LLDP see plugged into each port, access points, and the MAC/IP of
  * every endpoint on an access port. Downloadable as one Excel workbook. */
 export function Inventory() {
+  const { hasFeature } = useLicence();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [data, setData] = useState<InventoryData | null>(null);
@@ -135,13 +138,14 @@ export function Inventory() {
           <button className="link-button" onClick={load} disabled={refreshing}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
-          <button onClick={handleDownload} disabled={downloading}>
+          <button onClick={handleDownload} disabled={downloading || !hasFeature("inventory_export")} title={hasFeature("inventory_export") ? undefined : "The Excel export is part of Colony and Warren"}>
             {downloading ? "Preparing…" : "Download Excel"}
           </button>
         </div>
       </div>
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="info-banner">{notice}</div>}
+      <UpgradeNotice feature="inventory_export">The inventory itself is free to browse here; downloading it as an Excel workbook needs a licence key.</UpgradeNotice>
 
       <div className="monitor-tiles" role="group" aria-label="Inventory summary">
         <StatTile label="Devices" value={`${s.devices_with_config}/${s.devices}`} hint="Devices with a collected config, of all managed devices" tone={s.devices_with_config < s.devices ? "unknown" : "up"} />

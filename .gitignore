@@ -29,3 +29,5 @@ frontend/.env.local
 frontend/vite.config.d.ts
 frontend/vite.config.js
 website/packrat-site.zip
+backend/licensing/
+*.pem

@@ -6,6 +6,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.services.licensing import check_device_limit
 from app.database import get_db
 from app.models.credential import Credential
 from app.models.device import Device
@@ -127,6 +128,7 @@ async def create_device(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Device:
+    await check_device_limit(db, user.org_id)
     data = payload.model_dump()
     catalog = await load_catalog(db, user.org_id)
     rules = await load_rules(db, user.org_id)

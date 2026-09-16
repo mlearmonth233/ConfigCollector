@@ -5,7 +5,9 @@ from app.api.deps import get_current_user, require_admin
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
+from app.core.licence import effective_retention_days
 from app.schemas.organization import OrganizationSettingsOut, OrganizationSettingsUpdate
+from app.services.licensing import get_licence
 
 router = APIRouter(prefix="/api/organization", tags=["organization"])
 
@@ -30,6 +32,8 @@ async def update_organization_settings(
         org.snapshot_retention_days = payload.snapshot_retention_days
     elif payload.clear_retention:
         org.snapshot_retention_days = None
+    # The free tier keeps history for a limited time whatever is asked for.
+    org.snapshot_retention_days = effective_retention_days(org.snapshot_retention_days, await get_licence(db, admin.org_id))
     await db.commit()
     await db.refresh(org)
     return OrganizationSettingsOut(name=org.name, snapshot_retention_days=org.snapshot_retention_days)

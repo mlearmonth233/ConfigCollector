@@ -22,6 +22,7 @@ from app.schemas.alerting import AlertSettingsOut, AlertSettingsUpdate, AlertTes
 from app.schemas.snmp import SnmpJobClearResult
 from app.schemas.snmp_monitor import SnmpAlertOut
 from app.services import alerting
+from app.services.licensing import require_feature
 from app.services.snmp_monitor import KIND_LABELS, parse_recipients
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -71,6 +72,9 @@ async def get_settings(user: User = Depends(get_current_user), db: AsyncSession 
 
 @router.put("/settings", response_model=AlertSettingsOut)
 async def update_settings(payload: AlertSettingsUpdate, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> AlertSettingsOut:
+    wants_delivery = bool(payload.recipients or payload.smtp_host or (payload.teams_webhook_url and payload.teams_webhook_url != "-") or (payload.slack_webhook_url and payload.slack_webhook_url != "-"))
+    if wants_delivery:
+        await require_feature(db, admin.org_id, "alert_delivery")
     settings = await _get_or_create(db, admin.org_id)
     for field in ("smtp_host", "smtp_port", "smtp_username", "smtp_starttls", "smtp_ssl", "smtp_from", "alert_config_change"):
         setattr(settings, field, getattr(payload, field))
@@ -95,6 +99,7 @@ async def update_settings(payload: AlertSettingsUpdate, admin: User = Depends(re
 async def test_channels(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> AlertTestResult:
     """Sends a test message through every configured channel using the
     *saved* settings."""
+    await require_feature(db, admin.org_id, "alert_delivery")
     settings = await _get_or_create(db, admin.org_id)
     await db.commit()
     if not alerting.channels(settings):

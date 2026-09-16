@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_admin
+from app.services.licensing import require_feature
 from app.core.encryption import encrypt_secret
 from app.database import get_db
 from app.models.device import Device
@@ -409,6 +410,8 @@ async def get_monitor_config(user: User = Depends(get_current_user), db: AsyncSe
 async def update_monitor_config(
     payload: SnmpMonitorConfigUpdate, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
 ) -> SnmpMonitorConfigOut:
+    if payload.enabled:
+        await require_feature(db, admin.org_id, "snmp_monitoring")
     config = await _get_or_create_config(db, admin.org_id)
     if payload.device_ids:
         count = await db.scalar(
@@ -437,6 +440,7 @@ async def update_monitor_config(
 async def run_monitor_now(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> SnmpMonitorConfigOut:
     """Runs one monitoring cycle immediately (even if the monitor is
     disabled) - the first run on a device only records its baseline."""
+    await require_feature(db, admin.org_id, "snmp_monitoring")
     await _get_or_create_config(db, admin.org_id)  # make sure the row exists before the cycle reads it
     await db.commit()
     await asyncio.to_thread(run_snmp_monitor_cycle, admin.org_id, force=True)

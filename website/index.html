@@ -309,18 +309,18 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
   <div class="wrap">
     <p class="eyebrow">Pricing</p>
     <h2 style="margin-top:12px">Priced per nest, not per engineer.</h2>
-    <p class="lede" style="margin-top:16px">Every plan is the full product, self-hosted on your own machine or server. The tiers differ only in how many devices Packrat is allowed to hoard and how quickly we pick up the phone.</p>
+    <p class="lede" style="margin-top:16px">Every plan is the same download, self-hosted on your own machine or server. Nest is for looking after a small network by hand. Colony adds the automation: backups on a schedule, alerts that reach you, monitoring, firmware pushes and the exports.</p>
     <div class="tiers">
       <div class="tier">
         <div><h3>Nest</h3><p class="who">For a lab, a home rack, or one engineer's corner of the network.</p></div>
         <p class="price">$0<small>forever</small></p>
-        <ul><li>Up to 25 devices</li><li>All modules, all platforms</li><li>Snapshots kept for 30 days</li><li>Community support</li></ul>
+        <ul><li>Up to 10 devices, 1 user</li><li>Manual config backups with history and diffs, kept 14 days</li><li>Ping monitor, terminal and console access, DNS check</li><li>SNMP polling and the inventory view</li><li>Community support</li></ul>
         <a class="btn btn-outline" href="https://github.com/mlearmonth233/ConfigCollector">Download and run</a>
       </div>
       <div class="tier featured">
         <div><h3>Colony</h3><p class="who">For a team running a campus, a data center, or a few dozen branches.</p></div>
         <p class="price">$79<small>per month</small></p>
-        <ul><li>Up to 500 devices</li><li>Unlimited users in your org</li><li>Unlimited snapshot history</li><li>Email support, next business day</li><li>Postgres and Docker deployment guide</li></ul>
+        <ul><li>Up to 500 devices, unlimited users</li><li>Scheduled backups and config-change alerts</li><li>Alerts by email, Microsoft Teams and Slack</li><li>SNMP monitoring, firmware push, inventory Excel export</li><li>Unlimited snapshot history</li><li>Email support, next business day</li></ul>
         <!-- Stripe Payment Link for the Colony subscription. Create it in the
              Stripe dashboard (see website/README.md, "Taking payments") and
              paste the URL into STRIPE_PAYMENT_LINK in the script at the foot
@@ -334,7 +334,7 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
         <a class="btn btn-outline" href="mailto:sales@packrat.app?subject=Packrat%20Warren">Book a demo</a>
       </div>
     </div>
-    <p class="note">Prices in USD. Card payments are handled by Stripe; you get a receipt and invoice by email and can cancel any time from the billing portal. Device counts are enforced by the honour system and a friendly reminder, not a kill switch. Your configs are yours and stay on your infrastructure at every tier.</p>
+    <p class="note">Prices in USD. Card payments are handled by Stripe; you get a receipt and invoice by email and can cancel any time from the billing portal. After checkout you receive a licence key by email; paste it under Settings &rsaquo; Licence and the Colony features switch on. Your configs are yours and stay on your infrastructure at every tier.</p>
   </div>
 </section>
 
@@ -347,7 +347,8 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
     <details><summary>We use TACACS+ with Duo. Will it cope?</summary><p>Yes. Set the credential's MFA mode to push and give it a generous wait, and Packrat pauses at login while you approve on your phone. For passcode-based MFA you enter a one-time code when starting a job and Packrat appends it to the password with the delimiter your AAA server expects.</p></details>
     <details><summary>Where does it run?</summary><p>On a Windows laptop with the bundled PowerShell scripts, on Linux or macOS with Python and Node, or as a Docker Compose stack with Postgres and Redis. The whole thing is a FastAPI backend, a Celery worker, and a React frontend.</p></details>
     <details><summary>How many devices can a job handle?</summary><p>Hundreds is routine. Devices are processed in a pipeline so one device's command output overlaps the next device's login, which is usually the slow part. DNS checks are chunked and have been run against ten thousand targets.</p></details>
-    <details><summary>How does paying work?</summary><p>The Colony button opens a Stripe checkout: card, Apple Pay or Google Pay, with a 30-day trial before the first charge. Stripe emails the receipt and a monthly invoice, and the link in that email opens a billing portal where you can change the card or cancel. Packrat is the same download on every tier; nothing to activate today. Warren is quoted per fleet, so that one is a conversation.</p></details>
+    <details><summary>How does paying work?</summary><p>The Colony button opens a Stripe checkout: card, Apple Pay or Google Pay, with a 30-day trial before the first charge. Stripe emails the receipt and a monthly invoice, and the link in that email opens a billing portal where you can change the card or cancel. You then receive a licence key by email; paste it into Packrat under Settings &rsaquo; Licence. The key is checked offline, so nothing phones home, and everything you set up on Nest carries over. Warren is quoted per fleet, so that one is a conversation.</p></details>
+    <details><summary>What happens if I stop paying?</summary><p>Packrat keeps running as Nest: your devices, configs, history and settings stay put. Scheduled backups pause, alerts stop being sent (they are still recorded), and adding devices beyond ten waits for a key. Nothing is deleted.</p></details>
     <details><summary>Why a rat?</summary><p>Packrats hoard. They collect anything that catches their eye and keep it in a nest forever. That is the entire product strategy, and also "packet rat" was right there.</p></details>
   </div>
 </section>

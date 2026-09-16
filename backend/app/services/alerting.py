@@ -17,10 +17,12 @@ import logging
 import httpx
 
 from app.core.encryption import decrypt_secret
+from app.core.licence import PAID_TIER_LABELS, upgrade_message
 from app.models.alerting import AlertSettings
 from app.models.organization import Organization
 from app.models.snmp_monitor import SnmpAlert
 from app.services import snmp_monitor
+from app.services.licensing import get_licence_sync
 from app.services.snmp_monitor import KIND_LABELS, Event, SmtpSettings, format_email, parse_recipients
 
 log = logging.getLogger(__name__)
@@ -110,6 +112,12 @@ def dispatch(db, org_id, batch: list[tuple[str, Event]], alerts: list[SnmpAlert]
     channel and marks each of `alerts` accordingly. Returns a short summary
     suffix for the caller's cycle result, e.g. ", emailed 2 recipient(s),
     posted to teams" or ", not delivered (no channels configured)"."""
+    licence = get_licence_sync(db, org_id)
+    if not licence.has("alert_delivery"):
+        # Alerts are still recorded (the history is free); sending them is not.
+        for alert in alerts:
+            alert.email_error = upgrade_message("alert_delivery", licence)
+        return f", not delivered (alert delivery needs {PAID_TIER_LABELS})"
     settings = db.query(AlertSettings).filter(AlertSettings.org_id == org_id).first()
     configured = channels(settings)
     if not configured:

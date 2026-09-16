@@ -6,6 +6,7 @@ from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
 from app.models.firmware import FirmwareImage, FirmwareUpgradeJob, FirmwareUpgradeJobItem
 from app.models.hostname_rule import HostnameRule
 from app.models.job import CollectionJob, CollectionJobItem
+from app.models.licence import Licence
 from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
@@ -40,6 +41,7 @@ __all__ = [
     "SnmpJob",
     "SnmpJobItem",
     "HostnameRule",
+    "Licence",
     "AlertSettings",
     "PingMonitorConfig",
     "PingSample",

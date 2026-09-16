@@ -29,6 +29,7 @@ from app.api import (  # noqa: E402
     hostname_rules,
     inventory,
     jobs,
+    licence,
     logs,
     organizations,
     ping,
@@ -107,6 +108,7 @@ app.include_router(hostname_rules.router)
 app.include_router(command_profiles.router)
 app.include_router(inventory.router)
 app.include_router(jobs.router)
+app.include_router(licence.router)
 app.include_router(logs.router)
 app.include_router(snapshots.router)
 app.include_router(schedules.router)

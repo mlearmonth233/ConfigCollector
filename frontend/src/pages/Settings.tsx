@@ -5,6 +5,7 @@ import { organizationApi } from "../api/resources";
 import type { OrganizationSettings } from "../api/types";
 import { HostnameRulesEditor } from "../components/HostnameRulesEditor";
 import { Troubleshooting } from "../components/Troubleshooting";
+import { LicenceCard } from "../components/LicenceCard";
 
 export function Settings() {
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
@@ -50,6 +51,7 @@ export function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
+      <LicenceCard />
       {error && <div className="error-banner">{error}</div>}
       {loading ? (
         <p>Loading…</p>

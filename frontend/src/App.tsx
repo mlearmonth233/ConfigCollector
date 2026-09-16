@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
+import { LicenceProvider } from "./context/LicenceContext";
 import { Alerts } from "./pages/Alerts";
 import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
@@ -27,6 +28,7 @@ import { Terminal } from "./pages/Terminal";
 export function App() {
   return (
     <AuthProvider>
+      <LicenceProvider>
       <NavBar />
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -177,6 +179,7 @@ export function App() {
         />
         <Route path="*" element={<Navigate to="/devices" replace />} />
       </Routes>
+      </LicenceProvider>
     </AuthProvider>
   );
 }

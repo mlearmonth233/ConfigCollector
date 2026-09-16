@@ -5,6 +5,8 @@ import { extractErrorMessage } from "../api/client";
 import { alertsApi } from "../api/resources";
 import type { AlertChannel, AlertSettings, AlertTestResult, SnmpAlert, SnmpAlertKind } from "../api/types";
 import { useAuth } from "../context/AuthContext";
+import { useLicence } from "../context/LicenceContext";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 const CHANNEL_LABELS: Record<AlertChannel, string> = { email: "Email", teams: "Teams", slack: "Slack" };
 
@@ -32,6 +34,7 @@ function kindBadgeClass(kind: SnmpAlertKind): string {
 /** One page that owns where alerts go (email, Microsoft Teams, Slack) and
  * lists every alert any monitor raised - ping, SNMP or a config change. */
 export function Alerts() {
+  const { hasFeature } = useLicence();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [settings, setSettings] = useState<AlertSettings | null>(null);
@@ -283,12 +286,13 @@ export function Alerts() {
       <div className="page-header-row" style={{ marginTop: 32 }}>
         <h2 style={{ margin: 0 }}>Where alerts are sent</h2>
       </div>
+      <UpgradeNotice feature="alert_delivery">Alerts are still recorded in the history above; sending them by email, Teams or Slack needs a licence key.</UpgradeNotice>
       <p className="page-subtitle" style={{ marginTop: 6 }}>
         Every monitor uses these. Fill in whichever you use - email, a Microsoft Teams channel, a Slack channel, or all three.
         {!isAdmin && " Only an admin can change them."}
       </p>
       <form className="card-form" onSubmit={handleSave} style={{ marginTop: 12 }}>
-        <fieldset disabled={!isAdmin} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset disabled={!isAdmin || !hasFeature("alert_delivery")} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <h3 style={{ marginTop: 0 }}>Email</h3>
           <div className="form-grid">
             <label className="form-grid-span">

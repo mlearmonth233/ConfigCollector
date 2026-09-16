@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
+from app.services.licensing import require_feature
 from app.api.jobs import create_and_dispatch_job, fetch_job_detail
 from app.database import get_db
 from app.models.device import Device
@@ -91,6 +92,7 @@ async def create_schedule(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleOut:
+    await require_feature(db, admin.org_id, "schedules")
     await _validate_device_ids(db, admin.org_id, payload.device_ids)
 
     now = datetime.now(timezone.utc)
@@ -130,6 +132,8 @@ async def update_schedule(
     if payload.name is not None:
         schedule.name = payload.name
     if payload.enabled is not None:
+        if payload.enabled and not schedule.enabled:
+            await require_feature(db, admin.org_id, "schedules")
         schedule.enabled = payload.enabled
     if payload.device_ids is not None:
         await _validate_device_ids(db, admin.org_id, payload.device_ids)

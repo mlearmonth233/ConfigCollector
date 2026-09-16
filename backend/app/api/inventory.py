@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.command_profiles import get_org_command_overrides
 from app.api.deps import get_current_user, require_admin
+from app.services.licensing import require_feature
 from app.database import get_db
 from app.models.command_profile import CommandProfile
 from app.models.device import Device
@@ -100,6 +101,7 @@ async def get_inventory(user: User = Depends(get_current_user), db: AsyncSession
 
 @router.get("/export.xlsx")
 async def export_inventory(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Response:
+    await require_feature(db, user.org_id, "inventory_export")
     built = await _build(db, user.org_id)
     org = await db.get(Organization, user.org_id)
     org_name = org.name if org else "Packrat"

@@ -6,6 +6,8 @@ import { credentialsApi, devicesApi, deviceTypesApi, firmwareApi } from "../api/
 import type { Credential, Device, DeviceType, FirmwareImage, FirmwareJob } from "../api/types";
 import { StartFirmwarePushModal } from "../components/StartFirmwarePushModal";
 import { StatusBadge } from "../components/StatusBadge";
+import { useLicence } from "../context/LicenceContext";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -14,6 +16,7 @@ function formatSize(bytes: number): string {
 }
 
 export function Firmware() {
+  const { hasFeature } = useLicence();
   const navigate = useNavigate();
   const [images, setImages] = useState<FirmwareImage[]>([]);
   const [jobs, setJobs] = useState<FirmwareJob[]>([]);
@@ -84,6 +87,7 @@ export function Firmware() {
   return (
     <div className="page">
       <h1>Firmware</h1>
+      <UpgradeNotice feature="firmware_push">Images can be uploaded and kept here; pushing them to devices needs a licence key.</UpgradeNotice>
       <p className="page-subtitle">
         Upload an image once, then push the file onto devices' storage over TFTP, FTP, or SCP. A push
         only copies the file - nothing is installed or reloaded, so the upgrade itself stays in your
@@ -128,7 +132,7 @@ export function Firmware() {
                 <td>{formatSize(img.size_bytes)}</td>
                 <td>{new Date(img.created_at).toLocaleString()}</td>
                 <td>
-                  <button className="link-button" onClick={() => setPushTarget(img)}>
+                  <button className="link-button" onClick={() => setPushTarget(img)} disabled={!hasFeature("firmware_push")} title={hasFeature("firmware_push") ? undefined : "Firmware push is part of Colony and Warren"}>
                     Push to devices
                   </button>
                   <button

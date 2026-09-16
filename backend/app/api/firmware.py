@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
+from app.services.licensing import require_feature
 from app.config import get_settings
 from app.database import get_db
 from app.models.credential import Credential, MfaMode
@@ -144,6 +145,7 @@ async def create_firmware_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> FirmwareJobDetailOut:
+    await require_feature(db, user.org_id, "firmware_push")
     image = await db.scalar(
         select(FirmwareImage).where(FirmwareImage.id == payload.firmware_image_id, FirmwareImage.org_id == user.org_id)
     )
