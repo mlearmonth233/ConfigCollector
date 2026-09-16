@@ -42,10 +42,9 @@ network (the Windows run scripts, or Docker Compose on a server).
 4. **Check.** Open `https://yourdomain/` and `https://yourdomain/thanks.html`.
    Click "Start a 30-day trial" and confirm it opens Stripe (or your
    mailto fallback). On a phone too.
-5. **Mailboxes.** The site uses `sales@` and `support@` on your domain
-   (see below). Create them in GoDaddy (Email & Office, or cPanel → Email
-   Accounts if the plan includes mail) or forward them to your own
-   address, before anyone clicks.
+5. **Mailbox.** Every contact and support link on the site goes to
+   admin@milnetworkslimited.co.uk. Make sure that mailbox is receiving mail
+   (and that its replies do not land in spam) before anyone clicks.
 6. **Updating later** is the same upload-and-extract; the HTML is cached
    for an hour at most.
 
