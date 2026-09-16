@@ -228,9 +228,14 @@ dropdown under "Your device types".
 
 ### Reachability
 
-**Check reachability** pings every device and marks each row. A device
-that does not answer ping is not necessarily down; many networks block
-ICMP. Use it as a hint, not a verdict.
+**Check reachability** pings every device and fills in the **Ping**
+column: a green tick for a device that answered, a red cross for one that
+did not. A line above the table says how many answered and when the check
+ran; hover a mark for the detail (the resolved address, or whether the
+name failed to resolve in DNS). A cross is not proof the device is down;
+many networks block ICMP while SSH still works. Use it as a hint, not a
+verdict. For continuous checking rather than a one-off, use the
+[Monitor](#5-monitor) page.
 
 ---
 

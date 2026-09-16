@@ -23,6 +23,51 @@ import { sortByDeviceName } from "../utils/deviceNameSort";
  * "GBGYSP01SWA001" -> "GBGYSP01SWA002") - the common case when duplicating
  * a device to add the next one in a numbered sequence. Names with no
  * trailing number are returned unchanged, left for manual editing. */
+/** The Ping column: a green tick when the last reachability check got a
+ * ping reply, a red cross when it did not, a dash before any check. */
+function ReachMark({ result, checking }: { result: DeviceReachability | undefined; checking: boolean }) {
+  if (checking) {
+    return (
+      <span className="reach-mark reach-pending" title="Checking…" aria-label="Checking">
+        …
+      </span>
+    );
+  }
+  if (!result) {
+    return (
+      <span className="reach-mark reach-pending" title="Not checked yet - use Check reachability" aria-label="Not checked">
+        –
+      </span>
+    );
+  }
+  if (result.ping_ok) {
+    return (
+      <span
+        className="reach-mark reach-ok"
+        title={`Answered ping${result.resolved_ip && result.resolved_ip !== result.host ? ` (${result.resolved_ip})` : ""}`}
+        aria-label="Reachable: answered ping"
+        role="img"
+      >
+        ✓
+      </span>
+    );
+  }
+  return (
+    <span
+      className="reach-mark reach-bad"
+      title={
+        "No ping response" +
+        (result.dns_ok === false ? " and the hostname didn't resolve in DNS" : "") +
+        " - not necessarily offline: a firewall may block ping while SSH still works."
+      }
+      aria-label="Not reachable: no ping response"
+      role="img"
+    >
+      ✕
+    </span>
+  );
+}
+
 function incrementTrailingNumber(name: string): string {
   const match = /^(.*?)(\d+)$/.exec(name);
   if (!match) return name;
@@ -55,6 +100,8 @@ export function Devices() {
   const [reachability, setReachability] = useState<Map<string, DeviceReachability>>(new Map());
   const [checkingReachability, setCheckingReachability] = useState(false);
   const [reachabilityError, setReachabilityError] = useState<string | null>(null);
+  const [reachabilityCheckedAt, setReachabilityCheckedAt] = useState<Date | null>(null);
+  const reachableCount = useMemo(() => Array.from(reachability.values()).filter((r) => r.ping_ok).length, [reachability]);
   const [clearingAll, setClearingAll] = useState(false);
   const [clearNotice, setClearNotice] = useState<string | null>(null);
 
@@ -297,6 +344,7 @@ export function Devices() {
     try {
       const { data } = await devicesApi.checkReachability();
       setReachability(new Map(data.map((r) => [r.device_id, r])));
+      setReachabilityCheckedAt(new Date());
     } catch (err) {
       setReachabilityError(extractErrorMessage(err));
     } finally {
@@ -358,11 +406,16 @@ export function Devices() {
       {error && <div className="error-banner">{error}</div>}
       {clearNotice && <div className="info-banner">{clearNotice}</div>}
       {reachabilityError && <div className="error-banner">{reachabilityError}</div>}
-      {reachability.size > 0 && (
+      {reachability.size > 0 && reachabilityCheckedAt && (
         <p className="page-subtitle" style={{ marginTop: 0 }}>
-          Ping and DNS are best-effort checks, not proof a flagged device is actually offline - a
-          firewall commonly blocks ICMP for a device that's perfectly reachable over SSH, and a
-          name can be missing from DNS for a device that's still reachable some other way.
+          <strong>
+            Checked at {reachabilityCheckedAt.toLocaleTimeString()}: {reachableCount} of {reachability.size} device
+            {reachability.size === 1 ? "" : "s"} answered ping
+            {reachability.size - reachableCount > 0 ? `, ${reachability.size - reachableCount} did not` : ""}.
+          </strong>{" "}
+          A cross is a heads-up, not proof the device is offline - a firewall commonly blocks ping for a device
+          that's perfectly reachable over SSH, and a name can be missing from DNS for a device that's still
+          reachable some other way. Hover a mark for the detail.
         </p>
       )}
       {importResult && (
@@ -543,6 +596,7 @@ export function Devices() {
               </th>
               <th>Name</th>
               <th>Host</th>
+              <th title="Result of the last Check reachability run: ping answered (tick) or not (cross)">Ping</th>
               <th>Port</th>
               <th>Type</th>
               <th>Role</th>
@@ -561,21 +615,9 @@ export function Devices() {
                   />
                 </td>
                 <td>{d.name}</td>
-                <td>
-                  {d.host}
-                  {reachability.get(d.id)?.ping_ok === false && (
-                    <span
-                      className="status-badge status-fallback"
-                      style={{ marginLeft: 8 }}
-                      title={
-                        "No ping response" +
-                        (reachability.get(d.id)?.dns_ok === false ? " and the hostname didn't resolve in DNS" : "") +
-                        " - this doesn't necessarily mean the device is offline."
-                      }
-                    >
-                      not responding
-                    </span>
-                  )}
+                <td>{d.host}</td>
+                <td className="reach-cell">
+                  <ReachMark result={reachability.get(d.id)} checking={checkingReachability} />
                 </td>
                 <td>{d.port}</td>
                 <td>{deviceTypeMap.get(d.device_type)?.label ?? d.device_type}</td>

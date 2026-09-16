@@ -8,8 +8,21 @@ pytestmark = pytest.mark.asyncio
 
 
 class _FakeCompletedProcess:
-    def __init__(self, returncode: int):
+    def __init__(self, returncode: int, stdout: bytes = b"64 bytes from 192.0.2.1: icmp_seq=1 ttl=64 time=0.5 ms\n"):
         self.returncode = returncode
+        self.stdout = stdout
+
+
+async def test_windows_ping_needs_a_real_echo_reply_not_just_exit_code_zero(monkeypatch):
+    """Windows ping exits 0 for 'Destination host unreachable' (a router
+    answered, the device didn't). Only a reply carrying a TTL counts."""
+    monkeypatch.setattr(reachability, "_is_windows", lambda: True)
+    unreachable = b"Pinging 192.0.2.9 with 32 bytes of data:\r\nReply from 10.0.0.1: Destination host unreachable.\r\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeCompletedProcess(0, unreachable))
+    assert await reachability._ping("192.0.2.9") is False
+    reply = b"Pinging 192.0.2.1 with 32 bytes of data:\r\nReply from 192.0.2.1: bytes=32 time=1ms TTL=254\r\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeCompletedProcess(0, reply))
+    assert await reachability._ping("192.0.2.1") is True
 
 
 async def test_ping_true_when_subprocess_succeeds(monkeypatch):

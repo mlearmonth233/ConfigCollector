@@ -22,25 +22,38 @@ class ReachabilityResult:
     resolved_ip: str | None
 
 
+def _is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
 def _run_ping(args: list[str]) -> bool:
     try:
         result = subprocess.run(
             args,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             timeout=_PING_TIMEOUT_SECONDS + 2,
         )
-        return result.returncode == 0
     except Exception:  # noqa: BLE001
         # Deliberately broad: ping is a best-effort diagnostic, so anything
         # that stops it from running (the binary missing, a timeout, a
         # permissions issue) is reported as "didn't respond" rather than
         # crashing the whole reachability check.
         return False
+    if result.returncode != 0:
+        return False
+    if _is_windows():
+        # Windows ping exits 0 whenever *something* answered - including a
+        # router saying "Destination host unreachable" - so a real reply
+        # is recognised by its TTL, which only an echo reply carries.
+        output = result.stdout or b""
+        text = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else str(output)
+        return "TTL=" in text.upper()
+    return True
 
 
 async def _ping(host: str) -> bool:
-    if platform.system() == "Windows":
+    if _is_windows():
         args = ["ping", "-n", "1", "-w", str(int(_PING_TIMEOUT_SECONDS * 1000)), host]
     else:
         args = ["ping", "-c", "1", "-W", str(int(_PING_TIMEOUT_SECONDS)), host]

@@ -1710,3 +1710,38 @@ a:hover {
     margin-left: 0;
   }
 }
+
+/* ---------- Devices: reachability tick / cross ---------- */
+.reach-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.reach-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
+.reach-mark.reach-ok {
+  background: #dcfce7;
+  color: var(--success);
+  border: 1px solid #bbf7d0;
+}
+
+.reach-mark.reach-bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid #fecaca;
+}
+
+.reach-mark.reach-pending {
+  color: var(--text-muted);
+}
