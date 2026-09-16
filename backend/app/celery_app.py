@@ -77,6 +77,10 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
+    # Keep retrying the Redis connection while the worker starts (Memurai
+    # or the redis container may come up a moment later). Celery 6 makes
+    # this explicit; setting it now also silences the start-up warning.
+    broker_connection_retry_on_startup=True,
     # Requires a separate `celery -A app.celery_app beat` process running
     # alongside the worker - see README. run_due_schedules checks fairly
     # often since a schedule's next_run_at can be as granular as an hour;
