@@ -442,6 +442,12 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
   app refuses to start until both are real; in development it logs a
   warning. The Windows run scripts generate a `backend/.env` with random
   values on first run.
+- **Key rotation.** Changing `CREDENTIAL_ENCRYPTION_KEY` never locks stored
+  passwords away: decryption also tries `CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS`
+  (comma-separated) and the shipped placeholder key, and the API re-encrypts
+  every stored secret with the current key at start-up
+  (`services/secret_rekey.py`). Secrets no key can read are counted in the
+  API log and have to be re-entered.
 - **Login rate limiting.** Five failed logins from one IP or against one
   account lock further attempts out for 30 seconds, doubling per repeat up
   to 15 minutes (`LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`,

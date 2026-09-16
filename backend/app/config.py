@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # Fernet key used to encrypt device credentials at rest.
     # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     credential_encryption_key: str = INSECURE_ENCRYPTION_KEY
+    # Comma-separated keys this install used before (key rotation). Secrets
+    # still encrypted with one of them keep decrypting, and the API
+    # re-encrypts them with the current key at start-up
+    # (services/secret_rekey.py). The shipped placeholder key is always
+    # treated as a previous key, so moving off it needs no configuration.
+    credential_encryption_previous_keys: str = ""
 
     # Login brute-force protection (core/login_guard.py): after
     # login_max_failures failed attempts from one IP or against one account

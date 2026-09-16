@@ -26,6 +26,7 @@ resized, and {"type": "break"} to send a serial BREAK.
 import asyncio
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -36,7 +37,7 @@ from paramiko.message import Message
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.core.encryption import decrypt_secret
+from app.core.encryption import SecretUndecryptable, decrypt_secret
 from app.core.security import decode_access_token
 from app.database import async_session_factory
 from app.models.credential import Credential, MfaMode
@@ -135,7 +136,10 @@ async def authorize(token: str | None, device_id: UUID, otp: str | None, via: st
                 f"No credential for {what}: none assigned and no org-wide default credential is configured."
             )
 
-        password = decrypt_secret(credential.encrypted_password)
+        try:
+            password = decrypt_secret(credential.encrypted_password)
+        except SecretUndecryptable as exc:
+            return AuthorizationError(f"Credential '{credential.name}': {exc}")
         if credential.mfa_mode == MfaMode.PASSCODE:
             if not otp:
                 return AuthorizationError(f"Credential '{credential.name}' needs a one-time passcode.")
@@ -293,7 +297,14 @@ async def device_terminal(websocket: WebSocket, device_id: UUID) -> None:
     # connection error with no message at all.
     await websocket.accept()
 
-    auth = await authorize(params.get("token"), device_id, params.get("otp") or None, via)
+    try:
+        auth = await authorize(params.get("token"), device_id, params.get("otp") or None, via)
+    except Exception as exc:  # noqa: BLE001 - explained in the terminal, with a reference into the log
+        ref = uuid.uuid4().hex[:8]
+        log.exception("Terminal session to device %s could not start (ref=%s)", device_id, ref)
+        await _send_notice(websocket, f"Could not start the session: {exc} (ref {ref} in packrat-api.log)", error=True)
+        await websocket.close(code=1011)
+        return
     if isinstance(auth, AuthorizationError):
         await _send_notice(websocket, auth.message, error=True)
         await websocket.close(code=1008)

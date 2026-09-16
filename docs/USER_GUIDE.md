@@ -818,6 +818,20 @@ credential's auth timeout so the next run waits long enough.
 Wrong device type for a WLC or PDU. Set it to the matching type; those use
 timing-based reads that cope with slow, chatty devices.
 
+**Terminal opens and immediately prints "[Session closed]" (or jobs fail
+with "A stored password can't be decrypted")**
+`CREDENTIAL_ENCRYPTION_KEY` changed after the credentials were saved. This
+happens once when an install that ran on the built-in placeholder key gets
+a real key (the Windows run scripts generate one into `backend\.env` the
+first time they run). Packrat now handles it by itself: old keys keep
+working and every stored password is re-encrypted with the current key
+when the API starts, so a restart is enough. If you set a brand-new key by
+hand, put the old one in `CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS` in
+`backend\.env` (comma-separated), restart, and remove it once the API log
+reports the secrets were re-encrypted. If the old key is gone for good,
+re-enter the passwords on the Credentials page. The terminal now prints the
+exact reason before it closes, with a reference into `packrat-api.log`.
+
 **Alerts never arrive**
 Check the history on the Alerts page: "not sent" with an SMTP or webhook
 error means the delivery settings are wrong; use **Send a test alert** to
@@ -854,7 +868,10 @@ timezone marker.
 
 - Device passwords and enable secrets are encrypted at rest with your
   `CREDENTIAL_ENCRYPTION_KEY` and decrypted only in memory for the length
-  of an SSH session.
+  of an SSH session. Back the key up with the database. To rotate it, set
+  the new key and list the old one in `CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS`;
+  the API re-encrypts everything on its next start and the old key can then
+  be dropped.
 - One-time passcodes are used for the run they were entered for and never
   stored.
 - Transcripts and snapshots may contain sensitive configuration (SNMP

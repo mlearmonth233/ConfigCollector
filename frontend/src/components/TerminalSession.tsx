@@ -121,7 +121,9 @@ export function TerminalSession({ sessionId, device, initialOtp, via, visible, o
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
+      let opened = false;
       ws.onopen = () => {
+        opened = true;
         onState(sessionId, "connected");
         if (visibleRef.current) term.focus();
         sendResize();
@@ -133,9 +135,22 @@ export function TerminalSession({ sessionId, device, initialOtp, via, visible, o
       ws.onerror = () => {
         term.write("\r\n\x1b[31mConnection error - is the backend reachable?\x1b[0m\r\n");
       };
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (wsRef.current !== ws) return; // superseded by a reconnect
-        term.write("\r\n\x1b[90m[Session closed]\x1b[0m\r\n");
+        if (!opened) {
+          // The handshake itself failed: nothing from the backend ever
+          // arrived, so say where we tried to go.
+          term.write(
+            `\r\n\x1b[31mCould not open the terminal connection to ${websocketBase()} (code ${event.code}). ` +
+              "Check that the backend is running and that nothing between the browser and it blocks WebSockets.\x1b[0m\r\n",
+          );
+        } else if (event.code !== 1000 && event.code !== 1005) {
+          // The backend printed the reason just before closing; the code
+          // helps match it to packrat-api.log (1008 refused, 1011 failed).
+          term.write(`\r\n\x1b[90m[Session closed - code ${event.code}]\x1b[0m\r\n`);
+        } else {
+          term.write("\r\n\x1b[90m[Session closed]\x1b[0m\r\n");
+        }
         onState(sessionId, "closed");
       };
     };

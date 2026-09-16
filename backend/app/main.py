@@ -41,6 +41,7 @@ from app.config import get_settings  # noqa: E402
 from app.core.request_logging import install_request_logging  # noqa: E402
 from app.database import init_db  # noqa: E402
 from app.services.job_reaper import reap_orphaned_jobs  # noqa: E402
+from app.services.secret_rekey import rekey_stored_secrets  # noqa: E402
 
 
 @asynccontextmanager
@@ -51,6 +52,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("Database initialisation failed - the API cannot start")
         raise
+    try:
+        # Secrets saved under a previous CREDENTIAL_ENCRYPTION_KEY (or the
+        # shipped placeholder) are moved to the current key here; a failure
+        # is logged, not fatal - decryption still falls back to old keys.
+        from app.db_sync import SyncSessionLocal  # noqa: PLC0415
+
+        await asyncio.to_thread(rekey_stored_secrets, SyncSessionLocal)
+    except Exception:
+        log.exception("Re-encrypting stored secrets failed")
     settings = get_settings()
     if settings.celery_task_always_eager and settings.reap_jobs_on_start:
         # In eager mode this process *is* the worker, so a job still
