@@ -10,6 +10,9 @@ export function NavBar() {
     <header className="navbar">
       <div className="navbar-brand">Packrat</div>
       <nav className="navbar-links">
+        <NavLink to="/monitor" className={({ isActive }) => (isActive ? "active" : "")}>
+          Monitor
+        </NavLink>
         <NavLink to="/devices" className={({ isActive }) => (isActive ? "active" : "")}>
           Devices
         </NavLink>

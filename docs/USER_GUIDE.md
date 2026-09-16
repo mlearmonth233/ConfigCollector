@@ -11,17 +11,18 @@ every page of the app in the order you will meet them.
 2. [First login and your organization](#2-first-login-and-your-organization)
 3. [Credentials](#3-credentials)
 4. [Devices](#4-devices)
-5. [Commands](#5-commands)
-6. [Jobs: collecting configs](#6-jobs-collecting-configs)
-7. [History and diffs](#7-history-and-diffs)
-8. [Schedules](#8-schedules)
-9. [Firmware push](#9-firmware-push)
-10. [DNS Check](#10-dns-check)
-11. [SNMP](#11-snmp)
-12. [Terminal](#12-terminal)
-13. [Settings](#13-settings)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Security notes](#15-security-notes)
+5. [Monitor](#5-monitor)
+6. [Commands](#6-commands)
+7. [Jobs: collecting configs](#7-jobs-collecting-configs)
+8. [History and diffs](#8-history-and-diffs)
+9. [Schedules](#9-schedules)
+10. [Firmware push](#10-firmware-push)
+11. [DNS Check](#11-dns-check)
+12. [SNMP](#12-snmp)
+13. [Terminal](#13-terminal)
+14. [Settings](#14-settings)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Security notes](#16-security-notes)
 
 ---
 
@@ -210,7 +211,42 @@ ICMP. Use it as a hint, not a verdict.
 
 ---
 
-## 5. Commands
+## 5. Monitor
+
+**Monitor** page. The place to look first thing in the morning: every device
+pinged on a timer, shown as green, red or amber, with a coloured bar per
+check for the last hour.
+
+- Checks run every 60 seconds by default from the scheduler ("beat")
+  process. A device is marked **Down** only after three missed checks in a
+  row, so one dropped packet is not an outage. Until a new device has
+  answered or missed enough checks it shows as **Waiting**.
+- The tiles at the top count devices up, down and waiting, and the average
+  latency of the ones that are up. When everything answers, the page says
+  so in one line.
+- Each card shows the state, latency, how long the device has been up or
+  down, its 24-hour uptime percentage, and the last hour of checks: a
+  short green bar is a quick reply, a tall one a slow reply, a red bar a
+  miss. Hover a bar for the exact time and latency. **SSH** opens the
+  device in the Terminal.
+- Filter to **Down** to see only what needs attention; **Table** gives the
+  same data as a sortable list. **Check now** runs a cycle immediately
+  even when monitoring is paused.
+- A red banner saying "Not checking" means the scheduler is not running.
+  In `-Eager` mode there is no scheduler, so start the full stack or use
+  Check now.
+
+**Alerts.** When a device that was up goes down, or comes back, Packrat
+records an alert (see it under SNMP › Alert history) and emails the
+recipients set under SNMP › Alerts by email. Admins can change the
+interval, the number of missed checks, the ping timeout, and which of the
+two events email under **Settings** on this page. Ping alone is not proof
+a device is down: a firewall may drop ICMP while SSH still works, so treat
+a red card as "go and look", not a verdict.
+
+---
+
+## 6. Commands
 
 **Commands** page. Choose what runs against each device type by default.
 
@@ -262,7 +298,7 @@ cannot be deleted until those devices are changed or removed.
 
 ---
 
-## 6. Jobs: collecting configs
+## 7. Jobs: collecting configs
 
 ### Starting a collection
 
@@ -340,7 +376,7 @@ you own.
 
 ---
 
-## 7. History and diffs
+## 8. History and diffs
 
 Every completed collection stores a **snapshot** per device. On
 **Devices**, press **History** on a row to see them all, newest first.
@@ -354,7 +390,7 @@ Snapshots are kept forever unless you set a retention period in Settings.
 
 ---
 
-## 8. Schedules
+## 9. Schedules
 
 **Schedules** page (admins). A schedule is a collection that starts itself.
 
@@ -389,7 +425,7 @@ fires at the expected time, check that window is still open.
 
 ---
 
-## 9. Firmware push
+## 10. Firmware push
 
 **Firmware** page. Packrat copies an image file onto a device's storage.
 It does not install it, change the boot variable, or reload. The upgrade
@@ -434,7 +470,7 @@ the command in the dialog.
 
 ---
 
-## 10. DNS Check
+## 11. DNS Check
 
 **DNS Check** page. Paste hostnames or IPs, one per line or
 comma-separated, and press **Run checks**. For each target Packrat reports:
@@ -453,7 +489,7 @@ firewall dropped ICMP, not that the device is down.
 
 ---
 
-## 11. SNMP
+## 12. SNMP
 
 **SNMP** page. Poll devices over SNMP for what they know about themselves,
 without logging in over SSH. Each poll produces one plain-text report per
@@ -549,7 +585,7 @@ Schedules. If alerts stop, check that window is open.
 
 ---
 
-## 12. Terminal
+## 13. Terminal
 
 **Terminal** page, or the **SSH** button on any device row. Interactive
 SSH sessions in the browser using each device's credential (or the org
@@ -576,7 +612,7 @@ Packrat. Leaving the page closes every session.
 
 ---
 
-## 13. Settings
+## 14. Settings
 
 **Settings** page (admins).
 
@@ -649,13 +685,13 @@ organization.
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 **Start here: get the logs**
 Settings → Troubleshooting → **Download log bundle** collects every log
 file. Reproduce the problem first with **Follow** ticked on the API or
 worker log and you will usually see the cause as it happens. See section
-13 for what each file contains.
+14 for what each file contains.
 
 **A job shows Running but nothing is happening / "This device has a
 collection job in progress" when deleting**
@@ -721,7 +757,7 @@ timezone marker.
 
 ---
 
-## 15. Security notes
+## 16. Security notes
 
 - Device passwords and enable secrets are encrypted at rest with your
   `CREDENTIAL_ENCRYPTION_KEY` and decrypted only in memory for the length

@@ -2,12 +2,13 @@ import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.device import Device
+from app.models.ping_monitor import PingSample, PingStatus
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
@@ -70,6 +71,9 @@ async def clear_all_devices(
         await db.execute(
             update(ConfigSnapshot).where(ConfigSnapshot.device_id.in_(to_delete_ids)).values(device_id=None)
         )
+        # Reachability monitor rows are pure derived state: drop them.
+        await db.execute(delete(PingSample).where(PingSample.device_id.in_(to_delete_ids)))
+        await db.execute(delete(PingStatus).where(PingStatus.device_id.in_(to_delete_ids)))
         for device in to_delete:
             await db.delete(device)
         await db.commit()
@@ -194,6 +198,8 @@ async def delete_device(
     # to load every job_item just to null each one individually.
     await db.execute(update(CollectionJobItem).where(CollectionJobItem.device_id == device_id).values(device_id=None))
     await db.execute(update(ConfigSnapshot).where(ConfigSnapshot.device_id == device_id).values(device_id=None))
+    await db.execute(delete(PingSample).where(PingSample.device_id == device_id))
+    await db.execute(delete(PingStatus).where(PingStatus.device_id == device_id))
 
     await db.delete(device)
     await db.commit()

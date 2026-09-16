@@ -36,6 +36,7 @@ from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.job_reaper import reap_stale_jobs as _reap_stale_jobs
+from app.services import ping_monitor
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
 from app.services.snmp_poll import SnmpAuth, SnmpError, format_report, poll_many
@@ -1135,3 +1136,18 @@ def reap_stale_jobs() -> dict:
     if summary:
         log.warning("Stale-job sweep interrupted %s", ", ".join(f"{n} {k} job(s)" for k, n in summary.items()))
     return summary
+
+
+@celery_app.task(name="app.tasks.run_ping_monitors")
+def run_ping_monitors() -> dict:
+    """Invoked every 15s by Celery beat: runs a ping cycle for every org
+    whose reachability monitor is enabled and due (see
+    services/ping_monitor.py)."""
+    ran = 0
+    for org_id in ping_monitor.due_org_ids():
+        try:
+            ping_monitor.run_ping_cycle(org_id)
+            ran += 1
+        except Exception:  # noqa: BLE001
+            log.exception("Ping monitor cycle for org %s crashed; will retry next interval", org_id)
+    return {"orgs": ran}

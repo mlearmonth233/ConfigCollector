@@ -23,6 +23,8 @@ import type {
   NeighborGapCheck,
   NetworkInterface,
   OrganizationSettings,
+  PingMonitorSettings,
+  PingOverview,
   Schedule,
   ScheduleFrequency,
   LogOverview,
@@ -305,4 +307,17 @@ export const logsApi = {
   download: () => apiClient.get<Blob>("/api/logs/download", { responseType: "blob" }),
   reportClientError: (payload: { message: string; source?: string; stack?: string; kind?: string }) =>
     apiClient.post("/api/logs/client", payload),
+};
+
+export type PingMonitorSettingsPayload = Pick<
+  PingMonitorSettings,
+  "enabled" | "interval_seconds" | "failure_threshold" | "timeout_ms" | "alert_on_down" | "alert_on_up" | "history_days"
+>;
+
+export const pingApi = {
+  overview: () => apiClient.get<PingOverview>("/api/ping/overview"),
+  updateSettings: (data: PingMonitorSettingsPayload) => apiClient.put<PingMonitorSettings>("/api/ping/settings", data),
+  runNow: () => apiClient.post<PingOverview>("/api/ping/run-now"),
+  history: (deviceId: string, hours: number) =>
+    apiClient.get<{ device_id: string; hours: number; samples: PingOverview["devices"][number]["recent"] }>(`/api/ping/history/${deviceId}`, { params: { hours } }),
 };

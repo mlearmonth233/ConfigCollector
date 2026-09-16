@@ -243,9 +243,10 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
 <section id="hoard">
   <div class="wrap">
     <p class="eyebrow">What Packrat hoards</p>
-    <h2 style="margin-top:12px">One rat. Eight jobs it will not stop doing.</h2>
+    <h2 style="margin-top:12px">One rat. Nine jobs it will not stop doing.</h2>
     <p class="lede" style="margin-top:16px">Each module is a page in the app. Every one of them runs against your whole inventory at once, shows you a live console per device, and keeps working while you go get coffee.</p>
     <div class="ledger" style="margin-top:36px">
+      <div class="row"><div class="name">Monitor<small>MONITOR</small></div><p>Every device pinged every minute, shown green, red or amber with the last hour of checks as a bar per ping. Down after three misses in a row, an email when it happens and another when it recovers. The page you open first each morning.</p></div>
       <div class="row"><div class="name">Collect<small>JOBS</small></div><p>Pick devices, press Collect. Packrat logs into each one over SSH, runs the show commands for its platform, streams the transcript live, and stores the config as a snapshot. Retry a single device inside the same job. Cancel mid-run. Download everything as a zip.</p></div>
       <div class="row"><div class="name">Diff<small>HISTORY</small></div><p>Every snapshot is kept per device. Pick any two and see a unified diff of exactly what changed, line by line. The "who added VLAN 30 to the trunk" question, answered in four seconds.</p></div>
       <div class="row"><div class="name">Schedule<small>SCHEDULES</small></div><p>Nightly at 02:00, every Sunday, the 31st of each month, one specific date before a change window, or every few hours. Times are in your timezone and survive daylight saving. Each run is an ordinary job you can open.</p></div>

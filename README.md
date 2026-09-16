@@ -9,8 +9,9 @@ list of devices - Cisco IOS/IOS-XE switches and routers, Nexus, Catalyst
 9800 and AireOS controllers, FortiGates, APC PDUs, Versa SD-WAN - and it
 logs into each one over SSH, stores the running configuration as a
 snapshot, diffs it against the last one, and does it again on a schedule.
-It also pushes firmware images onto device storage, bulk-checks DNS and
-ping, and opens a browser SSH terminal to any device.
+It also pings every device continuously and shows what is reachable on a
+Monitor page, pushes firmware images onto device storage, bulk-checks DNS
+and ping, and opens a browser SSH terminal to any device.
 
 - **User guide**: [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - every page,
   step by step, plus troubleshooting.

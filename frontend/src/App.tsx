@@ -13,6 +13,7 @@ import { FirmwareJobDetail } from "./pages/FirmwareJobDetail";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
+import { Monitor } from "./pages/Monitor";
 import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
 import { Help } from "./pages/Help";
@@ -28,6 +29,14 @@ export function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route
+          path="/monitor"
+          element={
+            <ProtectedRoute>
+              <Monitor />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/devices"
           element={

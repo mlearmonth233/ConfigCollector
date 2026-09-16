@@ -85,6 +85,9 @@ class SnmpAlertKind(str, enum.Enum):
     DEVICE_DOWN = "device_down"
     DEVICE_UP = "device_up"
     SYSLOG = "syslog"
+    # Raised by the continuous ping monitor (services/ping_monitor.py), not SNMP.
+    PING_DOWN = "ping_down"
+    PING_UP = "ping_up"
 
 
 class SnmpAlert(Base_):

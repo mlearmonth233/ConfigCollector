@@ -384,3 +384,57 @@ export interface LogTail {
   lines: number;
   content: string;
 }
+
+export type PingState = "up" | "down" | "unknown";
+
+export interface PingSample {
+  t: string;
+  ok: boolean;
+  rtt_ms: number | null;
+}
+
+export interface PingDevice {
+  device_id: string;
+  name: string;
+  host: string;
+  site: string | null;
+  device_type: string;
+  state: PingState;
+  consecutive_failures: number;
+  last_checked_at: string | null;
+  last_change_at: string | null;
+  last_rtt_ms: number | null;
+  uptime_24h_pct: number | null;
+  checks_24h: number;
+  recent: PingSample[];
+}
+
+export interface PingMonitorSettings {
+  enabled: boolean;
+  interval_seconds: number;
+  failure_threshold: number;
+  timeout_ms: number;
+  alert_on_down: boolean;
+  alert_on_up: boolean;
+  history_days: number;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_result: string | null;
+  email_configured: boolean;
+}
+
+export interface PingSummary {
+  total: number;
+  up: number;
+  down: number;
+  unknown: number;
+  avg_rtt_ms: number | null;
+  seconds_since_last_run: number | null;
+  stale: boolean;
+}
+
+export interface PingOverview {
+  settings: PingMonitorSettings;
+  summary: PingSummary;
+  devices: PingDevice[];
+}
