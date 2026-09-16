@@ -8,8 +8,8 @@ its first reply or to 'down' once it has missed `failure_threshold` checks
 in a row - neither of those first transitions alerts (there is no known-
 good state to compare with). After that, up->down raises PING_DOWN and
 down->up raises PING_UP, both recorded as SnmpAlert rows (the org's single
-alert stream) and emailed through the SnmpMonitorConfig SMTP settings when
-those are configured.
+alert stream) and delivered through the org's AlertSettings channels
+(services/alerting.py).
 
 Ping itself is the OS `ping` binary, one packet, run from a worker thread
 (see services/reachability.py for why a subprocess in a thread rather than
@@ -30,14 +30,13 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 
-from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
 from app.models.device import Device
 from app.models.organization import Organization
 from app.models.ping_monitor import PingMonitorConfig, PingSample, PingStatus
-from app.models.snmp_monitor import SnmpAlert, SnmpAlertKind, SnmpMonitorConfig
-from app.services import snmp_monitor
-from app.services.snmp_monitor import Event, SmtpSettings, format_email, parse_recipients
+from app.models.snmp_monitor import SnmpAlert, SnmpAlertKind
+from app.services import alerting
+from app.services.snmp_monitor import Event
 
 log = logging.getLogger(__name__)
 
@@ -204,7 +203,7 @@ def run_ping_cycle(org_id, *, force: bool = False) -> dict:
         summary = f"Pinged {len(devices)} device(s): {up} up, {down} down"
         if alerts:
             summary += f", {len(alerts)} alert(s)"
-            summary += _email_alerts(db, org_id, [(n, e) for n, e, _ in events], alerts)
+            summary += alerting.dispatch(db, org_id, [(n, e) for n, e, _ in events], alerts)
 
         cutoff = now - timedelta(days=max(1, config.history_days))
         db.execute(delete(PingSample).where(PingSample.checked_at < cutoff))
@@ -215,42 +214,6 @@ def run_ping_cycle(org_id, *, force: bool = False) -> dict:
         return {"devices": len(devices), "up": up, "down": down, "alerts": len(alerts), "summary": summary}
     finally:
         db.close()
-
-
-def _email_alerts(db, org_id, batch: list[tuple[str, Event]], alerts: list[SnmpAlert]) -> str:
-    """Sends the batch through the org's SNMP-alert SMTP settings, if any.
-    Returns the suffix for the cycle summary."""
-    email_config = db.query(SnmpMonitorConfig).filter(SnmpMonitorConfig.org_id == org_id).first()
-    recipients = parse_recipients(email_config.recipients) if email_config else []
-    if not (email_config and recipients and email_config.smtp_host):
-        for alert in alerts:
-            alert.email_error = "No recipients or SMTP server configured (SNMP > Alerts by email)"
-        return ", not emailed (no recipients/SMTP configured)"
-    org = db.get(Organization, org_id)
-    subject, body = format_email(org.name if org else "your organization", batch)
-    try:
-        snmp_monitor.send_email(
-            SmtpSettings(
-                host=email_config.smtp_host,
-                port=email_config.smtp_port,
-                username=email_config.smtp_username,
-                password=decrypt_secret(email_config.encrypted_smtp_password) if email_config.encrypted_smtp_password else None,
-                starttls=email_config.smtp_starttls,
-                ssl=email_config.smtp_ssl,
-                sender=email_config.smtp_from,
-            ),
-            recipients,
-            subject,
-            body,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.error("Ping alert email via %s FAILED for org %s: %s", email_config.smtp_host, org_id, exc)
-        for alert in alerts:
-            alert.email_error = str(exc)[:1000]
-        return f", EMAIL FAILED: {exc}"
-    for alert in alerts:
-        alert.emailed = True
-    return f", emailed {len(recipients)} recipient(s)"
 
 
 def due_org_ids() -> list:

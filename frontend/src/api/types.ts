@@ -333,7 +333,7 @@ export interface HostnameRules {
   using_builtin: boolean;
 }
 
-export type SnmpAlertKind = "link_down" | "link_up" | "ap_down" | "ap_up" | "device_down" | "device_up" | "syslog";
+export type SnmpAlertKind = "link_down" | "link_up" | "ap_down" | "ap_up" | "device_down" | "device_up" | "syslog" | "ping_down" | "ping_up" | "config_changed";
 
 export interface SnmpMonitorConfig {
   enabled: boolean;
@@ -347,18 +347,12 @@ export interface SnmpMonitorConfig {
   alert_device_down: boolean;
   alert_device_up: boolean;
   alert_syslog_max_level: number | null;
-  recipients: string[];
-  smtp_host: string | null;
-  smtp_port: number;
-  smtp_username: string | null;
-  has_smtp_password: boolean;
-  smtp_starttls: boolean;
-  smtp_ssl: boolean;
-  smtp_from: string | null;
   next_run_at: string | null;
   last_run_at: string | null;
   last_result: string | null;
   monitored_device_count: number;
+  /** Whether the Alerts page has at least one delivery channel set up. */
+  channels_configured: boolean;
 }
 
 export interface SnmpAlert {
@@ -371,7 +365,33 @@ export interface SnmpAlert {
   detail: string | null;
   emailed: boolean;
   email_error: string | null;
+  /** Channels that delivered it, e.g. "email, teams"; null when nothing did. */
+  notified_via: string | null;
+  webhook_error: string | null;
   created_at: string;
+}
+
+export type AlertChannel = "email" | "teams" | "slack";
+
+export interface AlertSettings {
+  recipients: string[];
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_username: string | null;
+  has_smtp_password: boolean;
+  smtp_starttls: boolean;
+  smtp_ssl: boolean;
+  smtp_from: string | null;
+  /** Only the host of a saved webhook URL is ever returned (the URL holds a secret). */
+  teams_webhook_host: string | null;
+  slack_webhook_host: string | null;
+  alert_config_change: boolean;
+  channels: AlertChannel[];
+}
+
+export interface AlertTestResult {
+  results: Partial<Record<AlertChannel, string>>;
+  ok: boolean;
 }
 
 export interface LogFile {

@@ -79,7 +79,7 @@ async def test_requests_and_refusals_are_logged_with_the_caller(client: AsyncCli
     text = _api_log()
     assert f"POST /api/devices -> 201" in text
     assert f"user={me['id']}" in text
-    assert f"Login failed for {unique_email} (wrong password)" in text
+    assert f"Login failed for {unique_email} from 127.0.0.1 (wrong password)" in text
     assert f"User {unique_email} ({me['id']}) logged in" not in text  # register isn't a login
     assert "refused with" in text or "rejected as invalid (422)" in text
 

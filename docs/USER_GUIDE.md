@@ -12,17 +12,18 @@ every page of the app in the order you will meet them.
 3. [Credentials](#3-credentials)
 4. [Devices](#4-devices)
 5. [Monitor](#5-monitor)
-6. [Commands](#6-commands)
-7. [Jobs: collecting configs](#7-jobs-collecting-configs)
-8. [History and diffs](#8-history-and-diffs)
-9. [Schedules](#9-schedules)
-10. [Firmware push](#10-firmware-push)
-11. [DNS Check](#11-dns-check)
-12. [SNMP](#12-snmp)
-13. [Terminal](#13-terminal)
-14. [Settings](#14-settings)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Security notes](#16-security-notes)
+6. [Alerts](#6-alerts)
+7. [Commands](#7-commands)
+8. [Jobs: collecting configs](#8-jobs-collecting-configs)
+9. [History and diffs](#9-history-and-diffs)
+10. [Schedules](#10-schedules)
+11. [Firmware push](#11-firmware-push)
+12. [DNS Check](#12-dns-check)
+13. [SNMP](#13-snmp)
+14. [Terminal](#14-terminal)
+15. [Settings](#15-settings)
+16. [Troubleshooting](#16-troubleshooting)
+17. [Security notes](#17-security-notes)
 
 ---
 
@@ -261,16 +262,71 @@ check for the last hour.
   Check now.
 
 **Alerts.** When a device that was up goes down, or comes back, Packrat
-records an alert (see it under SNMP › Alert history) and emails the
-recipients set under SNMP › Alerts by email. Admins can change the
-interval, the number of missed checks, the ping timeout, and which of the
-two events email under **Settings** on this page. Ping alone is not proof
-a device is down: a firewall may drop ICMP while SSH still works, so treat
-a red card as "go and look", not a verdict.
+records an alert and sends it by whatever is set up on the
+[Alerts](#6-alerts) page: email, Microsoft Teams, Slack. Admins can change
+the interval, the number of missed checks, the ping timeout, and which of
+the two events alert under **Settings** on this page. Ping alone is not
+proof a device is down: a firewall may drop ICMP while SSH still works, so
+treat a red card as "go and look", not a verdict.
 
 ---
 
-## 6. Commands
+## 6. Alerts
+
+**Alerts** page. Everything Packrat noticed, in one list, and one place to
+say where it should be sent. Three things raise alerts:
+
+| Source | Alerts | Switched on under |
+|---|---|---|
+| Ping monitor | Device down, device back up | Monitor › Settings |
+| SNMP monitoring | Link down/up, access point down/up, device unreachable/reachable, syslog | SNMP › Monitoring |
+| Config backups | Config changed since the previous snapshot | Alerts › Config changes (on by default) |
+
+**Alert history.** Every alert, newest first, with when it happened, the
+device, the event, a one-line detail and **Sent via**: the channels that
+delivered it, or "not sent" with the reason (no channel set up, an SMTP
+error, a webhook that answered 4xx). Filter by source, search by device or
+detail, and admins can **Clear history**. The list refreshes itself every
+30 seconds.
+
+**Where alerts are sent.** Fill in whichever you use; every monitor uses
+the same settings.
+
+- **Email**: recipient addresses (comma-separated), the SMTP server, port
+  and security (STARTTLS on 587, SSL on 465, or none for an internal
+  relay), an optional username and password, and an optional From address.
+  The password is stored encrypted and never shown again. Email counts as
+  configured once there is both a server and at least one recipient.
+- **Microsoft Teams**: paste an incoming-webhook URL. In Teams, open the
+  channel's menu › **Workflows** › "Post to a channel when a webhook request
+  is received" and copy the URL it gives you. (Older Office 365 connector
+  URLs work too.) Alerts arrive as a card with the subject in bold and the
+  detail below.
+- **Slack**: paste an incoming-webhook URL from **Apps › Incoming Webhooks
+  › Add to a channel**.
+
+Webhook URLs contain a secret, so once saved only the host is shown, with
+**remove** next to it. Leaving the field blank keeps the saved URL.
+
+**Send a test alert** posts a test message through every configured channel
+using the saved settings and shows the result per channel, so a wrong SMTP
+password or an expired webhook is caught before you rely on it.
+
+**Config changes.** With the box ticked, every collection (manual or
+scheduled) compares the config it just collected with the device's
+previous snapshot. If they differ, a "Config changed" alert records how
+many lines were added and removed; the alerts from one job go out together
+as one message when the job finishes. Compare the two versions under
+Devices › History. Untick it if you only want backups, not notifications.
+
+All events found in one cycle go into a single message, grouped by device,
+with a subject such as "[Packrat] 3 alerts: 2 link down, 1 access point
+down". Delivery problems never stop a monitoring cycle or a backup: they are
+recorded on the alert and shown in the history.
+
+---
+
+## 7. Commands
 
 **Commands** page. Choose what runs against each device type by default.
 
@@ -322,7 +378,7 @@ cannot be deleted until those devices are changed or removed.
 
 ---
 
-## 7. Jobs: collecting configs
+## 8. Jobs: collecting configs
 
 ### Starting a collection
 
@@ -400,7 +456,7 @@ you own.
 
 ---
 
-## 8. History and diffs
+## 9. History and diffs
 
 Every completed collection stores a **snapshot** per device. On
 **Devices**, press **History** on a row to see them all, newest first.
@@ -414,7 +470,7 @@ Snapshots are kept forever unless you set a retention period in Settings.
 
 ---
 
-## 9. Schedules
+## 10. Schedules
 
 **Schedules** page (admins). A schedule is a collection that starts itself.
 
@@ -449,7 +505,7 @@ fires at the expected time, check that window is still open.
 
 ---
 
-## 10. Firmware push
+## 11. Firmware push
 
 **Firmware** page. Packrat copies an image file onto a device's storage.
 It does not install it, change the boot variable, or reload. The upgrade
@@ -494,7 +550,7 @@ the command in the dialog.
 
 ---
 
-## 11. DNS Check
+## 12. DNS Check
 
 **DNS Check** page. Paste hostnames or IPs, one per line or
 comma-separated, and press **Run checks**. For each target Packrat reports:
@@ -513,7 +569,7 @@ firewall dropped ICMP, not that the device is down.
 
 ---
 
-## 12. SNMP
+## 13. SNMP
 
 **SNMP** page. Poll devices over SNMP for what they know about themselves,
 without logging in over SSH. Each poll produces one plain-text report per
@@ -570,12 +626,12 @@ the device simply stays silent. SNMPv3 problems are reported more
 precisely: wrong authentication password, wrong privacy password, or an
 unknown user.
 
-### Alerts by email
+### Monitoring
 
-The **Alerts** section of the SNMP page turns polling into monitoring.
+The **Monitoring** section of the SNMP page turns polling into monitoring.
 When enabled, Packrat re-polls the chosen devices every few minutes,
-remembers what it saw, and emails you when something changes. The first
-poll of a device only records a baseline; alerts start with the first
+remembers what it saw, and raises an alert when something changes. The
+first poll of a device only records a baseline; alerts start with the first
 change after that.
 
 Events you can alert on:
@@ -590,26 +646,21 @@ Events you can alert on:
 | Device reachable | It answers again |
 | Syslog | A new message appears in the device's syslog history at the chosen Cisco level (0 emergencies to 7 debugging) or worse |
 
-Fill in the **Email** section: recipient addresses (comma-separated), the
-SMTP server, port and security (STARTTLS on 587, SSL on 465, or none for
-an internal relay), an optional username and password, and an optional
-From address. The password is stored encrypted and never shown again.
-**Send test email** confirms the saved settings work before you rely on
-them. **Run a cycle now** polls immediately, which is also how you record
+Choose the interval, which devices to watch (all, including ones added
+later, or a fixed list) and optionally one SNMP profile to use for every
+device. **Run a cycle now** polls immediately, which is also how you record
 the baseline without waiting for the timer.
 
-All events found in one cycle go into a single email, grouped by device,
-with a subject such as "[Packrat] 3 alerts: 2 link down, 1 access point
-down". Every event is also kept in the **Alert history** table with
-whether its email was sent, so a broken SMTP setting is visible rather
-than silent.
+Where the alerts go, and the history of what fired, are on the
+[Alerts](#6-alerts) page: monitoring can be enabled before any delivery
+channel is set up, in which case alerts are only recorded there.
 
 Monitoring runs in the scheduler process ("beat"), the same one that runs
 Schedules. If alerts stop, check that window is open.
 
 ---
 
-## 13. Terminal
+## 14. Terminal
 
 **Terminal** page, or the **SSH** button on any device row. Interactive
 SSH sessions in the browser using each device's credential (or the org
@@ -653,7 +704,7 @@ Packrat. Leaving the page closes every session.
 
 ---
 
-## 14. Settings
+## 15. Settings
 
 **Settings** page (admins).
 
@@ -726,7 +777,7 @@ organization.
 
 ---
 
-## 15. Troubleshooting
+## 16. Troubleshooting
 
 **Start here: get the logs**
 Settings → Troubleshooting → **Download log bundle** collects every log
@@ -767,11 +818,12 @@ credential's auth timeout so the next run waits long enough.
 Wrong device type for a WLC or PDU. Set it to the matching type; those use
 timing-based reads that cope with slow, chatty devices.
 
-**SNMP alerts never arrive**
-Check the Alert history: "not sent" with an SMTP error means the mail
-server settings are wrong; use Send test email to iterate. No alerts at
-all usually means the scheduler ("beat") process is not running, or the
-change happened before the baseline was recorded.
+**Alerts never arrive**
+Check the history on the Alerts page: "not sent" with an SMTP or webhook
+error means the delivery settings are wrong; use **Send a test alert** to
+iterate. "No delivery channel configured" means nothing is set up there
+yet. No alerts at all usually means the scheduler ("beat") process is not
+running, or the change happened before the baseline was recorded.
 
 **Scheduled backups never run**
 The scheduler ("beat") process is not running. On Windows it is the
@@ -798,7 +850,7 @@ timezone marker.
 
 ---
 
-## 16. Security notes
+## 17. Security notes
 
 - Device passwords and enable secrets are encrypted at rest with your
   `CREDENTIAL_ENCRYPTION_KEY` and decrypted only in memory for the length

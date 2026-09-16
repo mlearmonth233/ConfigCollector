@@ -16,6 +16,7 @@ from app.config import assert_secrets_configured  # noqa: E402
 assert_secrets_configured()
 
 from app.api import (  # noqa: E402
+    alerts,
     auth,
     command_profiles,
     credentials,
@@ -84,6 +85,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(alerts.router)
 app.include_router(users.router)
 app.include_router(credentials.router)
 app.include_router(devices.router)

@@ -230,6 +230,7 @@ KIND_LABELS = {
     SnmpAlertKind.SYSLOG: "Syslog",
     SnmpAlertKind.PING_DOWN: "Ping: device unreachable",
     SnmpAlertKind.PING_UP: "Ping: device reachable again",
+    SnmpAlertKind.CONFIG_CHANGED: "Config changed",
 }
 
 

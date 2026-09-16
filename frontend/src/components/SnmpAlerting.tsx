@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { snmpMonitorApi } from "../api/resources";
-import type { Device, SnmpAlert, SnmpMonitorConfig, SnmpProfile } from "../api/types";
+import type { Device, SnmpMonitorConfig, SnmpProfile } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
@@ -22,16 +23,17 @@ interface Props {
   profiles: SnmpProfile[];
 }
 
-/** SNMP monitoring + email alerting settings and the alert history. */
+/** SNMP monitoring settings: what to poll, how often, and which changes
+ * raise an alert. Where alerts go, and the alert history, live on the
+ * Alerts page. */
 export function SnmpAlerting({ devices, profiles }: Props) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [config, setConfig] = useState<SnmpMonitorConfig | null>(null);
-  const [alerts, setAlerts] = useState<SnmpAlert[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [busy, setBusy] = useState<"test" | "run" | "clear" | null>(null);
+  const [running, setRunning] = useState(false);
 
   // form state
   const [enabled, setEnabled] = useState(false);
@@ -47,13 +49,6 @@ export function SnmpAlerting({ devices, profiles }: Props) {
   const [deviceUp, setDeviceUp] = useState(true);
   const [watchSyslog, setWatchSyslog] = useState(false);
   const [syslogLevel, setSyslogLevel] = useState("3");
-  const [recipients, setRecipients] = useState("");
-  const [smtpHost, setSmtpHost] = useState("");
-  const [smtpPort, setSmtpPort] = useState("587");
-  const [smtpUser, setSmtpUser] = useState("");
-  const [smtpPassword, setSmtpPassword] = useState("");
-  const [smtpSecurity, setSmtpSecurity] = useState<"starttls" | "ssl" | "none">("starttls");
-  const [smtpFrom, setSmtpFrom] = useState("");
 
   const sortedDevices = useMemo(() => sortByDeviceName(devices, (d) => d.name), [devices]);
 
@@ -72,34 +67,19 @@ export function SnmpAlerting({ devices, profiles }: Props) {
     setDeviceUp(c.alert_device_up);
     setWatchSyslog(c.alert_syslog_max_level !== null);
     setSyslogLevel(String(c.alert_syslog_max_level ?? 3));
-    setRecipients(c.recipients.join(", "));
-    setSmtpHost(c.smtp_host ?? "");
-    setSmtpPort(String(c.smtp_port));
-    setSmtpUser(c.smtp_username ?? "");
-    setSmtpPassword("");
-    setSmtpSecurity(c.smtp_ssl ? "ssl" : c.smtp_starttls ? "starttls" : "none");
-    setSmtpFrom(c.smtp_from ?? "");
-  }
-
-  async function refresh() {
-    try {
-      const [cfg, al] = await Promise.all([snmpMonitorApi.get(), snmpMonitorApi.listAlerts()]);
-      applyConfig(cfg.data);
-      setAlerts(al.data);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    }
   }
 
   useEffect(() => {
-    void refresh();
+    snmpMonitorApi
+      .get()
+      .then((r) => applyConfig(r.data))
+      .catch((err) => setError(extractErrorMessage(err)));
   }, []);
 
-  // Poll the alert list while monitoring is on, so new alerts show up.
+  // Keep the "last cycle" line fresh while monitoring is on.
   useEffect(() => {
     if (!config?.enabled) return;
     const handle = setInterval(() => {
-      snmpMonitorApi.listAlerts().then((r) => setAlerts(r.data)).catch(() => undefined);
       snmpMonitorApi.get().then((r) => setConfig(r.data)).catch(() => undefined);
     }, 30000);
     return () => clearInterval(handle);
@@ -123,17 +103,13 @@ export function SnmpAlerting({ devices, profiles }: Props) {
         alert_device_down: deviceDown,
         alert_device_up: deviceUp,
         alert_syslog_max_level: watchSyslog ? Number(syslogLevel) : null,
-        recipients: recipients.split(/[,\n;]+/).map((s) => s.trim()).filter(Boolean),
-        smtp_host: smtpHost || null,
-        smtp_port: Number(smtpPort) || 587,
-        smtp_username: smtpUser || null,
-        smtp_password: smtpPassword || undefined,
-        smtp_starttls: smtpSecurity === "starttls",
-        smtp_ssl: smtpSecurity === "ssl",
-        smtp_from: smtpFrom || null,
       });
       applyConfig(data);
-      setNotice(data.enabled ? "Saved. Monitoring is on - the first cycle records a baseline and alerts start on the next change." : "Saved. Monitoring is off.");
+      setNotice(
+        data.enabled
+          ? `Saved. Monitoring is on - the first cycle records a baseline and alerts start on the next change.${data.channels_configured ? "" : " No delivery channel is set up yet, so alerts are only recorded on the Alerts page."}`
+          : "Saved. Monitoring is off.",
+      );
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -141,46 +117,18 @@ export function SnmpAlerting({ devices, profiles }: Props) {
     }
   }
 
-  async function handleTestEmail() {
-    setError(null);
-    setNotice(null);
-    setBusy("test");
-    try {
-      const { data } = await snmpMonitorApi.testEmail();
-      (data.ok ? setNotice : setError)(data.message);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function handleRunNow() {
     setError(null);
     setNotice(null);
-    setBusy("run");
+    setRunning(true);
     try {
       const { data } = await snmpMonitorApi.runNow();
       applyConfig(data);
-      setAlerts((await snmpMonitorApi.listAlerts()).data);
       setNotice(data.last_result ?? "Cycle finished.");
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleClearAlerts() {
-    if (!confirm("Clear the alert history?")) return;
-    setBusy("clear");
-    try {
-      await snmpMonitorApi.clearAlerts();
-      setAlerts([]);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setBusy(null);
+      setRunning(false);
     }
   }
 
@@ -198,7 +146,7 @@ export function SnmpAlerting({ devices, profiles }: Props) {
   return (
     <>
       <div className="page-header-row" style={{ marginTop: 36 }}>
-        <h2 style={{ margin: 0 }}>Alerts</h2>
+        <h2 style={{ margin: 0 }}>Monitoring</h2>
         <div className="page-actions">
           {config.enabled ? (
             <span className="status-badge status-completed">Monitoring on · every {config.interval_minutes} min · {config.monitored_device_count} devices</span>
@@ -208,10 +156,11 @@ export function SnmpAlerting({ devices, profiles }: Props) {
         </div>
       </div>
       <p className="page-subtitle" style={{ marginTop: 6 }}>
-        Packrat re-polls your devices over SNMP on a timer, remembers what it saw last time, and emails you
-        when something changes: a link that was up goes down, an access point drops off its controller, a
-        device stops answering, or a new syslog message at the severity you choose appears. The first poll of
-        a device only records a baseline. Ports that are administratively shut never alert.
+        Packrat re-polls your devices over SNMP on a timer, remembers what it saw last time, and alerts you when something changes: a link that
+        was up goes down, an access point drops off its controller, a device stops answering, or a new syslog message at the severity you choose
+        appears. The first poll of a device only records a baseline. Ports that are administratively shut never alert. Alerts are listed and
+        delivered (email, Teams, Slack) as set on the <Link to="/alerts">Alerts</Link> page
+        {config.channels_configured ? "." : " - no delivery channel is set up there yet."}
       </p>
       {config.last_result && (
         <p className="field-hint">
@@ -228,7 +177,7 @@ export function SnmpAlerting({ devices, profiles }: Props) {
             <label className="checkbox-label" style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
               <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
               <span>
-                <strong>Enable monitoring and email alerts</strong>
+                <strong>Enable SNMP monitoring</strong>
               </span>
             </label>
             <label>
@@ -304,107 +253,24 @@ export function SnmpAlerting({ devices, profiles }: Props) {
               <span>or worse (Cisco syslog history)</span>
             </label>
           </div>
-
-          <h3 style={{ marginTop: 18 }}>Email</h3>
-          <div className="form-grid">
-            <label className="form-grid-span">
-              Send alerts to (comma-separated email addresses)
-              <input value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="noc@example.com, oncall@example.com" />
-            </label>
-            <label>
-              SMTP server
-              <input value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder="smtp.office365.com" />
-            </label>
-            <label>
-              Port / security
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="number" min={1} max={65535} value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} style={{ width: 90 }} />
-                <select
-                  value={smtpSecurity}
-                  onChange={(e) => {
-                    const v = e.target.value as "starttls" | "ssl" | "none";
-                    setSmtpSecurity(v);
-                    if (v === "ssl" && smtpPort === "587") setSmtpPort("465");
-                    if (v === "starttls" && smtpPort === "465") setSmtpPort("587");
-                  }}
-                >
-                  <option value="starttls">STARTTLS (587)</option>
-                  <option value="ssl">SSL/TLS (465)</option>
-                  <option value="none">None (internal relay, 25)</option>
-                </select>
-              </div>
-            </label>
-            <label>
-              SMTP username (optional)
-              <input value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} autoComplete="off" />
-            </label>
-            <label>
-              SMTP password {config.has_smtp_password && <span className="field-hint">(set - leave blank to keep)</span>}
-              <input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} autoComplete="new-password" placeholder={config.has_smtp_password ? "(unchanged)" : ""} />
-            </label>
-            <label>
-              From address (optional)
-              <input value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} placeholder="packrat@example.com" />
-            </label>
-          </div>
         </fieldset>
 
         {isAdmin && (
           <div className="page-header-row" style={{ marginTop: 14 }}>
             <div className="page-actions">
-              <button type="button" className="link-button" onClick={handleTestEmail} disabled={busy !== null}>
-                {busy === "test" ? "Sending…" : "Send test email (saved settings)"}
+              <button type="button" className="link-button" onClick={handleRunNow} disabled={running}>
+                {running ? "Polling…" : "Run a cycle now"}
               </button>
-              <button type="button" className="link-button" onClick={handleRunNow} disabled={busy !== null}>
-                {busy === "run" ? "Polling…" : "Run a cycle now"}
-              </button>
+              <Link to="/alerts" className="link-button">
+                Alert history and delivery settings
+              </Link>
             </div>
             <button type="submit" disabled={saving}>
-              {saving ? "Saving…" : "Save alert settings"}
+              {saving ? "Saving…" : "Save monitoring settings"}
             </button>
           </div>
         )}
       </form>
-
-      <div className="page-header-row" style={{ marginTop: 24 }}>
-        <h3 style={{ margin: 0 }}>Alert history</h3>
-        {alerts.length > 0 && isAdmin && (
-          <button className="link-button danger" onClick={handleClearAlerts} disabled={busy !== null}>
-            Clear history
-          </button>
-        )}
-      </div>
-      <table className="data-table" style={{ marginTop: 8 }}>
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Device</th>
-            <th>Event</th>
-            <th>Detail</th>
-            <th>Email</th>
-          </tr>
-        </thead>
-        <tbody>
-          {alerts.map((a) => (
-            <tr key={a.id}>
-              <td style={{ whiteSpace: "nowrap" }}>{new Date(a.created_at).toLocaleString()}</td>
-              <td>{a.device_name}</td>
-              <td>
-                <span className={`status-badge status-${a.kind.endsWith("_up") ? "completed" : a.kind === "syslog" ? "fallback" : "failed"}`}>{a.kind_label}</span>
-              </td>
-              <td>{a.detail ?? a.subject}</td>
-              <td>{a.emailed ? "sent" : <span className="field-hint" title={a.email_error ?? ""}>not sent{a.email_error ? ` - ${a.email_error.slice(0, 60)}` : ""}</span>}</td>
-            </tr>
-          ))}
-          {alerts.length === 0 && (
-            <tr>
-              <td colSpan={5} className="empty-state">
-                No alerts yet.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
     </>
   );
 }

@@ -13,6 +13,9 @@ export function NavBar() {
         <NavLink to="/monitor" className={({ isActive }) => (isActive ? "active" : "")}>
           Monitor
         </NavLink>
+        <NavLink to="/alerts" className={({ isActive }) => (isActive ? "active" : "")}>
+          Alerts
+        </NavLink>
         <NavLink to="/devices" className={({ isActive }) => (isActive ? "active" : "")}>
           Devices
         </NavLink>

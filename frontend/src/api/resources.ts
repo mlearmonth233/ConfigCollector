@@ -1,9 +1,11 @@
 import { apiClient } from "./client";
 import type {
+  AlertSettings,
+  AlertTestResult,
   CommandProfile,
-  CustomDeviceType,
   Credential,
   CurrentUser,
+  CustomDeviceType,
   Device,
   DeviceClearResult,
   DeviceDetection,
@@ -19,6 +21,8 @@ import type {
   HostnameRules,
   Job,
   JobDetail,
+  LogOverview,
+  LogTail,
   MfaMode,
   NeighborGapCheck,
   NetworkInterface,
@@ -27,8 +31,6 @@ import type {
   PingOverview,
   Schedule,
   ScheduleFrequency,
-  LogOverview,
-  LogTail,
   Snapshot,
   SnapshotDiff,
   SnapshotSummary,
@@ -282,23 +284,37 @@ export interface SnmpMonitorConfigPayload {
   alert_device_down: boolean;
   alert_device_up: boolean;
   alert_syslog_max_level: number | null;
-  recipients: string[];
-  smtp_host?: string | null;
-  smtp_port: number;
-  smtp_username?: string | null;
-  smtp_password?: string;
-  smtp_starttls: boolean;
-  smtp_ssl: boolean;
-  smtp_from?: string | null;
 }
 
 export const snmpMonitorApi = {
   get: () => apiClient.get<SnmpMonitorConfig>("/api/snmp/monitor"),
   update: (data: SnmpMonitorConfigPayload) => apiClient.put<SnmpMonitorConfig>("/api/snmp/monitor", data),
-  testEmail: () => apiClient.post<{ ok: boolean; message: string }>("/api/snmp/monitor/test-email"),
   runNow: () => apiClient.post<SnmpMonitorConfig>("/api/snmp/monitor/run-now"),
-  listAlerts: () => apiClient.get<SnmpAlert[]>("/api/snmp/alerts"),
-  clearAlerts: () => apiClient.delete<{ deleted: number }>("/api/snmp/alerts"),
+};
+
+export interface AlertSettingsPayload {
+  recipients: string[];
+  smtp_host?: string | null;
+  smtp_port: number;
+  smtp_username?: string | null;
+  /** Write-only: omitted/blank keeps the saved password. */
+  smtp_password?: string;
+  clear_smtp_password?: boolean;
+  smtp_starttls: boolean;
+  smtp_ssl: boolean;
+  smtp_from?: string | null;
+  /** Blank keeps the saved URL, "-" clears it, anything else replaces it. */
+  teams_webhook_url?: string | null;
+  slack_webhook_url?: string | null;
+  alert_config_change: boolean;
+}
+
+export const alertsApi = {
+  settings: () => apiClient.get<AlertSettings>("/api/alerts/settings"),
+  updateSettings: (data: AlertSettingsPayload) => apiClient.put<AlertSettings>("/api/alerts/settings", data),
+  test: () => apiClient.post<AlertTestResult>("/api/alerts/test"),
+  list: () => apiClient.get<SnmpAlert[]>("/api/alerts"),
+  clear: () => apiClient.delete<{ deleted: number }>("/api/alerts"),
 };
 
 export const logsApi = {

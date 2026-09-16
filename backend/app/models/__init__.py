@@ -10,6 +10,7 @@ from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
 from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
+from app.models.alerting import AlertSettings
 from app.models.ping_monitor import PingMonitorConfig, PingSample, PingStatus
 from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig, SnmpMonitorState
 from app.models.user import User
@@ -39,6 +40,7 @@ __all__ = [
     "SnmpJob",
     "SnmpJobItem",
     "HostnameRule",
+    "AlertSettings",
     "PingMonitorConfig",
     "PingSample",
     "PingStatus",

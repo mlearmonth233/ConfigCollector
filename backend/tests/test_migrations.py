@@ -73,3 +73,50 @@ def test_pre_alembic_database_missing_a_table_gets_it_added(sqlite_url):
 
     database.migrate_to_head(engine)
     assert "ping_samples" in inspect(engine).get_table_names()
+
+
+def test_legacy_email_settings_move_to_alert_settings(sqlite_url):
+    """A database from before the Alerts page kept recipients + SMTP on
+    snmp_monitor_configs. Adopting it must carry them into alert_settings
+    (so alerts keep going out) and drop the old columns."""
+    engine = create_engine(sqlite_url)
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE alert_settings"))  # did not exist back then
+        for ddl in (
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN recipients TEXT",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_host VARCHAR(255)",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_port INTEGER NOT NULL DEFAULT 587",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_username VARCHAR(255)",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN encrypted_smtp_password VARCHAR(512)",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_starttls BOOLEAN NOT NULL DEFAULT 1",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_ssl BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE snmp_monitor_configs ADD COLUMN smtp_from VARCHAR(255)",
+        ):
+            conn.execute(text(ddl))
+        conn.execute(text("INSERT INTO organizations (id, name, created_at) VALUES ('11111111-1111-1111-1111-111111111111', 'Legacy Org', CURRENT_TIMESTAMP)"))
+        conn.execute(
+            text(
+                "INSERT INTO snmp_monitor_configs (id, created_at, org_id, enabled, interval_minutes, alert_link_down, alert_link_up, alert_ap_down, "
+                "alert_ap_up, alert_device_down, alert_device_up, recipients, smtp_host, smtp_port, smtp_username, encrypted_smtp_password, "
+                "smtp_starttls, smtp_ssl, smtp_from) VALUES ('22222222-2222-2222-2222-222222222222', CURRENT_TIMESTAMP, "
+                "'11111111-1111-1111-1111-111111111111', 1, 5, 1, 0, 1, 0, 1, 1, 'noc@example.com', 'smtp.legacy.example', 465, 'mailer', "
+                "'gAAAAencrypted', 0, 1, 'packrat@legacy.example')"
+            )
+        )
+
+    database.migrate_to_head(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("snmp_monitor_configs")}
+    assert not columns & {"recipients", "smtp_host", "smtp_port", "encrypted_smtp_password"}, columns
+    assert "enabled" in columns and "interval_minutes" in columns
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT org_id, recipients, smtp_host, smtp_port, smtp_username, encrypted_smtp_password, smtp_starttls, smtp_ssl, smtp_from, alert_config_change FROM alert_settings")).mappings().one()
+    assert row["org_id"] == "11111111-1111-1111-1111-111111111111"
+    assert row["recipients"] == "noc@example.com" and row["smtp_host"] == "smtp.legacy.example" and row["smtp_port"] == 465
+    assert row["smtp_username"] == "mailer" and row["encrypted_smtp_password"] == "gAAAAencrypted"
+    assert bool(row["smtp_starttls"]) is False and bool(row["smtp_ssl"]) is True
+    assert row["smtp_from"] == "packrat@legacy.example" and bool(row["alert_config_change"]) is True
+    # And the schema now matches the models exactly.
+    structural = [d for d in _schema_diff(engine) if not (isinstance(d, tuple) and d[0].startswith("modify_"))]
+    assert structural == [], structural

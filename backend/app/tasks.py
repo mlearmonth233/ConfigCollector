@@ -12,6 +12,7 @@ from app.celery_app import celery_app
 from app.config import get_settings
 from app.core.encryption import decrypt_secret
 from app.db_sync import SyncSessionLocal
+from app.models.alerting import AlertSettings
 from app.models.command_profile import CommandProfile
 from app.models.credential import Credential
 from app.models.custom_device_type import CustomDeviceType
@@ -23,7 +24,7 @@ from app.models.organization import Organization
 from app.models.schedule import Schedule
 from app.models.snapshot import ConfigSnapshot
 from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile
-from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig, SnmpMonitorState
+from app.models.snmp_monitor import SnmpAlert, SnmpAlertKind, SnmpMonitorConfig, SnmpMonitorState
 from app.services.collector import (
     AuthenticationError,
     CollectionCancelled,
@@ -36,12 +37,12 @@ from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.job_reaper import reap_stale_jobs as _reap_stale_jobs
-from app.services import ping_monitor
+from app.services import alerting, ping_monitor
 from app.services.scheduling import ScheduleTiming, compute_next_run_at
 from app.services.snmp_poll import CONCURRENCY as SNMP_CHUNK_SIZE
 from app.services.snmp_poll import SnmpAuth, SnmpError, format_report, poll_many
 from app.services import snmp_monitor
-from app.services.snmp_monitor import EventFilter, SmtpSettings, Snapshot, diff_snapshots, format_email, parse_recipients
+from app.services.snmp_monitor import EventFilter, Snapshot, diff_snapshots
 from app.services.transfer_servers import serve_file
 
 settings = get_settings()
@@ -224,6 +225,7 @@ def _collect_one_device(
                         f"Fallback credential '{fallback.name}' also failed: {fallback_exc}"
                     ) from fallback_exc
 
+            _record_config_change(db, item, device, content)
             db.add(ConfigSnapshot(device_id=device.id, job_item_id=item.id, content=content))
             item.status = JobStatus.COMPLETED
             item.used_fallback_credential = used_fallback
@@ -362,6 +364,70 @@ def _finalize_job_if_done(db, job_id) -> None:
         job.status = JobStatus.COMPLETED
     job.finished_at = datetime.now(timezone.utc)
     db.commit()
+    _dispatch_job_alerts(db, job)
+
+
+def _record_config_change(db, item: CollectionJobItem, device: Device, content: str) -> None:
+    """Compares the just-collected config with the device's previous
+    snapshot and records a CONFIG_CHANGED alert (tagged with the job, so
+    the job's changes go out as one message when it finishes). Never
+    raises - a problem here must not fail the collection itself."""
+    try:
+        # Read-only lookup: parallel collections for one org must not race
+        # to create the settings row (unique org_id). No row = defaults (on).
+        alert_settings = db.query(AlertSettings).filter(AlertSettings.org_id == device.org_id).first()
+        if alert_settings is not None and not alert_settings.alert_config_change:
+            return
+        previous = (
+            db.query(ConfigSnapshot)
+            .filter(ConfigSnapshot.device_id == device.id)
+            .order_by(ConfigSnapshot.collected_at.desc(), ConfigSnapshot.created_at.desc())
+            .first()
+        )
+        if previous is None or previous.content == content:
+            return
+        import difflib  # noqa: PLC0415
+
+        added = removed = 0
+        for line in difflib.unified_diff(previous.content.splitlines(), content.splitlines(), lineterm="", n=0):
+            if line.startswith("+") and not line.startswith("+++"):
+                added += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                removed += 1
+        when = previous.collected_at.strftime("%Y-%m-%d %H:%M UTC") if previous.collected_at else "the previous snapshot"
+        db.add(
+            SnmpAlert(
+                org_id=device.org_id,
+                device_id=device.id,
+                device_name=device.name,
+                kind=SnmpAlertKind.CONFIG_CHANGED,
+                subject=f"Config changed on {device.name}",
+                detail=f"{device.name} ({device.host}): running config differs from the snapshot of {when} - {added} line(s) added, {removed} removed. Compare them under Devices > History.",
+                job_id=item.job_id,
+            )
+        )
+        log.warning("Config change on %s (%s): +%d/-%d lines vs %s", device.name, device.host, added, removed, when)
+    except Exception:  # noqa: BLE001
+        log.exception("Could not evaluate config change for %s", device.name)
+
+
+def _dispatch_job_alerts(db, job: CollectionJob) -> None:
+    """Sends the config-change alerts a finished job raised, as one batch."""
+    try:
+        pending = (
+            db.query(SnmpAlert)
+            .filter(SnmpAlert.job_id == job.id, SnmpAlert.kind == SnmpAlertKind.CONFIG_CHANGED, SnmpAlert.notified_via.is_(None), SnmpAlert.email_error.is_(None))
+            .all()
+        )
+        if not pending:
+            return
+        batch = [(a.device_name, alerting.Event(a.kind, a.subject, a.detail or a.subject)) for a in pending]
+        outcome = alerting.dispatch(db, job.org_id, batch, pending)
+        db.commit()
+        log.info("Job %s: %d config change alert(s)%s", job.id, len(pending), outcome)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("Could not dispatch config change alerts for job %s", job.id)
 
 
 @celery_app.task(name="app.tasks.firmware_push_device_task", bind=True, max_retries=0)
@@ -1086,38 +1152,8 @@ def run_snmp_monitor_cycle(org_id, *, force: bool = False) -> dict:
         if skipped_no_profile:
             summary += f", {skipped_no_profile} skipped (no SNMP profile)"
         summary += f", {len(new_alerts)} alert(s)"
-        recipients = parse_recipients(config.recipients)
         if new_alerts:
-            if recipients and config.smtp_host:
-                org = db.get(Organization, org_id)
-                subject, body = format_email(org.name if org else "your organization", batch)
-                try:
-                    snmp_monitor.send_email(
-                        SmtpSettings(
-                            host=config.smtp_host,
-                            port=config.smtp_port,
-                            username=config.smtp_username,
-                            password=decrypt_secret(config.encrypted_smtp_password) if config.encrypted_smtp_password else None,
-                            starttls=config.smtp_starttls,
-                            ssl=config.smtp_ssl,
-                            sender=config.smtp_from,
-                        ),
-                        recipients,
-                        subject,
-                        body,
-                    )
-                    for alert in new_alerts:
-                        alert.emailed = True
-                    summary += f", emailed {len(recipients)} recipient(s)"
-                except Exception as exc:  # noqa: BLE001
-                    log.error("SNMP alert email via %s:%s FAILED for org %s: %s", config.smtp_host, config.smtp_port, org_id, exc)
-                    for alert in new_alerts:
-                        alert.email_error = str(exc)[:1000]
-                    summary += f", EMAIL FAILED: {exc}"
-            else:
-                for alert in new_alerts:
-                    alert.email_error = "No recipients or SMTP server configured"
-                summary += ", not emailed (no recipients/SMTP configured)"
+            summary += alerting.dispatch(db, org_id, batch, new_alerts)
         config.last_result = summary
         db.commit()
         log.log(logging.WARNING if new_alerts else logging.INFO, "SNMP monitor cycle for org %s: %s", org_id, summary)

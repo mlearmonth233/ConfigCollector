@@ -42,17 +42,8 @@ class SnmpMonitorConfig(Base_):
     # worse (0 emergencies ... 7 debugging); NULL = don't watch the syslog.
     alert_syslog_max_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Comma-separated email addresses.
-    recipients: Mapped[str | None] = mapped_column(Text, nullable=True)
-    smtp_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    smtp_port: Mapped[int] = mapped_column(Integer, default=587, nullable=False)
-    smtp_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    encrypted_smtp_password: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # STARTTLS on a plain connection (587) vs. implicit TLS (465). Both off
-    # = plain, for an internal relay.
-    smtp_starttls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    smtp_ssl: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    smtp_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Delivery (recipients, SMTP, webhooks) lives in AlertSettings
+    # (models/alerting.py), shared by every monitor.
 
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -88,6 +79,8 @@ class SnmpAlertKind(str, enum.Enum):
     # Raised by the continuous ping monitor (services/ping_monitor.py), not SNMP.
     PING_DOWN = "ping_down"
     PING_UP = "ping_up"
+    # A collection found the running config differs from the previous snapshot.
+    CONFIG_CHANGED = "config_changed"
 
 
 class SnmpAlert(Base_):
@@ -107,5 +100,11 @@ class SnmpAlert(Base_):
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     emailed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     email_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Which channels delivered it ("email, teams"), and any webhook failure.
+    notified_via: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    webhook_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # For config-change alerts: the collection job that found the change,
+    # so a job's alerts go out as one message when it finishes.
+    job_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="snmp_alerts")

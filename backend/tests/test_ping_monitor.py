@@ -107,19 +107,19 @@ async def test_cycle_tracks_state_records_history_and_alerts(client: AsyncClient
     assert ping_monitor.run_ping_cycle(me["org_id"])["alerts"] == 0
     fourth = ping_monitor.run_ping_cycle(me["org_id"])
     assert fourth["down"] == 2 and fourth["alerts"] == 1
-    assert "not emailed (no recipients/SMTP configured)" in fourth["summary"]
+    assert "not delivered (no channels configured)" in fourth["summary"]
 
-    alerts = (await client.get("/api/snmp/alerts", headers=_auth(token))).json()
+    alerts = (await client.get("/api/alerts", headers=_auth(token))).json()
     assert len(alerts) == 1
     assert alerts[0]["kind"] == "ping_down" and alerts[0]["kind_label"] == "Ping: device unreachable"
     assert alerts[0]["device_name"] == "edge" and "after 2 consecutive checks" in alerts[0]["detail"]
-    assert alerts[0]["emailed"] is False and "No recipients" in alerts[0]["email_error"]
+    assert alerts[0]["emailed"] is False and "No delivery channel" in alerts[0]["email_error"]
 
     # Cycle 5: it comes back -> recovery alert; uptime reflects the misses.
     net.hosts["192.0.2.2"] = 4.0
     fifth = ping_monitor.run_ping_cycle(me["org_id"])
     assert fifth["up"] == 2 and fifth["alerts"] == 1
-    alerts = (await client.get("/api/snmp/alerts", headers=_auth(token))).json()
+    alerts = (await client.get("/api/alerts", headers=_auth(token))).json()
     assert {a["kind"] for a in alerts} == {"ping_down", "ping_up"}
     overview = (await client.get("/api/ping/overview", headers=_auth(token))).json()
     edge = next(d for d in overview["devices"] if d["name"] == "edge")

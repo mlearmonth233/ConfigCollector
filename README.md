@@ -10,9 +10,11 @@ list of devices - Cisco IOS/IOS-XE switches and routers, Nexus, Catalyst
 logs into each one over SSH, stores the running configuration as a
 snapshot, diffs it against the last one, and does it again on a schedule.
 It also pings every device continuously and shows what is reachable on a
-Monitor page, pushes firmware images onto device storage, bulk-checks DNS
-and ping, and opens a browser terminal to any device - over SSH, or out of
-band through its console server when the device's network is down.
+Monitor page, alerts you by email, Microsoft Teams or Slack when a device
+drops, a link or access point goes down, or a backup finds a changed
+config, pushes firmware images onto device storage, bulk-checks DNS and
+ping, and opens a browser terminal to any device - over SSH, or out of band
+through its console server when the device's network is down.
 
 - **User guide**: [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - every page,
   step by step, plus troubleshooting.

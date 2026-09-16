@@ -17,7 +17,8 @@ from app.database import get_db
 from app.models.device import Device
 from app.models.job import ACTIVE_JOB_STATUSES, JobStatus
 from app.models.snmp import SnmpJob, SnmpJobItem, SnmpProfile, SnmpSecurityLevel, SnmpVersion
-from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig
+from app.models.alerting import AlertSettings
+from app.models.snmp_monitor import SnmpMonitorConfig
 from app.models.user import User
 from app.schemas.snmp import (
     SnmpJobClearResult,
@@ -29,12 +30,10 @@ from app.schemas.snmp import (
     SnmpProfileOut,
     SnmpProfileUpdate,
 )
-from app.schemas.snmp_monitor import SnmpAlertOut, SnmpMonitorConfigOut, SnmpMonitorConfigUpdate, SnmpTestEmailResult
-from app.services import snmp_monitor
-from app.services.snmp_monitor import KIND_LABELS, SmtpSettings, parse_recipients
+from app.schemas.snmp_monitor import SnmpMonitorConfigOut, SnmpMonitorConfigUpdate
+from app.services import alerting
 from app.services.snmp_poll import SnmpAuth, validate_auth
 from app.tasks import run_snmp_job_task, run_snmp_monitor_cycle
-from app.core.encryption import decrypt_secret
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
 
@@ -373,7 +372,7 @@ async def _monitored_count(db: AsyncSession, config: SnmpMonitorConfig) -> int:
     return await db.scalar(select(func.count()).select_from(Device).where(Device.org_id == config.org_id)) or 0
 
 
-def _config_out(c: SnmpMonitorConfig, monitored: int) -> SnmpMonitorConfigOut:
+def _config_out(c: SnmpMonitorConfig, monitored: int, channels_configured: bool) -> SnmpMonitorConfigOut:
     return SnmpMonitorConfigOut(
         enabled=c.enabled,
         interval_minutes=c.interval_minutes,
@@ -386,26 +385,24 @@ def _config_out(c: SnmpMonitorConfig, monitored: int) -> SnmpMonitorConfigOut:
         alert_device_down=c.alert_device_down,
         alert_device_up=c.alert_device_up,
         alert_syslog_max_level=c.alert_syslog_max_level,
-        recipients=parse_recipients(c.recipients),
-        smtp_host=c.smtp_host,
-        smtp_port=c.smtp_port,
-        smtp_username=c.smtp_username,
-        has_smtp_password=bool(c.encrypted_smtp_password),
-        smtp_starttls=c.smtp_starttls,
-        smtp_ssl=c.smtp_ssl,
-        smtp_from=c.smtp_from,
         next_run_at=c.next_run_at,
         last_run_at=c.last_run_at,
         last_result=c.last_result,
         monitored_device_count=monitored,
+        channels_configured=channels_configured,
     )
+
+
+async def _channels_configured(db: AsyncSession, org_id: UUID) -> bool:
+    settings = await db.scalar(select(AlertSettings).where(AlertSettings.org_id == org_id))
+    return bool(alerting.channels(settings))
 
 
 @router.get("/monitor", response_model=SnmpMonitorConfigOut)
 async def get_monitor_config(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> SnmpMonitorConfigOut:
     config = await _get_or_create_config(db, user.org_id)
     await db.commit()
-    return _config_out(config, await _monitored_count(db, config))
+    return _config_out(config, await _monitored_count(db, config), await _channels_configured(db, user.org_id))
 
 
 @router.put("/monitor", response_model=SnmpMonitorConfigOut)
@@ -421,89 +418,29 @@ async def update_monitor_config(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more devices not found")
     if payload.snmp_profile_id is not None:
         await _get_owned_profile(db, payload.snmp_profile_id, admin.org_id)
-    if payload.enabled and not payload.recipients:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Add at least one recipient email address before enabling alerts")
-    if payload.enabled and not payload.smtp_host:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enter an SMTP server before enabling alerts")
 
     was_enabled = config.enabled
     for field in (
         "enabled", "interval_minutes", "snmp_profile_id", "alert_link_down", "alert_link_up", "alert_ap_down", "alert_ap_up",
-        "alert_device_down", "alert_device_up", "alert_syslog_max_level", "smtp_host", "smtp_port", "smtp_username",
-        "smtp_starttls", "smtp_ssl", "smtp_from",
+        "alert_device_down", "alert_device_up", "alert_syslog_max_level",
     ):
         setattr(config, field, getattr(payload, field))
     config.device_ids = ",".join(str(d) for d in payload.device_ids) if payload.device_ids else None
-    config.recipients = ", ".join(payload.recipients) or None
-    if payload.smtp_password:
-        config.encrypted_smtp_password = encrypt_secret(payload.smtp_password)
     if config.enabled and not was_enabled:
         config.next_run_at = datetime.now(timezone.utc)  # first cycle (the baseline) as soon as beat ticks
     await db.commit()
     await db.refresh(config)
-    return _config_out(config, await _monitored_count(db, config))
-
-
-@router.post("/monitor/test-email", response_model=SnmpTestEmailResult)
-async def send_test_email(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> SnmpTestEmailResult:
-    """Sends a test message with the *saved* SMTP settings and recipients."""
-    config = await _get_or_create_config(db, admin.org_id)
-    recipients = parse_recipients(config.recipients)
-    if not recipients or not config.smtp_host:
-        return SnmpTestEmailResult(ok=False, message="Save recipients and an SMTP server first")
-    settings = SmtpSettings(
-        host=config.smtp_host,
-        port=config.smtp_port,
-        username=config.smtp_username,
-        password=decrypt_secret(config.encrypted_smtp_password) if config.encrypted_smtp_password else None,
-        starttls=config.smtp_starttls,
-        ssl=config.smtp_ssl,
-        sender=config.smtp_from,
-    )
-    try:
-        await asyncio.to_thread(
-            snmp_monitor.send_email,
-            settings,
-            recipients,
-            "[Packrat] Test alert",
-            "This is a test message from Packrat's SNMP monitor. If you can read this, alert emails will reach you.",
-        )
-    except Exception as exc:  # noqa: BLE001
-        return SnmpTestEmailResult(ok=False, message=f"Sending failed: {exc}")
-    return SnmpTestEmailResult(ok=True, message=f"Test email sent to {', '.join(recipients)}")
+    return _config_out(config, await _monitored_count(db, config), await _channels_configured(db, admin.org_id))
 
 
 @router.post("/monitor/run-now", response_model=SnmpMonitorConfigOut)
 async def run_monitor_now(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> SnmpMonitorConfigOut:
     """Runs one monitoring cycle immediately (even if the monitor is
     disabled) - the first run on a device only records its baseline."""
-    config = await _get_or_create_config(db, admin.org_id)
+    await _get_or_create_config(db, admin.org_id)  # make sure the row exists before the cycle reads it
     await db.commit()
     await asyncio.to_thread(run_snmp_monitor_cycle, admin.org_id, force=True)
     refreshed = await db.scalar(
         select(SnmpMonitorConfig).where(SnmpMonitorConfig.org_id == admin.org_id).execution_options(populate_existing=True)
     )
-    return _config_out(refreshed, await _monitored_count(db, refreshed))
-
-
-@router.get("/alerts", response_model=list[SnmpAlertOut])
-async def list_alerts(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[SnmpAlertOut]:
-    rows = await db.scalars(
-        select(SnmpAlert).where(SnmpAlert.org_id == user.org_id).order_by(SnmpAlert.created_at.desc(), SnmpAlert.id.desc()).limit(500)
-    )
-    return [
-        SnmpAlertOut(
-            id=a.id, device_id=a.device_id, device_name=a.device_name, kind=a.kind, kind_label=KIND_LABELS[a.kind],
-            subject=a.subject, detail=a.detail, emailed=a.emailed, email_error=a.email_error, created_at=a.created_at,
-        )
-        for a in rows
-    ]
-
-
-@router.delete("/alerts", response_model=SnmpJobClearResult)
-async def clear_alerts(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> SnmpJobClearResult:
-    rows = list(await db.scalars(select(SnmpAlert).where(SnmpAlert.org_id == admin.org_id)))
-    for row in rows:
-        await db.delete(row)
-    await db.commit()
-    return SnmpJobClearResult(deleted=len(rows))
+    return _config_out(refreshed, await _monitored_count(db, refreshed), await _channels_configured(db, admin.org_id))

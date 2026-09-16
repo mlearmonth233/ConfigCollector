@@ -169,6 +169,10 @@ CONFIG = {
     "alert_ap_down": True,
     "alert_device_down": True,
     "alert_syslog_max_level": 3,
+}
+
+# Delivery is configured once, on the Alerts page (see test_alerts.py).
+DELIVERY = {
     "recipients": ["noc@example.com", "oncall@example.com"],
     "smtp_host": "smtp.example.com",
     "smtp_port": 587,
@@ -178,31 +182,27 @@ CONFIG = {
 }
 
 
-async def test_monitor_config_round_trips_with_write_only_password(client: AsyncClient, unique_email):
+async def _configure_email(client: AsyncClient, token: str) -> None:
+    resp = await client.put("/api/alerts/settings", headers=_auth(token), json=DELIVERY)
+    assert resp.status_code == 200, resp.text
+
+
+async def test_monitor_config_round_trips_and_reports_delivery_channels(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
     initial = await client.get("/api/snmp/monitor", headers=_auth(token))
     assert initial.status_code == 200 and initial.json()["enabled"] is False
+    assert initial.json()["channels_configured"] is False
 
     saved = await client.put("/api/snmp/monitor", headers=_auth(token), json=CONFIG)
     assert saved.status_code == 200, saved.text
     body = saved.json()
-    assert body["recipients"] == ["noc@example.com", "oncall@example.com"]
-    assert body["has_smtp_password"] is True and "smtp-secret-123" not in saved.text
+    assert body["enabled"] is True and body["alert_syslog_max_level"] == 3
     assert body["next_run_at"] is not None  # enabling schedules the first (baseline) cycle
+    assert body["channels_configured"] is False  # enabling without a channel is allowed: alerts are still recorded
+    assert "recipients" not in body and "smtp_host" not in body  # email moved to the Alerts page
 
-    again = await client.put("/api/snmp/monitor", headers=_auth(token), json={**CONFIG, "smtp_password": ""})
-    assert again.json()["has_smtp_password"] is True  # blank keeps it
-
-
-@pytest.mark.parametrize(
-    ("override", "fragment"),
-    [({"recipients": []}, "recipient"), ({"smtp_host": None}, "SMTP server"), ({"recipients": ["not-an-email"]}, "email address")],
-)
-async def test_enabling_requires_recipients_and_smtp(client: AsyncClient, unique_email, override, fragment):
-    token = await _register(client, unique_email)
-    resp = await client.put("/api/snmp/monitor", headers=_auth(token), json={**CONFIG, **override})
-    assert resp.status_code in (400, 422), resp.text
-    assert fragment in resp.text
+    await _configure_email(client, token)
+    assert (await client.get("/api/snmp/monitor", headers=_auth(token))).json()["channels_configured"] is True
 
 
 async def test_non_admin_cannot_change_monitor(client: AsyncClient, unique_email):
@@ -214,23 +214,10 @@ async def test_non_admin_cannot_change_monitor(client: AsyncClient, unique_email
     assert (await client.get("/api/snmp/monitor", headers=_auth(member))).status_code == 200
 
 
-async def test_test_email_uses_saved_settings(client: AsyncClient, unique_email, monkeypatch):
+async def test_old_test_email_and_alerts_endpoints_are_gone(client: AsyncClient, unique_email):
     token = await _register(client, unique_email)
-    early = await client.post("/api/snmp/monitor/test-email", headers=_auth(token))
-    assert early.json()["ok"] is False and "Save recipients" in early.json()["message"]
-
-    await client.put("/api/snmp/monitor", headers=_auth(token), json=CONFIG)
-    sent = {}
-
-    def fake_send(settings, recipients, subject, body, timeout=20.0):
-        sent.update(host=settings.host, password=settings.password, recipients=recipients, subject=subject)
-
-    monkeypatch.setattr(snmp_monitor, "send_email", fake_send)
-    resp = await client.post("/api/snmp/monitor/test-email", headers=_auth(token))
-    assert resp.json()["ok"] is True
-    assert sent["host"] == "smtp.example.com" and sent["password"] == "smtp-secret-123"
-    assert sent["recipients"] == ["noc@example.com", "oncall@example.com"]
-    assert sent["subject"] == "[Packrat] Test alert"
+    assert (await client.post("/api/snmp/monitor/test-email", headers=_auth(token))).status_code in (404, 405)
+    assert (await client.get("/api/snmp" + "/alerts", headers=_auth(token))).status_code in (404, 405)
 
 
 async def test_full_cycle_baselines_then_alerts_and_emails(client: AsyncClient, unique_email, monkeypatch):
@@ -240,6 +227,7 @@ async def test_full_cycle_baselines_then_alerts_and_emails(client: AsyncClient, 
     wlc = await client.post("/api/devices", headers=_auth(token), json={"name": "HQ-WLC", "host": "10.0.0.2", "device_type": "cisco_wlc_9800"})
     assert sw.status_code == 201 and wlc.status_code == 201
     await client.put("/api/snmp/monitor", headers=_auth(token), json=CONFIG)
+    await _configure_email(client, token)
 
     # Fake the network: state per host that the test flips between cycles.
     world = {
@@ -259,7 +247,7 @@ async def test_full_cycle_baselines_then_alerts_and_emails(client: AsyncClient, 
     first = await client.post("/api/snmp/monitor/run-now", headers=_auth(token))
     assert first.status_code == 200, first.text
     assert "2 device(s), 0 alert(s)" in first.json()["last_result"]
-    assert (await client.get("/api/snmp/alerts", headers=_auth(token))).json() == []
+    assert (await client.get("/api/alerts", headers=_auth(token))).json() == []
     assert emails == []
 
     # Things go wrong.
@@ -268,12 +256,12 @@ async def test_full_cycle_baselines_then_alerts_and_emails(client: AsyncClient, 
     second = await client.post("/api/snmp/monitor/run-now", headers=_auth(token))
     assert "2 alert(s)" in second.json()["last_result"] and "emailed 2 recipient(s)" in second.json()["last_result"]
 
-    alerts = (await client.get("/api/snmp/alerts", headers=_auth(token))).json()
+    alerts = (await client.get("/api/alerts", headers=_auth(token))).json()
     assert {(a["kind"], a["subject"], a["device_name"]) for a in alerts} == {
         ("link_down", "Gi1/0/1", "HQ-CORE-SW01"),
         ("ap_down", "AP-DOCK", "HQ-WLC"),
     }
-    assert all(a["emailed"] for a in alerts)
+    assert all(a["emailed"] and a["notified_via"] == "email" for a in alerts)
     assert len(emails) == 1
     recipients, subject, body = emails[0]
     assert recipients == ["noc@example.com", "oncall@example.com"]
@@ -286,12 +274,12 @@ async def test_full_cycle_baselines_then_alerts_and_emails(client: AsyncClient, 
     world["10.0.0.1"] = _snap(reachable=False)
     fourth = await client.post("/api/snmp/monitor/run-now", headers=_auth(token))
     assert "1 alert(s)" in fourth.json()["last_result"]
-    alerts_now = (await client.get("/api/snmp/alerts", headers=_auth(token))).json()
+    alerts_now = (await client.get("/api/alerts", headers=_auth(token))).json()
     assert len(alerts_now) == 3
     down = next(a for a in alerts_now if a["kind"] == "device_down")
     assert down["kind_label"] == "Device unreachable" and down["device_name"] == "HQ-CORE-SW01"
 
-    cleared = await client.delete("/api/snmp/alerts", headers=_auth(token))
+    cleared = await client.delete("/api/alerts", headers=_auth(token))
     assert cleared.json()["deleted"] == 3
 
 
@@ -300,6 +288,7 @@ async def test_cycle_records_email_failure_on_the_alerts(client: AsyncClient, un
     await client.post("/api/snmp/profiles", headers=_auth(token), json={"name": "ro", "version": "v2c", "community": "public"})
     await client.post("/api/devices", headers=_auth(token), json={"name": "sw1", "host": "10.0.0.1", "device_type": "cisco_ios"})
     await client.put("/api/snmp/monitor", headers=_auth(token), json=CONFIG)
+    await _configure_email(client, token)
 
     states = iter([_snap({"1": _if("Gi1/0/1")}), _snap({"1": _if("Gi1/0/1", oper="2")})])
 
@@ -313,8 +302,8 @@ async def test_cycle_records_email_failure_on_the_alerts(client: AsyncClient, un
     monkeypatch.setattr(snmp_monitor, "send_email", failing_send)
     await client.post("/api/snmp/monitor/run-now", headers=_auth(token))
     result = await client.post("/api/snmp/monitor/run-now", headers=_auth(token))
-    assert "EMAIL FAILED: Connection refused" in result.json()["last_result"]
-    alert = (await client.get("/api/snmp/alerts", headers=_auth(token))).json()[0]
+    assert "DELIVERY FAILED: email: Connection refused" in result.json()["last_result"]
+    alert = (await client.get("/api/alerts", headers=_auth(token))).json()[0]
     assert alert["emailed"] is False and "Connection refused" in alert["email_error"]
 
 

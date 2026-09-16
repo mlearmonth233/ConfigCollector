@@ -133,7 +133,7 @@ export function Monitor() {
           <p className="page-subtitle" style={{ marginTop: 4 }}>
             Every device is pinged every {settings.interval_seconds}s. A device is marked down after {settings.failure_threshold} missed{" "}
             {settings.failure_threshold === 1 ? "check" : "checks in a row"}
-            {settings.alert_on_down ? (settings.email_configured ? ", and you get an email." : ", and you would get an email once recipients and an SMTP server are set under SNMP › Alerts.") : "."}
+            {settings.alert_on_down ? (settings.email_configured ? ", and you get an alert." : ", and you would get an alert once email, Teams or Slack is set up under Alerts.") : "."}
           </p>
         </div>
         <div className="page-actions">
@@ -382,9 +382,8 @@ function MonitorSettings({ settings, onSaved }: { settings: PingMonitorSettings;
         </label>
       </div>
       <p className="field-hint" style={{ marginTop: 10 }}>
-        Alerts are listed under <Link to="/snmp">SNMP › Alert history</Link> and emailed using the recipients and SMTP server set in{" "}
-        <Link to="/snmp">SNMP › Alerts by email</Link>
-        {settings.email_configured ? " (configured)." : " (not configured yet)."}
+        Alerts are listed and delivered (email, Teams, Slack) as set on the <Link to="/alerts">Alerts</Link> page
+        {settings.email_configured ? " (a channel is configured)." : " (no channel configured yet)."}
       </p>
       <div className="page-header-row" style={{ marginTop: 14 }}>
         <button type="submit" disabled={saving} style={{ marginLeft: "auto" }}>

@@ -14,7 +14,7 @@ from app.api.deps import get_current_user, require_admin
 from app.database import get_db
 from app.models.device import Device
 from app.models.ping_monitor import PingMonitorConfig, PingSample, PingStatus
-from app.models.snmp_monitor import SnmpMonitorConfig
+from app.models.alerting import AlertSettings
 from app.models.user import User
 from app.schemas.ping_monitor import (
     PingDeviceOut,
@@ -26,7 +26,7 @@ from app.schemas.ping_monitor import (
     PingSummaryOut,
 )
 from app.services.ping_monitor import MIN_INTERVAL_SECONDS, run_ping_cycle
-from app.services.snmp_monitor import parse_recipients
+from app.services import alerting
 
 router = APIRouter(prefix="/api/ping", tags=["ping"])
 
@@ -44,8 +44,9 @@ async def _get_or_create_config(db: AsyncSession, org_id: UUID) -> PingMonitorCo
 
 
 async def _email_configured(db: AsyncSession, org_id: UUID) -> bool:
-    email = await db.scalar(select(SnmpMonitorConfig).where(SnmpMonitorConfig.org_id == org_id))
-    return bool(email and email.smtp_host and parse_recipients(email.recipients))
+    """True when at least one alert delivery channel is set up (Alerts page)."""
+    settings = await db.scalar(select(AlertSettings).where(AlertSettings.org_id == org_id))
+    return bool(alerting.channels(settings))
 
 
 def _settings_out(config: PingMonitorConfig, email_configured: bool) -> PingMonitorSettingsOut:

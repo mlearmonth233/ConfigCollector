@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
+import { Alerts } from "./pages/Alerts";
 import { Commands } from "./pages/Commands";
 import { Credentials } from "./pages/Credentials";
 import { Devices } from "./pages/Devices";
@@ -34,6 +35,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Monitor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/alerts"
+          element={
+            <ProtectedRoute>
+              <Alerts />
             </ProtectedRoute>
           }
         />
