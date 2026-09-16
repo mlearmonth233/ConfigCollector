@@ -355,8 +355,8 @@ function MonitorSettings({ settings, onSaved }: { settings: PingMonitorSettings;
       </label>
       <div className="form-grid">
         <label>
-          Check every (seconds, 15 to 3600)
-          <input type="number" min={15} max={3600} value={form.interval_seconds} onChange={(e) => setForm({ ...form, interval_seconds: e.target.value })} required />
+          Check every (seconds, 5 to 3600)
+          <input type="number" min={5} max={3600} value={form.interval_seconds} onChange={(e) => setForm({ ...form, interval_seconds: e.target.value })} required />
         </label>
         <label>
           Mark down after (missed checks in a row)

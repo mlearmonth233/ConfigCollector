@@ -41,7 +41,7 @@ from app.services.snmp_monitor import Event
 log = logging.getLogger(__name__)
 
 CONCURRENCY = 32
-MIN_INTERVAL_SECONDS = 15
+MIN_INTERVAL_SECONDS = 5  # the beat task that drives cycles ticks this often too (celery_app.py)
 STATE_UP, STATE_DOWN, STATE_UNKNOWN = "up", "down", "unknown"
 
 _RTT_RE = re.compile(r"time[=<]\s*([\d.]+)\s*ms", re.IGNORECASE)

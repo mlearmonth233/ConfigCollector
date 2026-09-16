@@ -155,7 +155,7 @@ async def test_settings_are_admin_only_and_validated(client: AsyncClient, unique
     body = {"enabled": True, "interval_seconds": 60, "failure_threshold": 3, "timeout_ms": 1500, "alert_on_down": True, "alert_on_up": False, "history_days": 7}
     assert (await client.put("/api/ping/settings", headers=_auth(member), json=body)).status_code == 403
     assert (await client.get("/api/ping/overview", headers=_auth(member))).status_code == 200
-    too_fast = await client.put("/api/ping/settings", headers=_auth(admin), json={**body, "interval_seconds": 5})
+    too_fast = await client.put("/api/ping/settings", headers=_auth(admin), json={**body, "interval_seconds": 4})  # floor is 5s
     assert too_fast.status_code == 422
     ok = await client.put("/api/ping/settings", headers=_auth(admin), json=body)
     assert ok.status_code == 200 and ok.json()["alert_on_up"] is False

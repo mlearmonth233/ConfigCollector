@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class PingMonitorSettingsUpdate(BaseModel):
     enabled: bool = True
-    interval_seconds: int = Field(default=60, ge=15, le=3600)
+    interval_seconds: int = Field(default=60, ge=5, le=3600)
     failure_threshold: int = Field(default=3, ge=1, le=10)
     timeout_ms: int = Field(default=1500, ge=200, le=5000)
     alert_on_down: bool = True

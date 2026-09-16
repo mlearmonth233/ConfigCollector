@@ -1176,7 +1176,7 @@ def reap_stale_jobs() -> dict:
 
 @celery_app.task(name="app.tasks.run_ping_monitors")
 def run_ping_monitors() -> dict:
-    """Invoked every 15s by Celery beat: runs a ping cycle for every org
+    """Invoked every 5s by Celery beat: runs a ping cycle for every org
     whose reachability monitor is enabled and due (see
     services/ping_monitor.py)."""
     ran = 0

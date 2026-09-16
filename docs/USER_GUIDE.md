@@ -246,7 +246,8 @@ pinged on a timer, shown as green, red or amber, with a coloured bar per
 check for the last hour.
 
 - Checks run every 60 seconds by default from the scheduler ("beat")
-  process. A device is marked **Down** only after three missed checks in a
+  process; the interval can be set anywhere from 5 seconds to an hour
+  under **Settings**. A device is marked **Down** only after three missed checks in a
   row, so one dropped packet is not an outage. Until a new device has
   answered or missed enough checks it shows as **Waiting**.
 - The tiles at the top count devices up, down and waiting, and the average

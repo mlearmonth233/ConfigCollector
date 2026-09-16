@@ -93,8 +93,9 @@ celery_app.conf.update(
         "run-snmp-monitors": {"task": "app.tasks.run_snmp_monitors", "schedule": 60.0},
         # Jobs with no sign of life for STALE_JOB_MINUTES are marked interrupted.
         "reap-stale-jobs": {"task": "app.tasks.reap_stale_jobs", "schedule": 300.0},
-        # Continuous ping monitor: each org runs on its own interval (min 15s), checked every 15s.
-        "run-ping-monitors": {"task": "app.tasks.run_ping_monitors", "schedule": 15.0},
+        # Continuous ping monitor: each org runs on its own interval (min 5s), checked every 5s.
+        # The task is a cheap "anything due?" query when nothing is.
+        "run-ping-monitors": {"task": "app.tasks.run_ping_monitors", "schedule": 5.0},
     },
 )
 
