@@ -114,12 +114,64 @@ def _reset_sqlite_if_schema_drifted(db_path: str) -> None:
         os.remove(db_path)
 
 
+# --- schema migrations (Alembic) ------------------------------------------------------
+
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _alembic_config():
+    from alembic.config import Config  # noqa: PLC0415 - alembic is only needed at start-up
+
+    cfg = Config(os.path.join(_BACKEND_DIR, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(_BACKEND_DIR, "alembic"))
+    # Our own logging is already configured; don't let alembic.ini's
+    # [loggers] section replace the handlers.
+    cfg.set_main_option("skip_logging_config", "1")
+    return cfg
+
+
+def head_revision() -> str:
+    from alembic.script import ScriptDirectory  # noqa: PLC0415
+
+    return ScriptDirectory.from_config(_alembic_config()).get_current_head()
+
+
+def migrate_to_head(sync_engine) -> None:
+    """Brings the database to the latest migration.
+
+    Databases made before Alembic arrived (plain create_all) have every
+    table but no alembic_version. Rather than fail, they are adopted: any
+    table they lack is created (the additive part of what create_all did),
+    then the database is stamped at the baseline head. From then on every
+    schema change ships as a migration and is applied here on start-up.
+    Postgres included - this is the upgrade path that did not exist before.
+    """
+    from alembic import command  # noqa: PLC0415
+    from sqlalchemy import inspect  # noqa: PLC0415
+
+    cfg = _alembic_config()
+    cfg.set_main_option("sqlalchemy.url", str(sync_engine.url).replace("***", sync_engine.url.password or ""))
+    existing = set(inspect(sync_engine).get_table_names())
+    if "alembic_version" in existing:
+        command.upgrade(cfg, "head")
+        return
+    if existing - {"sqlite_sequence"}:
+        Base.metadata.create_all(sync_engine)  # adopt: add whatever is missing, never drop
+        command.stamp(cfg, "head")
+        print("[ConfigCollector] Existing database adopted by Alembic and stamped at the baseline revision.")
+        return
+    command.upgrade(cfg, "head")
+
+
 async def init_db() -> None:
-    # MVP schema bootstrap - no Alembic yet. See _reset_sqlite_if_schema_drifted
-    # for how a stale local dev SQLite schema is handled.
+    # Local SQLite keeps its convenience behaviour (in-place column adds,
+    # wipe on incompatible drift), then Alembic takes over for everything.
     db_path = _sqlite_path_from_url(settings.database_url)
     if db_path is not None:
         _reset_sqlite_if_schema_drifted(db_path)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    import asyncio  # noqa: PLC0415
+
+    from app.db_sync import sync_engine  # noqa: PLC0415 - built from the same DATABASE_URL
+
+    await asyncio.to_thread(migrate_to_head, sync_engine)

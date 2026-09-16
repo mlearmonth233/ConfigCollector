@@ -93,6 +93,21 @@ Run the test suite:
 python -m pytest
 ```
 
+**Database migrations.** The schema is managed by Alembic
+(`backend/alembic/`). On start-up the API brings the database to the latest
+migration itself, so a normal deployment never runs alembic by hand. A
+database made before migrations existed is adopted automatically: missing
+tables are added and it is stamped at the baseline. After changing a model:
+
+```bash
+cd backend
+alembic revision --autogenerate -m "add widget table"   # inspect the file it writes
+alembic upgrade head                                     # or just start the app
+```
+
+Local SQLite dev databases keep the older convenience of in-place column
+adds and a wipe on incompatible drift; Postgres relies on migrations alone.
+
 **Log files.** Every process writes a rotating log under `backend/logs/`
 (`LOG_DIR` to move it): `packrat-api.log` for the web server (every request,
 every error with its traceback, browser-side errors reported by the
