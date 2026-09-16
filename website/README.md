@@ -58,11 +58,14 @@ onto the dashboard).
 
 Search `index.html` for these and replace them:
 
-- `sales@packrat.app` — the contact address on the pricing buttons and in
-  the footer. Register the domain (or use one you already own) first.
-- The **pricing tiers** (`#pricing`). The tiers, limits and prices are a
-  starting proposal, not a decision. Nothing in the app enforces a device
-  cap today; if you want one, it needs building.
+- The site is set up for **https://milnetworkslimited.co.uk** (canonical
+  URL, social-preview image) with **admin@milnetworkslimited.co.uk** as the
+  contact and support address on the pricing buttons, the thanks page and
+  the footer. Moving to another domain or mailbox is a search-and-replace
+  of those two strings.
+- The **pricing tiers** (`#pricing`). The prices are a starting proposal;
+  the limits and features per tier are what the app enforces
+  (backend/app/core/licence.py), so change both together.
 - The **GitHub links** point at this repository. If you move the source or
   make it private, point "Download and run" at a release page instead.
 - **Trademark check**: "Packrat" is used by unrelated software (an R
@@ -91,7 +94,7 @@ Set-up, about twenty minutes in the Stripe dashboard:
    - *Allow promotion codes* if you plan to hand out discounts.
    - *Confirmation page*: "Don't show confirmation page, redirect
      customers to your website" with the URL
-     `https://<your site>/thanks.html?session_id={CHECKOUT_SESSION_ID}`
+     `https://milnetworkslimited.co.uk/thanks.html?session_id={CHECKOUT_SESSION_ID}`
      (keep the placeholder literally; Stripe fills it in).
 3. **Paste the link.** In `index.html`, set `STRIPE_PAYMENT_LINK` in the
    script at the foot of the page to the `https://buy.stripe.com/...` URL.
@@ -102,8 +105,8 @@ Set-up, about twenty minutes in the Stripe dashboard:
    link first, check out with card `4242 4242 4242 4242`, confirm you land
    on `thanks.html` with a reference shown, then swap in the live link.
 6. **Emails.** Settings → Emails: turn on receipts for successful
-   payments and set the support address; `thanks.html` and the FAQ point
-   customers at `support@packrat.app`, so create that mailbox.
+   payments and set the support address to admin@milnetworkslimited.co.uk,
+   which is where `thanks.html` and the FAQ send customers.
 
 Stripe's fees come off each payment; nothing else is needed for a
 subscription product with no per-customer fulfilment.

@@ -25,9 +25,9 @@ if ($index -match 'buy\.stripe\.com/REPLACE_ME' -and -not $AllowPlaceholders) {
     Write-Host "Paste your https://buy.stripe.com/... link into STRIPE_PAYMENT_LINK, or run with -AllowPlaceholders to ship with the email fallback."
     exit 1
 }
-foreach ($needle in @("sales@packrat.app", "support@packrat.app")) {
+foreach ($needle in @("admin@milnetworkslimited.co.uk")) {
     if ($index -match [regex]::Escape($needle)) {
-        Write-Host "Note: index.html still uses $needle - make sure that mailbox exists on your domain, or replace it."
+        Write-Host "Note: the site points customers at $needle - make sure that mailbox is receiving mail."
     }
 }
 
