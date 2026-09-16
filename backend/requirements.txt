@@ -61,3 +61,6 @@ tzdata==2026.4
 # counters and the Cisco syslog-history table over SNMPv2c/v3. The lextudio
 # fork of pysnmp (7.x) - pure Python, asyncio-based, cross-platform.
 pysnmp==7.1.29
+# Inventory module (services/inventory_export.py): writes the hardware
+# inventory as an .xlsx workbook. Pure Python.
+openpyxl==3.1.5

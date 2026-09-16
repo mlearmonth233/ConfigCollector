@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { devicesApi, schedulesApi, type ScheduleTimingPayload } from "../api/resources";
@@ -25,6 +25,15 @@ const BROWSER_TIMEZONE = (() => {
 
 function pad2(n: number | null | undefined): string {
   return String(n ?? 0).padStart(2, "0");
+}
+
+/** An instant rendered on the clock of another IANA timezone ("02:00, 17 Sep"). */
+function formatInZone(iso: string, timeZone: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, { timeZone, hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+  } catch {
+    return new Date(iso).toLocaleString();
+  }
 }
 
 function describeFrequency(s: Schedule): string {
@@ -251,9 +260,12 @@ export function Schedules() {
       <p className="page-subtitle" style={{ marginTop: 0 }}>
         Automatic config backups - daily, weekly, monthly, at one specific date and time, or every few
         hours - across every device in the org (or a chosen set). Each run creates an ordinary job on
-        the Jobs page and stores a snapshot per device. Runs are unattended, so a device whose
-        credential needs a one-time passcode will fail on scheduled runs (use "Run now" or a manual
-        collection for those instead).
+        the Jobs page and stores a snapshot per device. Runs are unattended: push MFA still works if
+        someone approves the prompt within the credential's auth timeout, and a passcode credential
+        works when its TOTP secret is saved on the <Link to="/credentials">Credentials</Link> page
+        (Packrat then generates the code itself); a passcode credential without one fails on scheduled
+        runs. Times below are shown in your timezone, <strong>{BROWSER_TIMEZONE}</strong>; each
+        schedule also runs on the clock of the timezone it was created with, shown under Repeat.
       </p>
 
       {showForm && (
@@ -409,7 +421,14 @@ export function Schedules() {
                   {isFinishedOneTime(s) ? (
                     <span className="field-hint">Done - ran {new Date(s.next_run_at).toLocaleString()}</span>
                   ) : s.enabled ? (
-                    new Date(s.next_run_at).toLocaleString()
+                    <>
+                      {new Date(s.next_run_at).toLocaleString()}
+                      <span className="field-hint" style={{ display: "block" }}>
+                        {s.timezone && s.timezone !== BROWSER_TIMEZONE
+                          ? `${formatInZone(s.next_run_at, s.timezone)} in ${s.timezone}`
+                          : `your time (${BROWSER_TIMEZONE})`}
+                      </span>
+                    </>
                   ) : (
                     <span className="field-hint">Paused</span>
                   )}

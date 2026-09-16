@@ -11,19 +11,20 @@ every page of the app in the order you will meet them.
 2. [First login and your organization](#2-first-login-and-your-organization)
 3. [Credentials](#3-credentials)
 4. [Devices](#4-devices)
-5. [Monitor](#5-monitor)
-6. [Alerts](#6-alerts)
-7. [Commands](#7-commands)
-8. [Jobs: collecting configs](#8-jobs-collecting-configs)
-9. [History and diffs](#9-history-and-diffs)
-10. [Schedules](#10-schedules)
-11. [Firmware push](#11-firmware-push)
-12. [DNS Check](#12-dns-check)
-13. [SNMP](#13-snmp)
-14. [Terminal](#14-terminal)
-15. [Settings](#15-settings)
-16. [Troubleshooting](#16-troubleshooting)
-17. [Security notes](#17-security-notes)
+5. [Inventory](#5-inventory)
+6. [Monitor](#6-monitor)
+7. [Alerts](#7-alerts)
+8. [Commands](#8-commands)
+9. [Jobs: collecting configs](#9-jobs-collecting-configs)
+10. [History and diffs](#10-history-and-diffs)
+11. [Schedules](#11-schedules)
+12. [Firmware push](#12-firmware-push)
+13. [DNS Check](#13-dns-check)
+14. [SNMP](#14-snmp)
+15. [Terminal](#15-terminal)
+16. [Settings](#16-settings)
+17. [Troubleshooting](#17-troubleshooting)
+18. [Security notes](#18-security-notes)
 
 ---
 
@@ -150,7 +151,13 @@ username and password, and optionally:
   - *Passcode*: a one-time code must be appended to the password. When you
     start a job you are asked for the code, and Packrat joins it to the
     password using the **OTP delimiter** your AAA server expects (usually a
-    comma).
+    comma). To let scheduled backups and "Collect all" run without anyone
+    typing a code, paste the account's **authenticator (TOTP) secret** - the
+    base32 seed or otpauth:// URI shown when the account was enrolled in an
+    authenticator app. Packrat then generates the current 6-digit code
+    itself (the same one the app would show), stores the seed encrypted like
+    the password, and never asks for a code for that credential. Push MFA
+    on a schedule works only if someone approves the prompt in time.
 - **Auth timeout**: how long to wait for the SSH login to succeed. TACACS+
   logins are often slow; 45 seconds is the default.
 - **Fallback**: another credential to try automatically if this one is
@@ -168,7 +175,8 @@ credential to change its password.
 
 ## 4. Devices
 
-**Devices** page. This is your inventory.
+**Devices** page. The list of everything Packrat logs into (the hardware
+found on the wire behind them is on the [Inventory](#5-inventory) page).
 
 ### Adding devices
 
@@ -235,11 +243,62 @@ ran; hover a mark for the detail (the resolved address, or whether the
 name failed to resolve in DNS). A cross is not proof the device is down;
 many networks block ICMP while SSH still works. Use it as a hint, not a
 verdict. For continuous checking rather than a one-off, use the
-[Monitor](#5-monitor) page.
+[Monitor](#6-monitor) page.
 
 ---
 
-## 5. Monitor
+## 5. Inventory
+
+**Inventory** page. A hardware map of the site built from the latest
+collected config of every device - nothing extra is polled. Rows come
+from these commands, which the built-in Cisco IOS command list already
+runs:
+
+| Command | What the inventory reads from it |
+|---|---|
+| show version | hostname, model, serial number, software version, uptime, base MAC |
+| show inventory | every component with a PID and serial: chassis, stack members, modules, power supplies, optics |
+| show cdp neighbors detail / show lldp neighbors detail | what is plugged into which port: neighbour name, IP, platform, capabilities, remote port |
+| show mac address-table | the MAC addresses learned on each access port |
+| show ip arp | MAC to IP, so endpoints get an address |
+| show ap summary (or show ap config general) | access points on a wireless controller: name, model, MAC, IP, serial |
+| get system status / get system arp | FortiGate model, serial, hostname and ARP |
+| about | APC PDU model, serial and MAC |
+
+The tiles count devices with a collected config, serials found, hardware
+components, access points, and **unmanaged** devices. The tabs:
+
+- **Devices**: one row per managed device with the facts above and when
+  its config was last collected. "missing N commands" means that snapshot
+  lacks some of the commands the inventory reads.
+- **Hardware**: every "show inventory" component, with PID, VID and serial.
+- **Neighbors**: every CDP/LLDP link, and whether the far end is a device
+  Packrat manages (matched by name, reported hostname or management IP).
+- **Access points**: APs reported by your controllers.
+- **Unmanaged**: hardware your switches can see that is not in the Devices
+  list, grouped by kind (switch, router, access point, IP phone, host...)
+  with the ports it was seen from. Switches and routers here are the ones
+  to add to Devices.
+- **Endpoints**: MAC addresses per switch port with the IP from ARP when
+  known. A port that leads to another switch carries that switch's whole
+  MAC table, so those rows are marked "behind another switch".
+- **Coverage**: for each device type you use, which inventory commands its
+  command list does not run yet, with an **Add inventory commands** button
+  that appends them (admins). The next collection then fills the gap - the
+  same fix as for a job's "Untracked neighbors" panel saying no CDP/LLDP
+  detail command ran.
+
+**Download Excel** saves one workbook with a Summary sheet (counts and a
+model tally) and a sheet per tab, headers frozen and filterable. The search
+box filters the visible tab by any column.
+
+Screen-scraping CLI output is best-effort: a field the parser cannot find is
+left blank rather than guessed, and platforms outside the list above only
+contribute what "show version" says.
+
+---
+
+## 6. Monitor
 
 **Monitor** page. The place to look first thing in the morning: every device
 pinged on a timer, shown as green, red or amber, with a coloured bar per
@@ -269,7 +328,7 @@ check for the last hour.
 
 **Alerts.** When a device that was up goes down, or comes back, Packrat
 records an alert and sends it by whatever is set up on the
-[Alerts](#6-alerts) page: email, Microsoft Teams, Slack. Admins can change
+[Alerts](#7-alerts) page: email, Microsoft Teams, Slack. Admins can change
 the interval, the number of missed checks, the ping timeout, and which of
 the two events alert under **Settings** on this page. Ping alone is not
 proof a device is down: a firewall may drop ICMP while SSH still works, so
@@ -277,7 +336,7 @@ treat a red card as "go and look", not a verdict.
 
 ---
 
-## 6. Alerts
+## 7. Alerts
 
 **Alerts** page. Everything Packrat noticed, in one list, and one place to
 say where it should be sent. Three things raise alerts:
@@ -332,7 +391,7 @@ recorded on the alert and shown in the history.
 
 ---
 
-## 7. Commands
+## 8. Commands
 
 **Commands** page. Choose what runs against each device type by default.
 
@@ -384,17 +443,21 @@ cannot be deleted until those devices are changed or removed.
 
 ---
 
-## 8. Jobs: collecting configs
+## 9. Jobs: collecting configs
 
 ### Starting a collection
 
 On **Devices**, tick devices and press **Collect selected**, or press
 **Collect all**. The start dialog shows:
 
+- **Job name**: prefilled with the date and time ("Collection 2026-09-16
+  10:59"); change it to something meaningful such as "Pre-change backup,
+  Site B". It is what the Jobs list shows. Scheduled jobs are named after
+  their schedule and the time they ran.
 - **Commands per device type**: prefilled from the Commands page. Edit
   here for a one-time override; it does not change the saved profile.
 - **One-time passcodes**: appears only if a credential in use has passcode
-  MFA. Enter the current code from your token.
+  MFA without a stored TOTP secret. Enter the current code from your token.
 
 Press **Start collection**. You are taken to the job page.
 
@@ -462,7 +525,7 @@ you own.
 
 ---
 
-## 9. History and diffs
+## 10. History and diffs
 
 Every completed collection stores a **snapshot** per device. On
 **Devices**, press **History** on a row to see them all, newest first.
@@ -476,7 +539,7 @@ Snapshots are kept forever unless you set a retention period in Settings.
 
 ---
 
-## 10. Schedules
+## 11. Schedules
 
 **Schedules** page (admins). A schedule is a collection that starts itself.
 
@@ -497,9 +560,14 @@ timezone is shown next to the time and in the table.
 **Devices**: all devices in the org (including ones added later), or a
 fixed set you tick.
 
-Each run creates an ordinary job on the Jobs page. Scheduled runs are
-unattended, so a device whose credential needs a one-time passcode will
-fail on them; collect those by hand.
+Each run creates an ordinary job on the Jobs page, named after the
+schedule and the time it ran in the schedule's timezone. Scheduled runs are
+unattended: a passcode credential works when its TOTP secret is saved (see
+Credentials); one without it fails on scheduled runs, so collect those by
+hand. Push MFA needs someone to approve the prompt within the credential's
+auth timeout. The list shows next and last run times in your browser's
+timezone, and, when a schedule was set up in a different one, the time on
+that zone's clock as well.
 
 Per row: **Edit**, **Run now** (starts the job immediately without moving
 the next scheduled time), **Delete**, and an **Enabled** checkbox to pause.
@@ -511,7 +579,7 @@ fires at the expected time, check that window is still open.
 
 ---
 
-## 11. Firmware push
+## 12. Firmware push
 
 **Firmware** page. Packrat copies an image file onto a device's storage.
 It does not install it, change the boot variable, or reload. The upgrade
@@ -556,10 +624,12 @@ the command in the dialog.
 
 ---
 
-## 12. DNS Check
+## 13. DNS Check
 
-**DNS Check** page. Paste hostnames or IPs, one per line or
-comma-separated, and press **Run checks**. For each target Packrat reports:
+**DNS Check** page. The box starts out filled with the address of every
+device you manage; edit it, add hostnames or IPs (one per line or
+comma-separated), or clear it and paste your own list, then press **Run
+checks**. For each target Packrat reports:
 
 - **Ping**: reachable or no reply.
 - **Forward DNS**: the addresses the name resolves to, or "no DNS record
@@ -575,7 +645,7 @@ firewall dropped ICMP, not that the device is down.
 
 ---
 
-## 13. SNMP
+## 14. SNMP
 
 **SNMP** page. Poll devices over SNMP for what they know about themselves,
 without logging in over SSH. Each poll produces one plain-text report per
@@ -658,7 +728,7 @@ device. **Run a cycle now** polls immediately, which is also how you record
 the baseline without waiting for the timer.
 
 Where the alerts go, and the history of what fired, are on the
-[Alerts](#6-alerts) page: monitoring can be enabled before any delivery
+[Alerts](#7-alerts) page: monitoring can be enabled before any delivery
 channel is set up, in which case alerts are only recorded there.
 
 Monitoring runs in the scheduler process ("beat"), the same one that runs
@@ -666,7 +736,7 @@ Schedules. If alerts stop, check that window is open.
 
 ---
 
-## 14. Terminal
+## 15. Terminal
 
 **Terminal** page, or the **SSH** button on any device row. Interactive
 SSH sessions in the browser using each device's credential (or the org
@@ -710,7 +780,7 @@ Packrat. Leaving the page closes every session.
 
 ---
 
-## 15. Settings
+## 16. Settings
 
 **Settings** page (admins).
 
@@ -783,7 +853,7 @@ organization.
 
 ---
 
-## 16. Troubleshooting
+## 17. Troubleshooting
 
 **Start here: get the logs**
 Settings → Troubleshooting → **Download log bundle** collects every log
@@ -870,7 +940,7 @@ timezone marker.
 
 ---
 
-## 17. Security notes
+## 18. Security notes
 
 - Device passwords and enable secrets are encrypted at rest with your
   `CREDENTIAL_ENCRYPTION_KEY` and decrypted only in memory for the length

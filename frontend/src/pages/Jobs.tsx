@@ -215,6 +215,7 @@ export function Jobs() {
                   onChange={toggleSelectAll}
                 />
               </th>
+              <th>Name</th>
               <th>Started</th>
               <th>Status</th>
               <th>Devices</th>
@@ -230,6 +231,11 @@ export function Jobs() {
                     checked={selected.has(j.id)}
                     onChange={() => toggleSelected(j.id)}
                   />
+                </td>
+                <td>
+                  <Link to={`/jobs/${j.id}`} style={{ fontWeight: 600 }}>
+                    {j.name ?? `Job ${j.id.slice(0, 8)}`}
+                  </Link>
                 </td>
                 <td>{new Date(j.created_at).toLocaleString()}</td>
                 <td>
@@ -261,7 +267,7 @@ export function Jobs() {
             ))}
             {jobs.length === 0 && (
               <tr>
-                <td colSpan={5} className="empty-state">
+                <td colSpan={6} className="empty-state">
                   No collection jobs yet. Start one from the Devices page.
                 </td>
               </tr>

@@ -13,6 +13,10 @@ class CredentialCreate(BaseModel):
     enable_secret: str | None = None
     mfa_mode: MfaMode = MfaMode.NONE
     otp_delimiter: str = Field(default=",", max_length=8)
+    # Optional authenticator-app seed for passcode MFA (base32, as shown
+    # when enrolling, or an otpauth:// URI). Write-only; lets unattended
+    # runs generate the code. Ignored unless mfa_mode is "passcode".
+    totp_secret: str | None = Field(default=None, max_length=512)
     # Generous default: SSH + a TACACS+/RADIUS round trip is usually a few
     # seconds, but push-MFA approval can take much longer - bump this on
     # push/passcode credentials as needed.
@@ -31,6 +35,9 @@ class CredentialOut(BaseModel):
     has_enable_secret: bool
     mfa_mode: MfaMode
     otp_delimiter: str
+    # True when a TOTP seed is stored, i.e. passcodes are generated
+    # automatically and no code needs to be typed for this credential.
+    has_totp_secret: bool = False
     auth_timeout_seconds: int
     fallback_credential_id: UUID | None
     fallback_credential_name: str | None

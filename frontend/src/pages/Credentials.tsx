@@ -21,6 +21,7 @@ export function Credentials() {
   const [enableSecret, setEnableSecret] = useState("");
   const [mfaMode, setMfaMode] = useState<MfaMode>("none");
   const [otpDelimiter, setOtpDelimiter] = useState(",");
+  const [totpSecret, setTotpSecret] = useState("");
   const [authTimeoutSeconds, setAuthTimeoutSeconds] = useState("45");
   const [fallbackCredentialId, setFallbackCredentialId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -54,6 +55,7 @@ export function Credentials() {
     setOtpDelimiter(",");
     setAuthTimeoutSeconds("45");
     setFallbackCredentialId("");
+    setTotpSecret("");
   }
 
   async function handleCreate(e: FormEvent) {
@@ -68,6 +70,7 @@ export function Credentials() {
         enable_secret: enableSecret || undefined,
         mfa_mode: mfaMode,
         otp_delimiter: otpDelimiter || ",",
+        totp_secret: mfaMode === "passcode" && totpSecret.trim() ? totpSecret.trim() : undefined,
         auth_timeout_seconds: Number(authTimeoutSeconds) || 45,
         fallback_credential_id: fallbackCredentialId || undefined,
       });
@@ -172,6 +175,23 @@ export function Credentials() {
               </span>
             </label>
           )}
+          {mfaMode === "passcode" && (
+            <label>
+              Authenticator (TOTP) secret - optional, for unattended runs
+              <input
+                id="credential-totp-secret"
+                value={totpSecret}
+                onChange={(e) => setTotpSecret(e.target.value)}
+                autoComplete="off"
+                placeholder="JBSWY3DPEHPK3PXP or otpauth://totp/…"
+              />
+              <span className="field-hint">
+                The base32 seed shown when this account was enrolled in an authenticator app (or the otpauth:// URI behind the QR code).
+                With it saved, Packrat generates the current 6-digit code itself, so scheduled backups and "Collect all" work without
+                anyone typing a code. Stored encrypted like the password. Leave blank to keep entering codes by hand.
+              </span>
+            </label>
+          )}
           <label>
             Fallback credential (optional)
             <select value={fallbackCredentialId} onChange={(e) => setFallbackCredentialId(e.target.value)}>
@@ -216,7 +236,14 @@ export function Credentials() {
                 <td>{c.name}</td>
                 <td>{c.username}</td>
                 <td>{c.has_enable_secret ? "Set" : "—"}</td>
-                <td>{c.mfa_mode === "none" ? "—" : c.mfa_mode}</td>
+                <td>
+                  {c.mfa_mode === "none" ? "—" : c.mfa_mode}
+                  {c.has_totp_secret && (
+                    <span className="field-hint" style={{ display: "block" }} title="A TOTP secret is stored: codes are generated automatically">
+                      codes generated automatically
+                    </span>
+                  )}
+                </td>
                 <td>{c.auth_timeout_seconds}s</td>
                 <td>{c.fallback_credential_name ?? "—"}</td>
                 <td>

@@ -19,6 +19,8 @@ import type {
   FirmwareJobDetail,
   HostnameRule,
   HostnameRules,
+  Inventory,
+  InventoryCommandCoverage,
   Job,
   JobDetail,
   LogOverview,
@@ -57,6 +59,7 @@ export interface CredentialCreatePayload {
   enable_secret?: string;
   mfa_mode?: MfaMode;
   otp_delimiter?: string;
+  totp_secret?: string;
   auth_timeout_seconds?: number;
   fallback_credential_id?: string;
 }
@@ -115,6 +118,7 @@ export const devicesApi = {
 };
 
 export interface JobCreatePayload {
+  name?: string;
   deviceIds?: string[];
   commandsByDeviceType?: Record<string, string>;
   credentialOtps?: Record<string, string>;
@@ -128,8 +132,9 @@ export interface JobItemRetryPayload {
 
 export const jobsApi = {
   list: () => apiClient.get<Job[]>("/api/jobs"),
-  create: ({ deviceIds, commandsByDeviceType, credentialOtps }: JobCreatePayload) =>
+  create: ({ name, deviceIds, commandsByDeviceType, credentialOtps }: JobCreatePayload) =>
     apiClient.post<JobDetail>("/api/jobs", {
+      name,
       device_ids: deviceIds,
       commands_by_device_type: commandsByDeviceType,
       credential_otps: credentialOtps,
@@ -336,4 +341,11 @@ export const pingApi = {
   runNow: () => apiClient.post<PingOverview>("/api/ping/run-now"),
   history: (deviceId: string, hours: number) =>
     apiClient.get<{ device_id: string; hours: number; samples: PingOverview["devices"][number]["recent"] }>(`/api/ping/history/${deviceId}`, { params: { hours } }),
+};
+
+export const inventoryApi = {
+  get: () => apiClient.get<Inventory>("/api/inventory"),
+  exportXlsx: () => apiClient.get<Blob>("/api/inventory/export.xlsx", { responseType: "blob" }),
+  coverage: () => apiClient.get<InventoryCommandCoverage[]>("/api/inventory/commands"),
+  addCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/inventory/commands/${deviceType}`),
 };

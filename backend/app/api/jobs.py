@@ -67,6 +67,7 @@ async def list_jobs(
     return [
         JobOut(
             id=job.id,
+            name=job.name,
             status=job.status,
             cancel_requested=job.cancel_requested,
             created_at=job.created_at,
@@ -118,8 +119,16 @@ async def create_job(
         device_ids=payload.device_ids,
         commands_by_device_type=payload.commands_by_device_type,
         credential_otps=payload.credential_otps,
+        name=payload.name,
     )
     return await fetch_job_detail(db, job.id, user.org_id)
+
+
+def default_job_name(when: datetime, prefix: str = "Collection") -> str:
+    """'Collection 2026-09-16 10:59 UTC' - the browser sends a local-time
+    name when the user starts a job, so this is the fallback for API
+    callers and tests."""
+    return f"{prefix} {when.strftime('%Y-%m-%d %H:%M')} UTC"
 
 
 async def create_and_dispatch_job(
@@ -130,6 +139,7 @@ async def create_and_dispatch_job(
     device_ids: list | None,
     commands_by_device_type: dict[str, str] | None = None,
     credential_otps: dict[str, str] | None = None,
+    name: str | None = None,
 ) -> CollectionJob:
     """Shared by the POST /api/jobs endpoint and a schedule's "run now"
     action (see api/schedules.py) - everything create_job used to do
@@ -189,7 +199,8 @@ async def create_and_dispatch_job(
         # whenever either uses passcode-based MFA.
         credential = _effective_credential(d)
         candidates = [credential, credential.fallback_credential if credential else None]
-        return [c for c in candidates if c is not None and c.mfa_mode == MfaMode.PASSCODE]
+        # A stored TOTP seed means the worker generates the code itself.
+        return [c for c in candidates if c is not None and c.mfa_mode == MfaMode.PASSCODE and not c.encrypted_totp_secret]
 
     missing_otp_credentials = sorted(
         {
@@ -237,11 +248,13 @@ async def create_and_dispatch_job(
             ),
         )
 
+    now = datetime.now(timezone.utc)
     job = CollectionJob(
         org_id=org_id,
         created_by_id=created_by_id,
+        name=(name or "").strip()[:200] or default_job_name(now),
         status=JobStatus.RUNNING,
-        started_at=datetime.now(timezone.utc),
+        started_at=now,
     )
     db.add(job)
     await db.flush()
@@ -402,12 +415,12 @@ async def retry_job_item(
             ),
         )
     fallback = credential.fallback_credential
-    if credential.mfa_mode == MfaMode.PASSCODE and not payload.credential_otp:
+    if credential.mfa_mode == MfaMode.PASSCODE and not credential.encrypted_totp_secret and not payload.credential_otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"A one-time passcode is required for credential '{credential.name}' before retrying",
         )
-    if fallback is not None and fallback.mfa_mode == MfaMode.PASSCODE and not payload.fallback_otp:
+    if fallback is not None and fallback.mfa_mode == MfaMode.PASSCODE and not fallback.encrypted_totp_secret and not payload.fallback_otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"A one-time passcode is required for fallback credential '{fallback.name}' before retrying",
@@ -668,6 +681,7 @@ def _resolve_commands_override(
 def _to_job_out(job: CollectionJob) -> JobOut:
     return JobOut(
         id=job.id,
+        name=job.name,
         status=job.status,
         cancel_requested=job.cancel_requested,
         created_at=job.created_at,

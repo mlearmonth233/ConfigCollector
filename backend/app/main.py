@@ -27,6 +27,7 @@ from app.api import (  # noqa: E402
     dns_check,
     firmware,
     hostname_rules,
+    inventory,
     jobs,
     logs,
     organizations,
@@ -104,6 +105,7 @@ app.include_router(custom_device_types.router)
 app.include_router(device_roles.router)
 app.include_router(hostname_rules.router)
 app.include_router(command_profiles.router)
+app.include_router(inventory.router)
 app.include_router(jobs.router)
 app.include_router(logs.router)
 app.include_router(snapshots.router)

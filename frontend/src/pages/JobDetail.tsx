@@ -261,7 +261,7 @@ export function JobDetail() {
         <Link to="/jobs">← Back to jobs</Link>
       </p>
       <div className="page-header-row sticky-header">
-        <h1>Job {job.id.slice(0, 8)}</h1>
+        <h1 title={`Job id ${job.id}`}>{job.name ?? `Job ${job.id.slice(0, 8)}`}</h1>
         <div className="page-actions">
           <StatusBadge status={job.status} />
           {ACTIVE_STATUSES.has(job.status) && !job.cancel_requested && (
@@ -337,7 +337,10 @@ export function JobDetail() {
           <h3 style={{ marginTop: 0 }}>Untracked neighbors</h3>
           {neighborCheck.checked_item_count === 0 ? (
             <p className="page-subtitle" style={{ marginTop: 0 }}>
-              None of this job's devices ran a CDP/LLDP "detail" command, so there's nothing to check.
+              None of this job's devices ran a CDP/LLDP "detail" command, so there's nothing to check. Add "show cdp
+              neighbors detail" (or "show lldp neighbors detail") to the device type's command list under{" "}
+              <Link to="/commands">Commands</Link>, or open <Link to="/inventory">Inventory</Link> and use "Add inventory
+              commands" to do it in one click; the next collection will then report neighbors here and in the inventory.
             </p>
           ) : neighborCheck.missing.length === 0 ? (
             <p className="page-subtitle" style={{ marginTop: 0 }}>

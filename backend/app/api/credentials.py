@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
+from app.core import totp
 from app.core.encryption import encrypt_secret
 from app.database import get_db
-from app.models.credential import Credential
+from app.models.credential import Credential, MfaMode
 from app.models.user import User
 from app.schemas.credential import CredentialCreate, CredentialOut
 
@@ -22,6 +23,7 @@ def _to_out(c: Credential, fallback_name: str | None) -> CredentialOut:
         has_enable_secret=bool(c.encrypted_enable_secret),
         mfa_mode=c.mfa_mode,
         otp_delimiter=c.otp_delimiter,
+        has_totp_secret=bool(c.encrypted_totp_secret),
         auth_timeout_seconds=c.auth_timeout_seconds,
         fallback_credential_id=c.fallback_credential_id,
         fallback_credential_name=fallback_name,
@@ -68,12 +70,22 @@ async def create_credential(
         await db.scalar(select(Credential.id).where(Credential.org_id == admin.org_id).limit(1))
     ) is None
 
+    encrypted_totp_secret = None
+    if payload.totp_secret and payload.totp_secret.strip():
+        if payload.mfa_mode != MfaMode.PASSCODE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A TOTP secret only applies to passcode MFA - set MFA mode to 'passcode' first")
+        try:
+            encrypted_totp_secret = encrypt_secret(totp.normalize_secret(payload.totp_secret))
+        except totp.InvalidTotpSecret as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     credential = Credential(
         org_id=admin.org_id,
         name=payload.name,
         username=payload.username,
         encrypted_password=encrypt_secret(payload.password),
         encrypted_enable_secret=encrypt_secret(payload.enable_secret) if payload.enable_secret else None,
+        encrypted_totp_secret=encrypted_totp_secret,
         mfa_mode=payload.mfa_mode,
         otp_delimiter=payload.otp_delimiter,
         auth_timeout_seconds=payload.auth_timeout_seconds,

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base_, UTCDateTime
@@ -42,6 +42,11 @@ class CollectionJob(Base_):
 
     org_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("organizations.id"), nullable=False, index=True)
     created_by_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), nullable=False)
+    # Human-readable label: what the user typed when starting it, else
+    # "Collection 2026-09-16 10:59" / "<schedule name> 2026-09-16 02:00".
+    # Nullable only for rows that predate the column; the UI falls back to
+    # the short id for those.
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

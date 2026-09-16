@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 # Every encrypted column in the schema. Keep in step with the models.
 ENCRYPTED_COLUMNS: tuple[tuple[type, tuple[str, ...]], ...] = (
-    (Credential, ("encrypted_password", "encrypted_enable_secret")),
+    (Credential, ("encrypted_password", "encrypted_enable_secret", "encrypted_totp_secret")),
     (SnmpProfile, ("encrypted_community", "encrypted_auth_password", "encrypted_priv_password")),
     (AlertSettings, ("encrypted_smtp_password",)),
 )

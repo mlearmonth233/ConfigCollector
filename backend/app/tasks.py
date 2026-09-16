@@ -11,10 +11,11 @@ from sqlalchemy.orm import object_session
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.core.encryption import decrypt_secret
+from app.core.totp import totp_code
 from app.db_sync import SyncSessionLocal
 from app.models.alerting import AlertSettings
 from app.models.command_profile import CommandProfile
-from app.models.credential import Credential
+from app.models.credential import Credential, MfaMode
 from app.models.custom_device_type import CustomDeviceType
 from app.models.device import Device
 from app.models.dns_check import DnsCheckJob, DnsCheckJobItem
@@ -248,6 +249,18 @@ def _collect_one_device(
     db.commit()
 
 
+def _generated_passcode(credential: Credential) -> str | None:
+    """The current TOTP code for a passcode credential that has its
+    authenticator seed stored - what makes unattended (scheduled) runs
+    possible. None when there is no seed (the code must then be supplied
+    by whoever started the job)."""
+    if credential.mfa_mode != MfaMode.PASSCODE or not credential.encrypted_totp_secret:
+        return None
+    code = totp_code(decrypt_secret(credential.encrypted_totp_secret))
+    log.info("Generated a TOTP passcode for credential '%s'", credential.name)
+    return code
+
+
 def _attempt_collection(
     device: Device,
     credential: Credential,
@@ -267,6 +280,7 @@ def _attempt_collection(
     spec = _resolve_spec(device)
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
+    otp = otp or _generated_passcode(credential)
     return collect_device_config(
         host=device.host,
         port=device.port,
@@ -532,6 +546,7 @@ def _attempt_push(
     spec = _resolve_spec(device)
     password = decrypt_secret(credential.encrypted_password)
     secret = decrypt_secret(credential.encrypted_enable_secret) if credential.encrypted_enable_secret else None
+    otp = otp or _generated_passcode(credential)
     return push_file(
         host=device.host,
         port=device.port,
@@ -809,6 +824,21 @@ def run_due_schedules() -> None:
         db.close()
 
 
+def _scheduled_job_name(schedule: Schedule, now: datetime) -> str:
+    """'Nightly backup 2026-09-16 02:00' in the schedule's own timezone
+    (that is the clock the user set the schedule by)."""
+    local = now
+    if schedule.timezone:
+        try:
+            from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+            local = now.astimezone(ZoneInfo(schedule.timezone))
+        except Exception:  # noqa: BLE001 - an unknown zone name falls back to UTC
+            local = now
+    suffix = "" if schedule.timezone and local is not now else " UTC"
+    return f"{schedule.name} {local.strftime('%Y-%m-%d %H:%M')}{suffix}"[:200]
+
+
 def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
     device_ids = _parse_schedule_device_ids(schedule.device_ids)
     device_query = db.query(Device).filter(Device.org_id == schedule.org_id)
@@ -820,6 +850,7 @@ def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
         job = CollectionJob(
             org_id=schedule.org_id,
             created_by_id=schedule.created_by_id,
+            name=_scheduled_job_name(schedule, now),
             status=JobStatus.RUNNING,
             started_at=now,
         )

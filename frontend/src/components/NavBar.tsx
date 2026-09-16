@@ -19,6 +19,9 @@ export function NavBar() {
         <NavLink to="/devices" className={({ isActive }) => (isActive ? "active" : "")}>
           Devices
         </NavLink>
+        <NavLink to="/inventory" className={({ isActive }) => (isActive ? "active" : "")}>
+          Inventory
+        </NavLink>
         <NavLink to="/credentials" className={({ isActive }) => (isActive ? "active" : "")}>
           Credentials
         </NavLink>
@@ -51,10 +54,13 @@ export function NavBar() {
         </NavLink>
       </nav>
       <div className="navbar-user">
-        <span>
-          {user.email} · {user.org_name}
+        <span className="navbar-user-email" title={`${user.email} · ${user.org_name}`}>
+          {user.email}
+          <span className="navbar-user-org"> · {user.org_name}</span>
         </span>
-        <button onClick={logout}>Log out</button>
+        <button onClick={logout} title={`Log out ${user.email}`}>
+          Log out
+        </button>
       </div>
     </header>
   );

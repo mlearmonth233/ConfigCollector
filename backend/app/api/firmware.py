@@ -181,7 +181,7 @@ async def create_firmware_job(
             c.name
             for d in devices
             for c in [_effective_credential(d)]
-            if c is not None and c.mfa_mode == MfaMode.PASSCODE and not credential_otps.get(str(c.id))
+            if c is not None and c.mfa_mode == MfaMode.PASSCODE and not c.encrypted_totp_secret and not credential_otps.get(str(c.id))
         }
     )
     if missing_otp:

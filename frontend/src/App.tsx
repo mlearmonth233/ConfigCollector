@@ -18,6 +18,7 @@ import { Monitor } from "./pages/Monitor";
 import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
 import { Help } from "./pages/Help";
+import { Inventory } from "./pages/Inventory";
 import { Settings } from "./pages/Settings";
 import { Snmp } from "./pages/Snmp";
 import { SnmpJobDetail } from "./pages/SnmpJobDetail";
@@ -51,6 +52,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Devices />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory"
+          element={
+            <ProtectedRoute>
+              <Inventory />
             </ProtectedRoute>
           }
         />

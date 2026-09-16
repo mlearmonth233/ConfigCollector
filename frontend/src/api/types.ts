@@ -15,6 +15,8 @@ export interface Credential {
   has_enable_secret: boolean;
   mfa_mode: MfaMode;
   otp_delimiter: string;
+  /** A TOTP seed is stored, so passcodes are generated automatically (no code to type). */
+  has_totp_secret: boolean;
   auth_timeout_seconds: number;
   fallback_credential_id: string | null;
   fallback_credential_name: string | null;
@@ -113,6 +115,8 @@ export interface JobItem {
 export interface Job {
   cancel_requested: boolean;
   id: string;
+  /** "Collection 2026-09-16 10:59", a schedule's name + time, or what the user typed. Null on jobs older than this field. */
+  name: string | null;
   status: JobStatus;
   created_at: string;
   started_at: string | null;
@@ -466,4 +470,114 @@ export interface PingOverview {
   settings: PingMonitorSettings;
   summary: PingSummary;
   devices: PingDevice[];
+}
+
+// --- Inventory ---------------------------------------------------------------
+
+export interface InventoryDevice {
+  device_id: string;
+  name: string;
+  host: string;
+  device_type: string;
+  site: string | null;
+  role: string | null;
+  hostname: string | null;
+  model: string | null;
+  serial: string | null;
+  software: string | null;
+  uptime: string | null;
+  base_mac: string | null;
+  collected_at: string | null;
+  snapshot_id: string | null;
+  has_snapshot: boolean;
+  commands_present: string[];
+  commands_missing: string[];
+}
+
+export interface InventoryHardwareItem {
+  device_id: string;
+  device_name: string;
+  name: string;
+  description: string | null;
+  pid: string | null;
+  vid: string | null;
+  serial: string | null;
+}
+
+export interface InventoryNeighbor {
+  device_id: string;
+  device_name: string;
+  local_port: string | null;
+  name: string | null;
+  ip: string | null;
+  platform: string | null;
+  capabilities: string | null;
+  remote_port: string | null;
+  protocol: "cdp" | "lldp";
+  managed_device_id: string | null;
+  managed_device_name: string | null;
+}
+
+export interface InventoryAccessPoint {
+  controller_id: string;
+  controller_name: string;
+  name: string;
+  model: string | null;
+  mac: string | null;
+  ip: string | null;
+  serial: string | null;
+  software: string | null;
+}
+
+export interface InventoryEndpoint {
+  device_id: string;
+  device_name: string;
+  port: string;
+  vlan: string | null;
+  mac: string;
+  ip: string | null;
+  entry_type: string | null;
+  on_uplink: boolean;
+}
+
+export interface InventoryUnmanaged {
+  name: string | null;
+  ip: string | null;
+  platform: string | null;
+  capabilities: string | null;
+  kind: string;
+  seen_from: string[];
+  protocols: string[];
+}
+
+export interface InventorySummary {
+  devices: number;
+  devices_with_config: number;
+  devices_with_serial: number;
+  hardware: number;
+  access_points: number;
+  neighbors: number;
+  unmanaged: number;
+  endpoints: number;
+}
+
+export interface Inventory {
+  generated_at: string;
+  summary: InventorySummary;
+  models: Record<string, number>;
+  devices: InventoryDevice[];
+  hardware: InventoryHardwareItem[];
+  neighbors: InventoryNeighbor[];
+  access_points: InventoryAccessPoint[];
+  endpoints: InventoryEndpoint[];
+  unmanaged: InventoryUnmanaged[];
+}
+
+export interface InventoryCommandCoverage {
+  device_type: string;
+  label: string;
+  device_count: number;
+  inventory_commands: string[];
+  missing: string[];
+  is_custom_profile: boolean;
 }

@@ -1,12 +1,14 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.job import JobStatus
 
 
 class JobCreate(BaseModel):
+    # Optional label shown in the job list; defaults to "Collection <date time>".
+    name: str | None = Field(default=None, max_length=200)
     device_ids: list[UUID] | None = None  # None/omitted = all devices in org
     # Per-device_type command override for this run only (does not persist
     # to Device.custom_commands) - e.g. {"cisco_ios": "show running-config",
@@ -52,6 +54,7 @@ class JobOut(BaseModel):
     # Force stop for a job that stays running after a cancel.
     cancel_requested: bool = False
     id: UUID
+    name: str | None = None
     status: JobStatus
     created_at: datetime
     started_at: datetime | None

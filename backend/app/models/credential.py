@@ -50,6 +50,11 @@ class Credential(Base_):
     # "mypassword,123456" - the convention most TACACS+/Duo integrations
     # expect. Only relevant when mfa_mode == PASSCODE.
     otp_delimiter: Mapped[str] = mapped_column(String(8), default=",", nullable=False)
+    # Base32 TOTP seed (RFC 6238), encrypted. When set on a PASSCODE
+    # credential, the worker generates the current 6-digit code itself, so
+    # scheduled (unattended) runs and "Collect all" no longer need a code
+    # typed in. Optional: without it, the code must be supplied per run.
+    encrypted_totp_secret: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # How long to wait for the full login (SSH + TACACS+/RADIUS round trip +
     # any MFA challenge/approval) before giving up. Plain local-auth devices
     # are fine with the default; push-MFA devices often need 60-90s to give

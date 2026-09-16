@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { extractErrorMessage } from "../api/client";
 import { jobsApi } from "../api/resources";
 import type { Credential, Device, DeviceType, JobDetail } from "../api/types";
+import { formatLocalDateTime } from "../utils/formatDate";
 
 interface RetryContext {
   jobId: string;
@@ -63,10 +64,13 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
     }
     return Array.from(ids)
       .map((id) => credentialMap.get(id))
-      .filter((c): c is Credential => !!c && c.mfa_mode === "passcode");
+      .filter((c): c is Credential => !!c && c.mfa_mode === "passcode" && !c.has_totp_secret); // a stored TOTP seed generates the code
   }, [devices, credentialMap, orgDefaultCredential]);
 
   const [otps, setOtps] = useState<Record<string, string>>({});
+  // Shown in the job list instead of an id. Prefilled with the local date
+  // and time so every job has a meaningful name even if nobody types one.
+  const [name, setName] = useState(() => `Collection ${formatLocalDateTime(new Date())}`);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -88,6 +92,7 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
         onStarted(data);
       } else {
         const { data } = await jobsApi.create({
+          name: name.trim() || undefined,
           deviceIds: devices.map((d) => d.id),
           commandsByDeviceType: commandsByType,
           credentialOtps: otps,
@@ -115,6 +120,12 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
           </div>
         </div>
         <div className="modal-body">
+          {!retryContext && (
+            <label style={{ display: "block", marginBottom: 14 }}>
+              Job name
+              <input id="job-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} placeholder="e.g. Pre-change backup, Site B" />
+            </label>
+          )}
           {error && <div className="error-banner">{error}</div>}
 
           <p className="page-subtitle" style={{ marginTop: 0 }}>

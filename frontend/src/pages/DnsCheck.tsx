@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
-import { dnsCheckApi } from "../api/resources";
+import { devicesApi, dnsCheckApi } from "../api/resources";
 import type { DnsCheckJob } from "../api/types";
+import { sortByDeviceName } from "../utils/deviceNameSort";
 import { StatusBadge } from "../components/StatusBadge";
 
 function parseTargets(text: string): string[] {
@@ -27,6 +28,7 @@ export function DnsCheck() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [text, setText] = useState("");
+  const [deviceHosts, setDeviceHosts] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
   const targets = parseTargets(text);
 
@@ -44,6 +46,16 @@ export function DnsCheck() {
 
   useEffect(() => {
     void refresh();
+    // Start from every managed device's address - the usual thing to check
+    // - so the box is never empty; the user can edit or replace the list.
+    devicesApi
+      .list()
+      .then((r) => {
+        const hosts = Array.from(new Set(sortByDeviceName(r.data, (d) => d.name).map((d) => d.host.trim()).filter(Boolean)));
+        setDeviceHosts(hosts);
+        setText((current) => (current.trim() ? current : hosts.join("\n")));
+      })
+      .catch(() => undefined);
   }, []);
 
   async function handleStart() {
@@ -109,6 +121,19 @@ export function DnsCheck() {
 
       <label>
         Hostnames or IPs
+        {deviceHosts.length > 0 && (
+          <span className="field-hint" style={{ marginLeft: 8 }}>
+            (prefilled with all {deviceHosts.length} devices -{" "}
+            <button type="button" className="link-button" style={{ padding: 0, fontSize: "inherit" }} onClick={() => setText(deviceHosts.join("\n"))}>
+              reset to devices
+            </button>{" "}
+            /{" "}
+            <button type="button" className="link-button" style={{ padding: 0, fontSize: "inherit" }} onClick={() => setText("")}>
+              clear
+            </button>
+            )
+          </span>
+        )}
         <textarea
           rows={8}
           value={text}
