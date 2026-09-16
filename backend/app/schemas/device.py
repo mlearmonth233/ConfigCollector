@@ -1,7 +1,18 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+CONSOLE_PROTOCOLS = ("ssh", "telnet")
+
+
+def _check_protocol(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower() or None
+    if value is not None and value not in CONSOLE_PROTOCOLS:
+        raise ValueError("console_protocol must be 'ssh' or 'telnet'")
+    return value
 
 
 class DeviceCreate(BaseModel):
@@ -18,6 +29,17 @@ class DeviceCreate(BaseModel):
     snmp_profile_id: UUID | None = None
     custom_commands: str | None = None
     device_role: str | None = None
+    # Optional out-of-band console path (see models/device.py).
+    console_host: str | None = Field(default=None, max_length=255)
+    console_port: int | None = Field(default=None, ge=1, le=65535)
+    console_protocol: str | None = None
+    console_credential_id: UUID | None = None
+    console_connect_command: str | None = Field(default=None, max_length=255)
+
+    @field_validator("console_protocol")
+    @classmethod
+    def _protocol(cls, value: str | None) -> str | None:
+        return _check_protocol(value)
 
 
 class DeviceUpdate(BaseModel):
@@ -31,6 +53,18 @@ class DeviceUpdate(BaseModel):
     clear_snmp_profile: bool = False  # explicit - snmp_profile_id=None alone means "don't change"
     custom_commands: str | None = None
     device_role: str | None = None
+    clear_console: bool = False  # explicit - removes the whole console path
+    # Optional out-of-band console path (see models/device.py).
+    console_host: str | None = Field(default=None, max_length=255)
+    console_port: int | None = Field(default=None, ge=1, le=65535)
+    console_protocol: str | None = None
+    console_credential_id: UUID | None = None
+    console_connect_command: str | None = Field(default=None, max_length=255)
+
+    @field_validator("console_protocol")
+    @classmethod
+    def _protocol(cls, value: str | None) -> str | None:
+        return _check_protocol(value)
 
 
 class DeviceOut(BaseModel):
@@ -44,6 +78,11 @@ class DeviceOut(BaseModel):
     snmp_profile_id: UUID | None
     custom_commands: str | None
     device_role: str | None
+    console_host: str | None = None
+    console_port: int | None = None
+    console_protocol: str | None = None
+    console_credential_id: UUID | None = None
+    console_connect_command: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

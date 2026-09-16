@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { credentialsApi, devicesApi } from "../api/resources";
-import type { Credential, Device } from "../api/types";
+import type { Credential, Device, TerminalVia } from "../api/types";
 import { TerminalSession, type SessionHandle, type SessionState } from "../components/TerminalSession";
 import { sortByDeviceName } from "../utils/deviceNameSort";
 
@@ -11,6 +11,7 @@ interface Tab {
   id: string;
   device: Device;
   initialOtp: string;
+  via: TerminalVia;
   state: SessionState;
 }
 
@@ -28,6 +29,7 @@ export function Terminal() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState(searchParams.get("device") ?? "");
+  const [via, setVia] = useState<TerminalVia>(searchParams.get("via") === "console" ? "console" : "management");
   const [otp, setOtp] = useState("");
   const [reconnectOtp, setReconnectOtp] = useState("");
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -63,11 +65,17 @@ export function Terminal() {
   );
 
   const selectedDevice = useMemo(() => devices.find((d) => d.id === selectedId), [devices, selectedId]);
-  const selectedCredential = credentialFor(selectedDevice);
-  const needsOtp = selectedCredential?.mfa_mode === "passcode";
+  const hasConsole = Boolean(selectedDevice?.console_host);
+  const effectiveVia: TerminalVia = hasConsole ? via : "management";
+  const consoleIsTelnet = effectiveVia === "console" && selectedDevice?.console_protocol === "telnet";
+  const consoleCredential =
+    selectedDevice?.console_credential_id ? credentials.find((c) => c.id === selectedDevice.console_credential_id) : undefined;
+  const selectedCredential = effectiveVia === "console" ? consoleCredential ?? credentialFor(selectedDevice) : credentialFor(selectedDevice);
+  const needsOtp = !consoleIsTelnet && selectedCredential?.mfa_mode === "passcode";
 
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
-  const activeNeedsOtp = credentialFor(activeTab?.device)?.mfa_mode === "passcode";
+  const activeTelnet = activeTab?.via === "console" && activeTab.device.console_protocol === "telnet";
+  const activeNeedsOtp = !activeTelnet && credentialFor(activeTab?.device)?.mfa_mode === "passcode";
   const liveCount = tabs.filter((t) => t.state !== "closed").length;
 
   // Tabs for the same device are told apart by a counter: "HQ-CORE-SW01 (2)".
@@ -86,7 +94,7 @@ export function Terminal() {
     if (!selectedDevice) return;
     tabCounter += 1;
     const id = `session-${tabCounter}-${Date.now()}`;
-    setTabs((prev) => [...prev, { id, device: selectedDevice, initialOtp: needsOtp ? otp.trim() : "", state: "connecting" }]);
+    setTabs((prev) => [...prev, { id, device: selectedDevice, initialOtp: needsOtp ? otp.trim() : "", via: effectiveVia, state: "connecting" }]);
     setActiveId(id);
     setOtp("");
   }
@@ -119,6 +127,10 @@ export function Terminal() {
     if (activeId) handles.current.get(activeId)?.disconnect();
   }
 
+  function breakActive() {
+    if (activeId) handles.current.get(activeId)?.sendBreak();
+  }
+
   function reconnectActive() {
     if (!activeId) return;
     handles.current.get(activeId)?.reconnect(activeNeedsOtp ? reconnectOtp.trim() : "");
@@ -127,7 +139,12 @@ export function Terminal() {
 
   function handleDeviceChange(id: string) {
     setSelectedId(id);
-    setSearchParams(id ? { device: id } : {}, { replace: true });
+    setSearchParams(id ? (via === "console" ? { device: id, via } : { device: id }) : {}, { replace: true });
+  }
+
+  function handleViaChange(next: TerminalVia) {
+    setVia(next);
+    if (selectedId) setSearchParams(next === "console" ? { device: selectedId, via: next } : { device: selectedId }, { replace: true });
   }
 
   function onTabKey(event: KeyboardEvent<HTMLDivElement>, index: number) {
@@ -156,8 +173,9 @@ export function Terminal() {
       <p className="page-subtitle">
         Interactive SSH sessions in the browser, logging in with the same credential a collection would use
         (the device's own, or the org default), including TACACS+/MFA handling. Open as many devices as you
-        need - each one gets its own tab and stays connected while you work in another. Nothing typed here
-        is recorded by this app.
+        need - each one gets its own tab and stays connected while you work in another. A device with a
+        console path can be reached out of band through its console server when its management address is
+        down. Nothing typed here is recorded by this app.
       </p>
       {loadError && <div className="error-banner">{loadError}</div>}
 
@@ -173,6 +191,17 @@ export function Terminal() {
             ))}
           </select>
         </label>
+        {hasConsole && selectedDevice && (
+          <label>
+            Connect via
+            <select value={effectiveVia} onChange={(e) => handleViaChange(e.target.value as TerminalVia)}>
+              <option value="management">Management · {selectedDevice.host}:{selectedDevice.port}</option>
+              <option value="console">
+                Console · {selectedDevice.console_protocol} {selectedDevice.console_host}:{selectedDevice.console_port} (out of band)
+              </option>
+            </select>
+          </label>
+        )}
         {needsOtp && (
           <label>
             Passcode for "{selectedCredential?.name}"
@@ -215,9 +244,21 @@ export function Terminal() {
                   </button>
                 </>
               ) : (
-                <button className="button-like" onClick={disconnectActive}>
-                  Disconnect
-                </button>
+                <>
+                  {activeTab.via === "console" && (
+                    <button
+                      className="button-like"
+                      onClick={breakActive}
+                      disabled={activeTab.state !== "connected"}
+                      title="Send a serial BREAK (for ROMMON / boot interrupts). Telnet sends IAC BRK; SSH asks the console server to break."
+                    >
+                      Send break
+                    </button>
+                  )}
+                  <button className="button-like" onClick={disconnectActive}>
+                    Disconnect
+                  </button>
+                </>
               )}
             </>
           )}
@@ -229,14 +270,15 @@ export function Terminal() {
           <div className="terminal-tabs" role="tablist" aria-label="Open sessions">
             {tabs.map((tab, index) => {
               const label = labels.get(tab.id)!;
-              const text = label.count > 1 ? `${label.name} (${label.count})` : label.name;
+              const base = label.count > 1 ? `${label.name} (${label.count})` : label.name;
+              const text = tab.via === "console" ? `${base} · console` : base;
               return (
                 <div
                   key={tab.id}
                   role="tab"
                   tabIndex={0}
                   aria-selected={tab.id === activeId}
-                  title={`${tab.device.name} · ${tab.device.host} - ${STATE_LABEL[tab.state]}`}
+                  title={`${tab.device.name} · ${tab.via === "console" ? `console ${tab.device.console_protocol} ${tab.device.console_host}:${tab.device.console_port}` : tab.device.host} - ${STATE_LABEL[tab.state]}`}
                   className={`terminal-tab terminal-tab-${tab.state}${tab.id === activeId ? " active" : ""}`}
                   onClick={() => setActiveId(tab.id)}
                   onAuxClick={(e) => onTabAuxClick(e, tab.id)}
@@ -284,6 +326,7 @@ export function Terminal() {
             sessionId={tab.id}
             device={tab.device}
             initialOtp={tab.initialOtp}
+            via={tab.via}
             visible={tab.id === activeId}
             onState={onState}
             onHandle={onHandle}

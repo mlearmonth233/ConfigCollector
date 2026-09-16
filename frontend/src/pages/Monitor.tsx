@@ -245,6 +245,12 @@ export function Monitor() {
                     </td>
                     <td>
                       <Link to={`/terminal?device=${d.device_id}`}>{d.name}</Link>
+                      {d.console && (
+                        <>
+                          {" · "}
+                          <Link to={`/terminal?device=${d.device_id}&via=console`}>console</Link>
+                        </>
+                      )}
                     </td>
                     <td>{d.host}</td>
                     <td>{d.site ?? "—"}</td>
@@ -291,6 +297,11 @@ function DeviceCard({ device: d, now }: { device: PingDevice; now: number }) {
         <Link to={`/terminal?device=${d.device_id}`} className="link-button">
           SSH
         </Link>
+        {d.console && (
+          <Link to={`/terminal?device=${d.device_id}&via=console`} className="link-button" title="Out-of-band console via the console server">
+            Console
+          </Link>
+        )}
         <Link to={`/devices`} className="link-button">
           Device
         </Link>

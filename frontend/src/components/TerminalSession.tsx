@@ -4,7 +4,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { API_BASE_URL, getToken } from "../api/client";
-import type { Device } from "../api/types";
+import type { Device, TerminalVia } from "../api/types";
 
 export type SessionState = "connecting" | "connected" | "closed";
 
@@ -12,6 +12,7 @@ export interface SessionHandle {
   disconnect: () => void;
   reconnect: (otp: string) => void;
   focus: () => void;
+  sendBreak: () => void;
 }
 
 const TERMINAL_THEME = {
@@ -41,6 +42,8 @@ interface Props {
   /** The passcode to log in with on the first connection (empty if the
    * credential doesn't use one). Reconnects ask for a fresh one. */
   initialOtp: string;
+  /** Management address (default) or the device's out-of-band console path. */
+  via: TerminalVia;
   visible: boolean;
   onState: (sessionId: string, state: SessionState) => void;
   onHandle: (sessionId: string, handle: SessionHandle | null) => void;
@@ -50,7 +53,7 @@ interface Props {
  * hidden behind another tab. The terminal is created once on mount and
  * disposed on unmount (closing the tab); Reconnect reuses the same
  * terminal so the previous session's output stays scrolled above. */
-export function TerminalSession({ sessionId, device, initialOtp, visible, onState, onHandle }: Props) {
+export function TerminalSession({ sessionId, device, initialOtp, via, visible, onState, onHandle }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -113,6 +116,7 @@ export function TerminalSession({ sessionId, device, initialOtp, visible, onStat
       const token = getToken() ?? "";
       const query = new URLSearchParams({ token, cols: String(term.cols), rows: String(term.rows) });
       if (otp.trim()) query.set("otp", otp.trim());
+      if (via === "console") query.set("via", "console");
       const ws = new WebSocket(`${websocketBase()}/api/terminal/${device.id}?${query.toString()}`);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -153,6 +157,10 @@ export function TerminalSession({ sessionId, device, initialOtp, visible, onStat
       focus: () => {
         refit();
         term.focus();
+      },
+      sendBreak: () => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "break" }));
       },
     });
     connect(initialOtp);

@@ -39,6 +39,12 @@ export function Devices() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [snmpProfiles, setSnmpProfiles] = useState<SnmpProfile[]>([]);
   const [snmpProfileId, setSnmpProfileId] = useState("");
+  const [consoleHost, setConsoleHost] = useState("");
+  const [consolePort, setConsolePort] = useState("");
+  const [consoleProtocol, setConsoleProtocol] = useState<"ssh" | "telnet">("ssh");
+  const [consoleCredentialId, setConsoleCredentialId] = useState("");
+  const [consoleCommand, setConsoleCommand] = useState("");
+  const [showConsole, setShowConsole] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -167,9 +173,24 @@ export function Devices() {
     setSite("");
     setCustomCommands("");
     setSnmpProfileId("");
+    setConsoleHost("");
+    setConsolePort("");
+    setConsoleProtocol("ssh");
+    setConsoleCredentialId("");
+    setConsoleCommand("");
+    setShowConsole(false);
     setDetection(null);
     typeTouched.current = false;
     roleTouched.current = false;
+  }
+
+  function loadConsoleFields(device: Device) {
+    setConsoleHost(device.console_host ?? "");
+    setConsolePort(device.console_port ? String(device.console_port) : "");
+    setConsoleProtocol(device.console_protocol ?? "ssh");
+    setConsoleCredentialId(device.console_credential_id ?? "");
+    setConsoleCommand(device.console_connect_command ?? "");
+    setShowConsole(Boolean(device.console_host));
   }
 
   function handleDuplicate(device: Device) {
@@ -182,6 +203,7 @@ export function Devices() {
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setSnmpProfileId(device.snmp_profile_id ?? "");
+    loadConsoleFields(device);
     setDetection(null);
     // Every field just came from an existing device, not a fresh
     // auto-detect guess - mark them all touched so editing the name
@@ -202,6 +224,7 @@ export function Devices() {
     setSite(device.site ?? "");
     setCustomCommands(device.custom_commands ?? "");
     setSnmpProfileId(device.snmp_profile_id ?? "");
+    loadConsoleFields(device);
     setDetection(null);
     // Editing an existing device shouldn't have typing in the name field
     // re-trigger auto-detection and clobber its current type/role.
@@ -224,9 +247,18 @@ export function Devices() {
         site: site || undefined,
         custom_commands: customCommands || undefined,
         snmp_profile_id: snmpProfileId || undefined,
+        console_host: consoleHost.trim() || undefined,
+        console_port: consoleHost.trim() && consolePort ? Number(consolePort) : undefined,
+        console_protocol: consoleHost.trim() ? consoleProtocol : undefined,
+        console_credential_id: consoleHost.trim() && consoleProtocol === "ssh" && consoleCredentialId ? consoleCredentialId : undefined,
+        console_connect_command: consoleHost.trim() ? consoleCommand.trim() || undefined : undefined,
       };
       if (editingId) {
-        await devicesApi.update(editingId, { ...payload, ...(snmpProfileId ? {} : { clear_snmp_profile: true }) } as Partial<Device>);
+        await devicesApi.update(editingId, {
+          ...payload,
+          ...(snmpProfileId ? {} : { clear_snmp_profile: true }),
+          ...(consoleHost.trim() ? {} : { clear_console: true }),
+        } as Partial<Device>);
       } else {
         await devicesApi.create(payload);
       }
@@ -419,6 +451,53 @@ export function Devices() {
                 </select>
               </label>
             )}
+            <div className="form-grid-span console-section">
+              <button type="button" className="link-button" onClick={() => setShowConsole((v) => !v)} aria-expanded={showConsole}>
+                {showConsole ? "▾" : "▸"} Console access (optional){consoleHost.trim() ? ` · ${consoleProtocol} ${consoleHost.trim()}:${consolePort || (consoleProtocol === "ssh" ? 22 : 23)}` : ""}
+              </button>
+              {showConsole && (
+                <div className="console-fields">
+                  <p className="field-hint" style={{ marginTop: 6 }}>
+                    Out-of-band path for when the management address is unreachable: the console server (Opengear,
+                    Lantronix, Avocent, Digi, a Cisco async line) and the TCP port that maps to this device's serial
+                    console. The Terminal and Monitor pages then offer "Connect via console".
+                  </p>
+                  <div className="form-grid">
+                    <label>
+                      Console server host
+                      <input value={consoleHost} onChange={(e) => setConsoleHost(e.target.value)} placeholder="e.g. oob-cs1.example or 10.99.0.5" />
+                    </label>
+                    <label>
+                      Protocol / port
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <select value={consoleProtocol} onChange={(e) => setConsoleProtocol(e.target.value as "ssh" | "telnet")} style={{ flex: "0 0 auto" }}>
+                          <option value="ssh">SSH</option>
+                          <option value="telnet">Telnet (reverse telnet)</option>
+                        </select>
+                        <input type="number" min={1} max={65535} value={consolePort} onChange={(e) => setConsolePort(e.target.value)} placeholder={consoleProtocol === "ssh" ? "22" : "23 / 2003"} />
+                      </div>
+                    </label>
+                    {consoleProtocol === "ssh" && (
+                      <label>
+                        Console server login
+                        <select value={consoleCredentialId} onChange={(e) => setConsoleCredentialId(e.target.value)}>
+                          <option value="">— same as this device —</option>
+                          {credentials.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} ({c.username})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label>
+                      Connect command after login (optional)
+                      <input value={consoleCommand} onChange={(e) => setConsoleCommand(e.target.value)} placeholder='e.g. "connect line 3" or "pmshell -l port03"' />
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
             <label className="form-grid-span">
               Custom command(s) (comma-separated, overrides default for this device type)
               <input value={customCommands} onChange={(e) => setCustomCommands(e.target.value)} />
@@ -527,6 +606,16 @@ export function Devices() {
                   >
                     SSH
                   </button>
+                  {d.console_host && (
+                    <button
+                      className="link-button"
+                      style={{ marginLeft: 12 }}
+                      title={`Out of band via ${d.console_protocol} ${d.console_host}:${d.console_port}`}
+                      onClick={() => navigate(`/terminal?device=${d.id}&via=console`)}
+                    >
+                      Console
+                    </button>
+                  )}
                   <button
                     className="link-button danger"
                     style={{ marginLeft: 12 }}

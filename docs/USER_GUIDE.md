@@ -195,6 +195,17 @@ dropdown under "Your device types".
 
 - **Edit**: change any field, including a custom command list for just
   this device (overrides everything else).
+- **Console access** (in the Add/Edit form): an optional out-of-band path
+  for when the device's management address is unreachable. Enter the
+  console server's host, choose SSH or telnet, and the TCP port that maps
+  to this device's serial line (Opengear and Lantronix use one SSH or
+  telnet port per line, for example 3001 or 2001 plus the line number;
+  Cisco async cards use reverse telnet on 2001 and up). For SSH you can
+  pick a separate login for the console server and a command to type once
+  logged in, such as `connect line 3` or `pmshell -l port03`. Devices with
+  a console path get a **Console** button here and on the Monitor page.
+  Add the console server itself as a device too, so you know when *it* is
+  down.
 - **Duplicate**: a new device pre-filled from this one, handy for stacks
   of similar switches.
 - **History**: every stored config for this device, and the diff tool
@@ -228,7 +239,9 @@ check for the last hour.
   down, its 24-hour uptime percentage, and the last hour of checks: a
   short green bar is a quick reply, a tall one a slow reply, a red bar a
   miss. Hover a bar for the exact time and latency. **SSH** opens the
-  device in the Terminal.
+  device in the Terminal; **Console** appears when the device has an
+  out-of-band console path and opens that instead, which is the one you
+  want on a red card.
 - Filter to **Down** to see only what needs attention; **Table** gives the
   same data as a sortable list. **Check now** runs a cycle immediately
   even when monitoring is paused.
@@ -606,6 +619,23 @@ it a numbered tab, for example `HQ-CORE-SW01 (2)`.
 - **Disconnect** and **Reconnect** in the toolbar act on the tab you are
   looking at. A reconnect keeps the earlier output above and, for
   passcode MFA, asks for a fresh code.
+
+### Out-of-band console
+
+A device with **Console access** filled in (see Devices) shows a
+**Connect via** choice: *Management* is the normal SSH session to the
+device's own address; *Console* goes through the console server instead,
+so it works while the device's network is down. The tab is labelled
+"· console". Over SSH, Packrat logs into the console server with the
+console login (or the device's usual credential) and types the connect
+command for you; over telnet it drops you straight onto the serial line,
+so press Enter to wake the console.
+
+**Send break** appears for console sessions. It sends a real serial BREAK,
+the signal a Cisco device needs during boot to enter ROMMON for a password
+recovery, which a browser cannot send from the keyboard. Over telnet this
+is the telnet BREAK command; over SSH it is the SSH break request, which
+console servers translate onto the serial line.
 
 The terminal resizes with the window. Nothing you type is stored by
 Packrat. Leaving the page closes every session.

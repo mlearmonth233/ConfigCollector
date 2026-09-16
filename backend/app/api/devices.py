@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.database import get_db
+from app.models.credential import Credential
 from app.models.device import Device
 from app.models.ping_monitor import PingSample, PingStatus
 from app.models.job import ACTIVE_JOB_STATUSES, CollectionJobItem
@@ -141,6 +142,8 @@ async def create_device(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     data["device_role"] = device_role
     data["device_type"] = device_type
+    _normalize_console(data)
+    await _check_console_credential(db, data.get("console_credential_id"), user.org_id)
 
     device = Device(org_id=user.org_id, **data)
     db.add(device)
@@ -160,6 +163,13 @@ async def update_device(
     updates = payload.model_dump(exclude_unset=True)
     if updates.pop("clear_snmp_profile", False):
         updates["snmp_profile_id"] = None
+    if updates.pop("clear_console", False):
+        updates.update(console_host=None, console_port=None, console_protocol=None, console_credential_id=None, console_connect_command=None)
+    elif any(k.startswith("console_") for k in updates):
+        merged = {k: updates.get(k, getattr(device, k)) for k in CONSOLE_KEYS}
+        _normalize_console(merged)
+        updates.update(merged)
+    await _check_console_credential(db, updates.get("console_credential_id"), user.org_id)
     if "device_type" in updates:
         _validate_device_type(updates["device_type"], await load_catalog(db, user.org_id))
     for field, value in updates.items():
@@ -267,3 +277,32 @@ async def _get_owned_device(db: AsyncSession, device_id: UUID, org_id: UUID) -> 
     if device is None or device.org_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return device
+
+
+CONSOLE_KEYS = ("console_host", "console_port", "console_protocol", "console_credential_id", "console_connect_command")
+
+
+def _normalize_console(data: dict) -> None:
+    """A console path is host + port + protocol together. Blank host clears
+    the lot; a host without a protocol defaults to SSH; a host without a
+    port gets the protocol's default (22 / 23)."""
+    host = (data.get("console_host") or "").strip() or None
+    if host is None:
+        for key in CONSOLE_KEYS:
+            data[key] = None
+        return
+    protocol = data.get("console_protocol") or "ssh"
+    data["console_host"] = host
+    data["console_protocol"] = protocol
+    data["console_port"] = data.get("console_port") or (22 if protocol == "ssh" else 23)
+    data["console_connect_command"] = (data.get("console_connect_command") or "").strip() or None
+    if protocol == "telnet":
+        data["console_credential_id"] = None
+
+
+async def _check_console_credential(db: AsyncSession, credential_id, org_id) -> None:
+    if credential_id is None:
+        return
+    owned = await db.scalar(select(Credential.id).where(Credential.id == credential_id, Credential.org_id == org_id))
+    if owned is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Console credential not found")

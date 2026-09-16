@@ -128,6 +128,7 @@ async def _overview(db: AsyncSession, org_id: UUID) -> PingOverviewOut:
                 host=device.host,
                 site=device.site,
                 device_type=device.device_type,
+                console=bool(device.console_host),
                 state=state,
                 consecutive_failures=status_row.consecutive_failures if status_row else 0,
                 last_checked_at=status_row.last_checked_at if status_row else None,

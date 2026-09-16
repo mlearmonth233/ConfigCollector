@@ -66,5 +66,5 @@ class Credential(Base_):
     )
 
     organization: Mapped["Organization"] = relationship(back_populates="credentials")
-    devices: Mapped[list["Device"]] = relationship(back_populates="credential")
+    devices: Mapped[list["Device"]] = relationship(back_populates="credential", foreign_keys="Device.credential_id")
     fallback_credential: Mapped["Credential | None"] = relationship(remote_side="Credential.id")

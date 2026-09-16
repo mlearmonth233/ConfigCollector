@@ -35,8 +35,16 @@ export interface Device {
   snmp_profile_id: string | null;
   custom_commands: string | null;
   device_role: string | null;
+  // Optional out-of-band console path (console server + port for this device's serial line).
+  console_host: string | null;
+  console_port: number | null;
+  console_protocol: "ssh" | "telnet" | null;
+  console_credential_id: string | null;
+  console_connect_command: string | null;
   created_at: string;
 }
+
+export type TerminalVia = "management" | "console";
 
 export interface DeviceRole {
   key: string;
@@ -399,6 +407,7 @@ export interface PingDevice {
   host: string;
   site: string | null;
   device_type: string;
+  console: boolean;
   state: PingState;
   consecutive_failures: number;
   last_checked_at: string | null;

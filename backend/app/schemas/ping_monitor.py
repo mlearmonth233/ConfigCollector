@@ -35,6 +35,7 @@ class PingDeviceOut(BaseModel):
     host: str
     site: str | None
     device_type: str
+    console: bool  # has an out-of-band console path (Terminal can connect via it)
     state: str  # up | down | unknown
     consecutive_failures: int
     last_checked_at: datetime | None
