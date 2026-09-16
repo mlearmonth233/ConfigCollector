@@ -419,6 +419,17 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
 
 ## Security notes
 
+- **Secrets.** `JWT_SECRET_KEY` and `CREDENTIAL_ENCRYPTION_KEY` ship with
+  placeholder values so a fresh clone starts. With `ENVIRONMENT` set to
+  anything other than `development` (docker-compose sets `production`) the
+  app refuses to start until both are real; in development it logs a
+  warning. The Windows run scripts generate a `backend/.env` with random
+  values on first run.
+- **Login rate limiting.** Five failed logins from one IP or against one
+  account lock further attempts out for 30 seconds, doubling per repeat up
+  to 15 minutes (`LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS`,
+  `LOGIN_LOCKOUT_MAX_MINUTES`). Counters are per API process.
+
 - Device passwords/enable secrets are encrypted at rest with Fernet
   (`CREDENTIAL_ENCRYPTION_KEY`) and only decrypted in-memory inside the
   Celery worker process at the moment of connecting to a device.

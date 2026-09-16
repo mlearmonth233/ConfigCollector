@@ -1,11 +1,12 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.login_guard import guard
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.models.organization import Organization
@@ -44,12 +45,27 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    keys = (f"ip:{client_ip}", f"account:{payload.email.lower()}")
+    wait = guard.retry_after(*keys)
+    if wait:
+        log.warning("Login for %s from %s refused: locked out for another %ss", payload.email, client_ip, wait)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed logins. Try again in {wait} seconds.",
+            headers={"Retry-After": str(wait)},
+        )
+
     user = await db.scalar(select(User).where(User.email == payload.email))
     if user is None or not await asyncio.to_thread(verify_password, payload.password, user.hashed_password):
-        log.warning("Login failed for %s (%s)", payload.email, "unknown email" if user is None else "wrong password")
+        lockout = guard.record_failure(*keys)
+        log.warning("Login failed for %s from %s (%s)", payload.email, client_ip, "unknown email" if user is None else "wrong password")
+        if lockout:
+            log.warning("Locking out logins for %s / %s for %ss after repeated failures", payload.email, client_ip, lockout)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
+    guard.record_success(*keys)
     log.info("User %s (%s) logged in", payload.email, user.id)
     token = create_access_token(user_id=user.id, org_id=user.org_id)
     return TokenResponse(access_token=token)

@@ -1,6 +1,14 @@
+import logging
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The two secrets that ship with placeholder values. They are fine for a
+# throwaway dev database and nothing else: anyone who can read this file
+# can mint tokens and decrypt every stored device password. Outside
+# development the app refuses to start with either still in place.
+INSECURE_JWT_SECRET = "change-me-in-production"
+INSECURE_ENCRYPTION_KEY = "8w1r6Bt3z5r4h9m2fJmYtq6h0b1c9F8y3nQeR2sT4uI="
 
 
 class Settings(BaseSettings):
@@ -15,13 +23,23 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./configcollector.db"
 
     # Auth
-    jwt_secret_key: str = "change-me-in-production"
+    jwt_secret_key: str = INSECURE_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 12
 
     # Fernet key used to encrypt device credentials at rest.
     # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    credential_encryption_key: str = "8w1r6Bt3z5r4h9m2fJmYtq6h0b1c9F8y3nQeR2sT4uI="
+    credential_encryption_key: str = INSECURE_ENCRYPTION_KEY
+
+    # Login brute-force protection (core/login_guard.py): after
+    # login_max_failures failed attempts from one IP or against one account
+    # within login_window_minutes, further attempts get 429 for a lockout
+    # that doubles each time, from login_lockout_seconds up to
+    # login_lockout_max_minutes.
+    login_max_failures: int = 5
+    login_window_minutes: int = 15
+    login_lockout_seconds: int = 30
+    login_lockout_max_minutes: int = 15
 
     # Celery / Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -80,3 +98,36 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def insecure_secrets(settings: Settings) -> list[str]:
+    """Names of the secrets still at their shipped placeholder values."""
+    found = []
+    if settings.jwt_secret_key == INSECURE_JWT_SECRET or len(settings.jwt_secret_key) < 16:
+        found.append("JWT_SECRET_KEY")
+    if settings.credential_encryption_key == INSECURE_ENCRYPTION_KEY:
+        found.append("CREDENTIAL_ENCRYPTION_KEY")
+    return found
+
+
+def assert_secrets_configured(settings: Settings | None = None) -> None:
+    """Refuses to run outside development with placeholder secrets. In
+    development it warns instead, so a fresh clone still starts."""
+    settings = settings or get_settings()
+    missing = insecure_secrets(settings)
+    if not missing:
+        return
+    how = (
+        "Set them in backend/.env (or the environment). Generate values with:\n"
+        "  python -c \"import secrets; print(secrets.token_urlsafe(48))\"                       # JWT_SECRET_KEY\n"
+        "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"  # CREDENTIAL_ENCRYPTION_KEY"
+    )
+    if settings.environment.lower() in ("development", "dev", "test", "testing"):
+        logging.getLogger("app").warning(
+            "Using placeholder %s - fine for development only. %s", " and ".join(missing), how.replace("\n", " ")
+        )
+        return
+    raise RuntimeError(
+        f"Refusing to start with placeholder {' and '.join(missing)} while ENVIRONMENT={settings.environment!r}. "
+        f"Anyone with the source code could forge logins or decrypt stored device passwords.\n{how}"
+    )

@@ -91,15 +91,26 @@ shared server.
 
 ### Before anything real
 
-Generate a real encryption key and put it in `.env` as
-`CREDENTIAL_ENCRYPTION_KEY`. Device passwords are encrypted with it:
+Packrat needs two secrets of its own: `JWT_SECRET_KEY`, which signs
+logins, and `CREDENTIAL_ENCRYPTION_KEY`, which encrypts every stored device
+password. On Windows the run scripts create `backend\.env` with freshly
+generated values the first time they run, so you are covered. Elsewhere,
+copy `.env.example` to `.env` and generate them:
 
 ```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-If you change this key later, existing credentials can no longer be
-decrypted and must be re-entered.
+Set `ENVIRONMENT=production` on any server. With that set, Packrat refuses
+to start while either secret is still a placeholder, rather than quietly
+running on keys that are public in the source code. Back up the `.env`
+file together with the database: if the encryption key is lost or
+changed, stored credentials cannot be decrypted and must be re-entered.
+
+Logins are rate limited: after five failures from one address or against
+one account, further attempts are refused for 30 seconds, doubling each
+time up to 15 minutes. The Troubleshooting log records every lockout.
 
 ---
 

@@ -11,6 +11,10 @@ from app.core.logging_config import configure_logging
 configure_logging("api")
 log = logging.getLogger("app")
 
+from app.config import assert_secrets_configured  # noqa: E402
+
+assert_secrets_configured()
+
 from app.api import (  # noqa: E402
     auth,
     command_profiles,

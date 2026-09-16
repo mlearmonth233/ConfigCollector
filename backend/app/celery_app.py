@@ -4,10 +4,11 @@ import sys
 from celery import Celery
 from celery.signals import setup_logging, task_failure, task_postrun, task_prerun, worker_ready
 
-from app.config import get_settings
+from app.config import assert_secrets_configured, get_settings
 from app.core.logging_config import configure_logging
 
 settings = get_settings()
+assert_secrets_configured(settings)
 log = logging.getLogger("app.celery")
 
 

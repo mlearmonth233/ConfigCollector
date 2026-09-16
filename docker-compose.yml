@@ -33,6 +33,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
     ports:
@@ -52,6 +53,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
     depends_on:
@@ -72,6 +74,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
     depends_on:
