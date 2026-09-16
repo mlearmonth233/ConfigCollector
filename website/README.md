@@ -11,15 +11,48 @@ python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-## Publish
+## What goes on the web host, and what does not
 
-Any static host works. Two zero-config options:
+Only this folder is a website. The Packrat app itself (backend, worker,
+scheduler, frontend) is not something to upload to a web host: it needs
+long-running Python processes, Redis and a database, and above all it must
+sit on a network that can reach the customer's switches over SSH. Shared
+web hosting such as GoDaddy's cPanel plans provides none of that. The
+product model the site describes is therefore: the site is public, and
+each customer downloads and runs Packrat on a machine inside their own
+network (the Windows run scripts, or Docker Compose on a server).
 
-- **GitHub Pages**: Settings → Pages → "Deploy from a branch", folder
-  `/website`. The site appears at `https://<user>.github.io/ConfigCollector/`.
-- **Netlify / Cloudflare Pages**: drag the `website/` folder onto the
-  dashboard, or point a project at this repo with publish directory
-  `website`.
+## Publish on GoDaddy (cPanel / Linux hosting)
+
+1. **Domain and SSL first.** In the GoDaddy dashboard make sure the domain
+   points at the hosting plan and that SSL is active for it (Web Hosting →
+   Manage → Security → SSL; the managed certificate is included on most
+   plans). `.htaccess` in this folder redirects every visitor to HTTPS, so
+   without a certificate the site would show a warning.
+2. **Package the site.** On your PC run `.\website\package-site.ps1`. It
+   writes `website\packrat-site.zip` (about 3 MB) and refuses to run while
+   the Stripe link is still `REPLACE_ME` (add `-AllowPlaceholders` to ship
+   with the email fallback instead).
+3. **Upload.** Web Hosting → Manage → cPanel Admin → **File Manager** →
+   open `public_html`. Delete GoDaddy's placeholder files (`index.html`,
+   `coming-soon` and the like) if present. Press **Upload**, choose the
+   zip, then back in File Manager right-click it → **Extract** → into
+   `public_html`. Delete the zip afterwards. Turn on *Settings → Show
+   hidden files* to confirm `.htaccess` arrived.
+4. **Check.** Open `https://yourdomain/` and `https://yourdomain/thanks.html`.
+   Click "Start a 30-day trial" and confirm it opens Stripe (or your
+   mailto fallback). On a phone too.
+5. **Mailboxes.** The site uses `sales@` and `support@` on your domain
+   (see below). Create them in GoDaddy (Email & Office, or cPanel → Email
+   Accounts if the plan includes mail) or forward them to your own
+   address, before anyone clicks.
+6. **Updating later** is the same upload-and-extract; the HTML is cached
+   for an hour at most.
+
+FTP works too (cPanel → FTP Accounts; host is your domain, folder
+`public_html`), and so does any other static host: GitHub Pages (Settings →
+Pages → folder `/website`), Netlify or Cloudflare Pages (drag the folder
+onto the dashboard).
 
 ## Before you go live
 
