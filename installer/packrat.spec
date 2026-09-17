@@ -152,26 +152,40 @@ if sys.platform == "darwin":
                 found[base] = path
         return found
 
-    candidates = {name: {} for name in OPENSSL_LIBS}
+    # Group candidates by the OpenSSL installation they come from. Only
+    # libcrypto carries the "OpenSSL x.y.z" version text, so an install is
+    # scored by its libcrypto and both libraries are taken from the winner
+    # (mixing a libssl and a libcrypto from different builds would not load).
+    installs = {}  # directory -> {basename: path}
     for entry in a.binaries:
         base = os.path.basename(entry[0])
         if base in OPENSSL_LIBS and os.path.exists(entry[1]):
-            candidates[base][entry[1]] = openssl_version(entry[1])
+            real = os.path.realpath(entry[1])
+            installs.setdefault(os.path.dirname(real), {})[base] = real
     for ext in glob.glob(os.path.join(os.path.dirname(cryptography.__file__), "hazmat", "bindings", "_rust*.so")):
         for base, path in linked_openssl(ext).items():
-            candidates[base][path] = openssl_version(path)
+            real = os.path.realpath(path)
+            installs.setdefault(os.path.dirname(real), {})[base] = real
+    for directory, libs in installs.items():
+        for base in OPENSSL_LIBS:
+            sibling = os.path.join(directory, base)
+            if base not in libs and os.path.exists(sibling):
+                libs[base] = sibling
 
-    replaced = False
-    for base, options in candidates.items():
-        if not options:
-            continue
-        best_path, best_version = max(options.items(), key=lambda kv: kv[1])
-        kept = [e for e in a.binaries if os.path.basename(e[0]) != base]
-        kept.append((base, best_path, "BINARY"))
-        a.binaries = kept
-        replaced = True
-        print(f"packrat.spec: {base} -> OpenSSL {'.'.join(map(str, best_version))} from {best_path} (of {len(options)} candidates)")
-    if not replaced:
+    def install_version(libs):
+        return max((openssl_version(path) for path in libs.values()), default=(0, 0, 0))
+
+    if installs:
+        best_dir, best_libs = max(installs.items(), key=lambda kv: install_version(kv[1]))
+        a.binaries = [e for e in a.binaries if os.path.basename(e[0]) not in OPENSSL_LIBS]
+        for base in OPENSSL_LIBS:
+            if base in best_libs:
+                a.binaries.append((base, best_libs[base], "BINARY"))
+        print(
+            f"packrat.spec: OpenSSL {'.'.join(map(str, install_version(best_libs)))} from {best_dir} "
+            f"chosen for the bundle (candidates: {', '.join(sorted(installs))})"
+        )
+    else:
         print("packrat.spec: no OpenSSL libraries to reconcile")
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
