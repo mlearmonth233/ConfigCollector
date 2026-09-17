@@ -59,8 +59,13 @@ $python = Join-Path $venv "Scripts\python.exe"
 if (-not (Test-Path $python)) {
     Invoke-Checked "Create build venv" { python -m venv $venv }
 }
-Invoke-Checked "Install backend requirements" { & $python -m pip install --quiet --upgrade pip }
-Invoke-Checked "Install backend requirements" { & $python -m pip install --quiet -r (Join-Path $root "backend\requirements.txt") }
+Invoke-Checked "Upgrade pip" { & $python -m pip install --quiet --upgrade pip }
+# The desktop bundle runs on SQLite, so the Postgres drivers (and pytest)
+# stay out: they are the packages most likely to lack a wheel for a given
+# Windows build (Arm in particular) and would drag in a compiler for nothing.
+$bundleRequirements = Join-Path $env:TEMP "packrat-bundle-requirements.txt"
+Get-Content (Join-Path $root "backend\requirements.txt") | Where-Object { $_ -notmatch '^(psycopg2-binary|asyncpg|pytest|pytest-asyncio)\b' } | Set-Content $bundleRequirements
+Invoke-Checked "Install backend requirements" { & $python -m pip install --quiet -r $bundleRequirements }
 Invoke-Checked "Install desktop build requirements" { & $python -m pip install --quiet -r (Join-Path $installer "requirements-desktop.txt") }
 
 Push-Location $root

@@ -34,7 +34,10 @@ class Child:
 
 class Supervisor:
     def __init__(self, env: dict[str, str], data_dir: Path) -> None:
-        self.env = dict(env)
+        # The children need the whole parent environment, not just Packrat's
+        # settings: on Windows, Winsock refuses to initialise without
+        # SystemRoot (WinError 10106) and nothing loads without PATH.
+        self.env = {**os.environ, **env}
         self.env["PACKRAT_PARENT_PID"] = str(os.getpid())
         if not is_frozen():
             # The children run from the data folder; unbundled they still

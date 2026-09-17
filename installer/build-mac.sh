@@ -41,7 +41,11 @@ if [[ ! -x "$venv/bin/python" ]]; then
 fi
 step "Install requirements"
 "$venv/bin/python" -m pip install --quiet --upgrade pip
-"$venv/bin/python" -m pip install --quiet -r "$root/backend/requirements.txt" -r "$installer/requirements-desktop.txt"
+# SQLite only in the bundle: leave the Postgres drivers and pytest out.
+bundle_requirements="$(mktemp)"
+grep -Ev '^(psycopg2-binary|asyncpg|pytest|pytest-asyncio)\b' "$root/backend/requirements.txt" > "$bundle_requirements"
+"$venv/bin/python" -m pip install --quiet -r "$bundle_requirements" -r "$installer/requirements-desktop.txt"
+rm -f "$bundle_requirements"
 
 step "PyInstaller"
 rm -rf "$root/dist/Packrat.app" "$root/dist/Packrat"

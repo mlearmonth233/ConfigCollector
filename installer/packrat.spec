@@ -102,6 +102,40 @@ a = Analysis(  # noqa: F821
     cipher=block_cipher,
     noarchive=False,
 )
+if sys.platform == "darwin":
+    # Two OpenSSLs meet in the bundle: the one Python's own _ssl module was
+    # built against, and the newer one the cryptography wheel ships in its
+    # .dylibs folder and needs (its Rust extension calls symbols that only
+    # exist in OpenSSL 3.2+). PyInstaller places shared libraries at the
+    # top of Contents/Frameworks by file name, so only one libssl.3.dylib
+    # survives - and if it is Python's older copy, cryptography fails to
+    # import ("Symbol not found: _SSL_get0_group_name"). OpenSSL 3.x is
+    # backwards compatible within the major version, so keep the newer
+    # wheel copy for both users.
+    import glob
+
+    import cryptography
+
+    wheel_libs = {
+        os.path.basename(p): p
+        for p in glob.glob(os.path.join(os.path.dirname(cryptography.__file__), ".dylibs", "lib*.dylib"))
+    }
+    openssl_names = {n for n in wheel_libs if n.startswith(("libssl", "libcrypto"))}
+    if openssl_names:
+        kept = []
+        for entry in a.binaries:
+            dest, source = entry[0], entry[1]
+            if os.path.basename(dest) in openssl_names or os.path.basename(source) in openssl_names:
+                if source in wheel_libs.values() and os.path.dirname(dest) == "":
+                    kept.append(entry)  # already the wheel's copy at the top level
+                continue
+            kept.append(entry)
+        for name in sorted(openssl_names):
+            if not any(os.path.basename(e[0]) == name and os.path.dirname(e[0]) == "" for e in kept):
+                kept.append((name, wheel_libs[name], "BINARY"))
+        print(f"packrat.spec: using cryptography's OpenSSL ({', '.join(sorted(openssl_names))}) for the whole bundle")
+        a.binaries = type(a.binaries)(kept) if not isinstance(a.binaries, list) else kept
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
 
 icon = str(INSTALLER / "assets" / ("packrat.ico" if sys.platform == "win32" else "packrat-icon.png"))
