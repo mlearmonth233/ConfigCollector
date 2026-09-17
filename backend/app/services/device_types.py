@@ -135,7 +135,10 @@ _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
     "show run-config",
     "show wlan summary",
     "show interface summary",
+    # Wireless clients: every client with its AP, WLAN, protocol and auth
+    # state, then the same list keyed by IP address (8.x).
     "show client summary",
+    "show client summary ip",
 )
 
 # Catalyst 9800 WLC (cisco_xe driver, IOS-XE). Distinct AP-inventory-style
@@ -154,7 +157,12 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     "show ap ethernet statistics",
     "show wlan summary",
     "show interface summary",
-    "show client summary",
+    # Wireless clients. IOS-XE wireless syntax ("show wireless ..."): the
+    # AireOS "show client summary" does not exist on a 9800. The summary
+    # lists every client with its AP, WLAN, state, protocol and auth
+    # method; the stats summary adds RSSI, SNR and data rates per client.
+    "show wireless client summary",
+    "show wireless stats client summary",
 )
 
 # VDOM-enabled FortiGates need "config vdom" / "edit root" before the
