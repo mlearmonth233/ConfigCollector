@@ -9,17 +9,38 @@ import { formatLocalDateTime } from "../utils/formatDate";
 import { useLicence } from "../context/LicenceContext";
 import { UpgradeNotice } from "../components/UpgradeNotice";
 
-type Tab = "devices" | "hardware" | "neighbors" | "aps" | "unmanaged" | "endpoints" | "coverage";
+type Tab = "devices" | "hardware" | "neighbors" | "aps" | "subnets" | "unmanaged" | "endpoints" | "coverage";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "devices", label: "Devices" },
   { key: "hardware", label: "Hardware" },
   { key: "neighbors", label: "Neighbors" },
   { key: "aps", label: "Access points" },
+  { key: "subnets", label: "Subnets" },
   { key: "unmanaged", label: "Unmanaged" },
   { key: "endpoints", label: "Endpoints" },
   { key: "coverage", label: "Coverage" },
 ];
+
+/** "10.10.10.1 on HQ-CORE-SW01 Vlan10" style summary of one gateway/interface row. */
+function describeAddress(a: { device_name: string; interface: string; ip: string; secondary: boolean }): string {
+  return `${a.device_name} ${a.interface} ${a.ip}${a.secondary ? " (secondary)" : ""}`;
+}
+
+function UsageBar({ used, capacity }: { used: number; capacity: number }) {
+  if (!capacity) return <span className="field-hint">—</span>;
+  const percent = Math.min(100, Math.round((100 * used) / capacity));
+  return (
+    <div className="usage-bar" title={`${used} of ${capacity} usable addresses seen`}>
+      <div className="usage-bar-track">
+        <div className={`usage-bar-fill ${percent >= 90 ? "high" : percent >= 70 ? "mid" : ""}`} style={{ width: `${percent}%` }} />
+      </div>
+      <span className="usage-bar-label">
+        {used}/{capacity}
+      </span>
+    </div>
+  );
+}
 
 function StatTile({ label, value, tone, hint }: { label: string; value: string; tone?: "up" | "down" | "unknown" | "neutral"; hint?: string }) {
   return (
@@ -152,6 +173,7 @@ export function Inventory() {
         <StatTile label="Serials found" value={String(s.devices_with_serial)} hint="Devices whose serial number was read from show version / show inventory" />
         <StatTile label="Components" value={String(s.hardware)} hint="Chassis, modules, power supplies and optics from show inventory" />
         <StatTile label="Access points" value={String(s.access_points)} />
+        <StatTile label="Subnets" value={String(s.subnets)} hint="IP subnets in use: interface addresses in the collected configs, plus ranges only seen in ARP tables" />
         <StatTile label="Unmanaged" value={String(s.unmanaged)} tone={s.unmanaged ? "unknown" : "neutral"} hint="Devices CDP/LLDP can see that are not in your Devices list" />
       </div>
 
@@ -371,6 +393,72 @@ export function Inventory() {
             )}
           </tbody>
         </table>
+      )}
+
+      {tab === "subnets" && (
+        <>
+          <p className="page-subtitle" style={{ marginTop: 8 }}>
+            Every IP subnet the site uses, from the interface addresses in the collected running configs (SVIs, routed ports, sub-interfaces, FortiGate and
+            controller interfaces). "Addresses seen" counts the other hosts found in each range: ARP entries, access points, neighbours and your managed
+            devices. A range that only appears in those, with no configured interface in any collected device, is listed as an inferred /24 so a subnet routed
+            by something Packrat does not manage still shows up.
+          </p>
+          <table className="data-table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Network</th>
+                <th>VLAN</th>
+                <th>Name</th>
+                <th>VRF</th>
+                <th>Gateways / device interfaces</th>
+                <th>Addresses seen</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.subnets
+                .filter((sn) => matches(q, sn.network, sn.mask, sn.vlan, sn.name, sn.vrf, ...sn.addresses.map(describeAddress)))
+                .map((sn) => (
+                  <tr key={sn.network}>
+                    <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>
+                      {sn.network}
+                      <div className="field-hint">{sn.mask}</div>
+                    </td>
+                    <td>{dash(sn.vlan)}</td>
+                    <td>{dash(sn.name)}</td>
+                    <td>{dash(sn.vrf)}</td>
+                    <td>
+                      {sn.addresses.length === 0 ? (
+                        <span className="field-hint">none in a collected config</span>
+                      ) : (
+                        <ul className="plain-list">
+                          {sn.addresses.map((a, i) => (
+                            <li key={`${a.device_id}-${a.interface}-${i}`}>
+                              <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{a.ip}</span> {a.device_name} {a.interface}
+                              {a.secondary ? <span className="field-hint"> secondary</span> : null}
+                              {a.description && a.description !== sn.name ? <span className="field-hint"> · {a.description}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                    <td>
+                      <UsageBar used={sn.hosts_seen + sn.addresses.length} capacity={sn.usable} />
+                    </td>
+                    <td>{sn.source === "config" ? "interface address" : <span className="field-hint">inferred from addresses seen</span>}</td>
+                  </tr>
+                ))}
+              {data.subnets.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="empty-state">
+                    No interface addresses found yet. The device type has to collect the running config ("show run", "show run-config" or "show
+                    full-configuration"); see Coverage.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </>
       )}
 
       {tab === "unmanaged" && (

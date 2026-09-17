@@ -323,7 +323,8 @@ runs:
 | show inventory | every component with a PID and serial: chassis, stack members, modules, power supplies, optics |
 | show cdp neighbors detail / show lldp neighbors detail | what is plugged into which port: neighbour name, IP, platform, capabilities, remote port |
 | show mac address-table | the MAC addresses learned on each access port |
-| show ip arp | MAC to IP, so endpoints get an address |
+| show ip arp | MAC to IP, so endpoints get an address, and which addresses are in use in each subnet |
+| show running-config (show run-config on AireOS, show full-configuration on FortiGate) | interface IP addresses and masks, descriptions, VLANs and VRFs, which become the list of subnets |
 | show ap summary (or show ap config general) | access points on a wireless controller: name, model, MAC, IP, serial |
 | get system status / get system arp | FortiGate model, serial, hostname and ARP |
 | about | APC PDU model, serial and MAC |
@@ -338,6 +339,17 @@ components, access points, and **unmanaged** devices. The tabs:
 - **Neighbors**: every CDP/LLDP link, and whether the far end is a device
   Packrat manages (matched by name, reported hostname or management IP).
 - **Access points**: APs reported by your controllers.
+- **Subnets**: every IP subnet in use on the site. Each interface address
+  in a collected running config (an SVI, a routed port, a sub-interface, a
+  FortiGate or controller interface) defines a subnet, shown with its
+  mask, VLAN, description, VRF and the device interfaces that sit in it,
+  which are usually the gateways. "Addresses seen" counts the other hosts
+  found in that range across every ARP table, access point, neighbour and
+  managed device, against the number of usable addresses, so a range that
+  is filling up stands out. Addresses that fall in no configured subnet,
+  because whatever routes them is not a device Packrat collects, are
+  grouped into inferred /24 rows marked as such; add that router or
+  firewall to Devices to get the real mask.
 - **Unmanaged**: hardware your switches can see that is not in the Devices
   list, grouped by kind (switch, router, access point, IP phone, host...)
   with the ports it was seen from. Switches and routers here are the ones

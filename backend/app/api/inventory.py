@@ -77,6 +77,7 @@ def _to_out(built: inv.Inventory) -> InventoryOut:
             neighbors=len(built.neighbors),
             unmanaged=len(built.unmanaged),
             endpoints=sum(1 for e in built.endpoints if not e.on_uplink),
+            subnets=len(built.subnets),
         ),
         models=built.models,
         devices=[asdict(d) for d in built.devices],
@@ -85,6 +86,7 @@ def _to_out(built: inv.Inventory) -> InventoryOut:
         access_points=[asdict(a) for a in built.access_points],
         endpoints=[asdict(e) for e in built.endpoints],
         unmanaged=[asdict(u) for u in built.unmanaged],
+        subnets=[asdict(s) for s in built.subnets],
     )
 
 

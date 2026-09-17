@@ -550,6 +550,30 @@ export interface InventoryUnmanaged {
   protocols: string[];
 }
 
+export interface InventorySubnetAddress {
+  device_id: string;
+  device_name: string;
+  interface: string;
+  ip: string;
+  description: string | null;
+  vlan: string | null;
+  vrf: string | null;
+  secondary: boolean;
+}
+
+export interface InventorySubnet {
+  network: string;
+  prefix_len: number;
+  mask: string;
+  vlan: string | null;
+  name: string | null;
+  vrf: string | null;
+  addresses: InventorySubnetAddress[];
+  hosts_seen: number;
+  usable: number;
+  source: "config" | "seen";
+}
+
 export interface InventorySummary {
   devices: number;
   devices_with_config: number;
@@ -559,6 +583,7 @@ export interface InventorySummary {
   neighbors: number;
   unmanaged: number;
   endpoints: number;
+  subnets: number;
 }
 
 export interface Inventory {
@@ -571,6 +596,7 @@ export interface Inventory {
   access_points: InventoryAccessPoint[];
   endpoints: InventoryEndpoint[];
   unmanaged: InventoryUnmanaged[];
+  subnets: InventorySubnet[];
 }
 
 export interface InventoryCommandCoverage {

@@ -79,6 +79,30 @@ class UnmanagedDeviceOut(BaseModel):
     protocols: list[str]
 
 
+class SubnetAddressOut(BaseModel):
+    device_id: str
+    device_name: str
+    interface: str
+    ip: str
+    description: str | None
+    vlan: str | None
+    vrf: str | None
+    secondary: bool
+
+
+class SubnetOut(BaseModel):
+    network: str
+    prefix_len: int
+    mask: str
+    vlan: str | None
+    name: str | None
+    vrf: str | None
+    addresses: list[SubnetAddressOut]
+    hosts_seen: int
+    usable: int
+    source: str  # "config" or "seen"
+
+
 class InventorySummaryOut(BaseModel):
     devices: int
     devices_with_config: int
@@ -88,6 +112,7 @@ class InventorySummaryOut(BaseModel):
     neighbors: int
     unmanaged: int
     endpoints: int  # on access ports (excludes uplinks)
+    subnets: int = 0
 
 
 class InventoryOut(BaseModel):
@@ -100,6 +125,7 @@ class InventoryOut(BaseModel):
     access_points: list[AccessPointOut]
     endpoints: list[EndpointOut]
     unmanaged: list[UnmanagedDeviceOut]
+    subnets: list[SubnetOut] = []
 
 
 class InventoryCommandCoverageOut(BaseModel):

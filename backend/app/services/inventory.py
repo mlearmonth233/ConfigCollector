@@ -23,6 +23,7 @@ typed word as a prefix of the canonical command's word.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -45,6 +46,7 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show lldp neighbors detail",
         "show mac address-table",
         "show ip arp",
+        "show running-config",
     ),
     "cisco_nxos": (
         "show version",
@@ -53,22 +55,26 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show lldp neighbors detail",
         "show mac address-table",
         "show ip arp",
+        "show running-config",
     ),
     "cisco_wlc_9800": (
         "show version",
         "show inventory",
         "show cdp neighbors detail",
         "show ap summary",
+        "show running-config",
     ),
     "cisco_wlc": (
         "show sysinfo",
         "show inventory",
         "show cdp neighbors detail",
         "show ap summary",
+        "show running-config",
     ),
     "fortinet": (
         "get system status",
         "get system arp",
+        "show running-config",
     ),
     "apc_pdu": ("about",),
 }
@@ -79,6 +85,9 @@ _ALIASES: dict[str, tuple[str, ...]] = {
     "show ip arp": ("show arp",),
     "show version": ("show ver",),
     "show ap summary": ("show ap config general",),
+    # The running configuration under each platform's name for it: IOS and
+    # NX-OS, AireOS ("show run-config"), FortiOS ("show full-configuration").
+    "show running-config": ("show run-config", "show full-configuration", "show configuration"),
 }
 
 
@@ -236,6 +245,34 @@ class UnmanagedDevice:
 
 
 @dataclass
+class SubnetAddress:
+    """One device interface that has an address in a subnet."""
+
+    device_id: str
+    device_name: str
+    interface: str
+    ip: str
+    description: str | None
+    vlan: str | None
+    vrf: str | None
+    secondary: bool
+
+
+@dataclass
+class Subnet:
+    network: str  # "10.10.10.0/24"
+    prefix_len: int
+    mask: str
+    vlan: str | None
+    name: str | None  # interface description / FortiGate alias, first one found
+    vrf: str | None
+    addresses: list[SubnetAddress]  # device interfaces inside it (gateways, SVIs, management)
+    hosts_seen: int  # distinct other addresses seen in it: ARP entries, APs, neighbours, managed devices
+    usable: int  # how many hosts the prefix can hold
+    source: str  # "config": from an interface address; "seen": only inferred from addresses in use
+
+
+@dataclass
 class Inventory:
     generated_at: datetime
     devices: list[DeviceFacts]
@@ -245,6 +282,7 @@ class Inventory:
     endpoints: list[Endpoint]
     unmanaged: list[UnmanagedDevice]
     models: dict[str, int]  # model -> count across devices, APs and unmanaged neighbours' platforms
+    subnets: list[Subnet] = field(default_factory=list)
 
 
 # --- parsers: show version and friends ------------------------------------------------------
@@ -471,6 +509,204 @@ def parse_ap_config_general(output: str) -> list[dict[str, str | None]]:
 # --- assembling the inventory -----------------------------------------------------------------
 
 
+# --- parsers: interface addresses (subnets) --------------------------------------------------
+
+_IOS_INTERFACE = re.compile(r"^interface\s+(\S+)", re.IGNORECASE)
+_IOS_IP_MASK = re.compile(rf"^\s+ip(?:v4)?\s+address\s+({_IP})\s+({_IP})(\s+secondary)?", re.IGNORECASE)
+_IOS_IP_CIDR = re.compile(rf"^\s+ip(?:v4)?\s+address\s+({_IP})/(\d{{1,2}})(\s+secondary)?", re.IGNORECASE)
+_IOS_DESCRIPTION = re.compile(r"^\s+description\s+(.+?)\s*$", re.IGNORECASE)
+_IOS_DOT1Q = re.compile(r"^\s+encapsulation\s+dot1q\s+(\d+)", re.IGNORECASE)
+_IOS_VRF = re.compile(r"^\s+(?:vrf\s+member|ip\s+vrf\s+forwarding|vrf\s+forwarding)\s+(\S+)", re.IGNORECASE)
+_VLAN_INTERFACE = re.compile(r"^vlan\s*(\d+)$", re.IGNORECASE)
+
+
+def _address_row(interface: str, ip: str, prefix_len: int, description: str | None, vlan: str | None, vrf: str | None, secondary: bool) -> dict | None:
+    try:
+        iface = ipaddress.IPv4Interface(f"{ip}/{prefix_len}")
+    except ValueError:
+        return None
+    if iface.ip.is_loopback or iface.ip.is_unspecified:
+        return None
+    return {
+        "interface": interface,
+        "ip": str(iface.ip),
+        "prefix_len": iface.network.prefixlen,
+        "network": str(iface.network),
+        "description": description,
+        "vlan": vlan,
+        "vrf": vrf,
+        "secondary": secondary,
+    }
+
+
+def _mask_to_prefix(mask: str) -> int | None:
+    try:
+        return ipaddress.IPv4Network(f"0.0.0.0/{mask}").prefixlen
+    except ValueError:
+        return None
+
+
+def parse_cisco_interface_addresses(config: str) -> list[dict]:
+    """Every `ip address` under an `interface` block of an IOS, IOS-XE or
+    NX-OS running config, with the interface's description, VLAN (an SVI's
+    number or a sub-interface's dot1q tag) and VRF."""
+    rows: list[dict] = []
+    current: str | None = None
+    description = vlan = vrf = None
+    pending: list[tuple[str, int, bool]] = []
+
+    def flush() -> None:
+        for ip, prefix_len, secondary in pending:
+            row = _address_row(current or "?", ip, prefix_len, description, vlan, vrf, secondary)
+            if row:
+                rows.append(row)
+
+    for line in config.splitlines():
+        header = _IOS_INTERFACE.match(line)
+        if header:
+            flush()
+            current = header.group(1)
+            m = _VLAN_INTERFACE.match(current)
+            description, vrf = None, None
+            vlan = m.group(1) if m else None
+            pending = []
+            continue
+        if current is None:
+            continue
+        if line and not line[0].isspace() and not line.startswith("!"):
+            # Back at the top level: the interface block has ended.
+            flush()
+            current = None
+            pending = []
+            continue
+        if (m := _IOS_IP_MASK.match(line)) is not None:
+            prefix_len = _mask_to_prefix(m.group(2))
+            if prefix_len is not None:
+                pending.append((m.group(1), prefix_len, bool(m.group(3))))
+        elif (m := _IOS_IP_CIDR.match(line)) is not None:
+            pending.append((m.group(1), int(m.group(2)), bool(m.group(3))))
+        elif (m := _IOS_DESCRIPTION.match(line)) is not None:
+            description = m.group(1)
+        elif (m := _IOS_DOT1Q.match(line)) is not None:
+            vlan = m.group(1)
+        elif (m := _IOS_VRF.match(line)) is not None:
+            vrf = m.group(1)
+    flush()
+    return rows
+
+
+_FGT_EDIT = re.compile(r'^\s*edit\s+"?([^"]+?)"?\s*$')
+_FGT_SET_IP = re.compile(rf'^\s*set\s+ip\s+({_IP})\s+({_IP})')
+_FGT_SET_STR = re.compile(r'^\s*set\s+(alias|description|vdom|interface)\s+"?([^"]*?)"?\s*$')
+_FGT_SET_VLAN = re.compile(r"^\s*set\s+vlanid\s+(\d+)")
+
+
+def parse_fortigate_interface_addresses(config: str) -> list[dict]:
+    """`set ip` lines of `config system interface` in a FortiOS
+    configuration, including `config secondaryip` entries."""
+    rows: list[dict] = []
+    in_interfaces = False
+    depth = 0
+    name: str | None = None
+    alias = description = vdom = vlan = None
+    in_secondary = False
+    addresses: list[tuple[str, str, bool]] = []
+
+    def flush() -> None:
+        for ip, mask, secondary in addresses:
+            prefix_len = _mask_to_prefix(mask)
+            if prefix_len is None:
+                continue
+            label = alias or description
+            row = _address_row(name or "?", ip, prefix_len, label, vlan, vdom, secondary)
+            if row:
+                rows.append(row)
+
+    for raw in config.splitlines():
+        line = raw.strip()
+        if not in_interfaces:
+            if line == "config system interface":
+                in_interfaces = True
+                depth = 1
+            continue
+        if line.startswith("config "):
+            depth += 1
+            in_secondary = line == "config secondaryip"
+            continue
+        if line == "end":
+            depth -= 1
+            if depth <= 0:
+                flush()
+                break
+            in_secondary = False
+            continue
+        if line == "next":
+            if not in_secondary:
+                flush()
+                name, alias, description, vdom, vlan = None, None, None, None, None
+                addresses = []
+            continue
+        if (m := _FGT_EDIT.match(raw)) is not None:
+            if not in_secondary:
+                name = m.group(1)
+            continue
+        if (m := _FGT_SET_IP.match(raw)) is not None:
+            addresses.append((m.group(1), m.group(2), in_secondary))
+        elif (m := _FGT_SET_VLAN.match(raw)) is not None:
+            vlan = m.group(1)
+        elif (m := _FGT_SET_STR.match(raw)) is not None:
+            key, value = m.group(1), m.group(2)
+            if key == "alias":
+                alias = value
+            elif key == "description":
+                description = value
+            elif key == "vdom":
+                vdom = value
+    return rows
+
+
+_AIREOS_FIELD = re.compile(r"^(Interface Name|IP Address|IP Netmask|VLAN)\.{2,}\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def parse_aireos_interface_addresses(config: str) -> list[dict]:
+    """AireOS `show run-config` / `show interface detailed` interface
+    records: name, address, netmask and VLAN, dotted-leader style."""
+    rows: list[dict] = []
+    current: dict | None = None
+
+    def flush() -> None:
+        if current and current.get("ip") and current.get("mask"):
+            prefix_len = _mask_to_prefix(current["mask"])
+            if prefix_len is not None:
+                row = _address_row(current["name"], current["ip"], prefix_len, None, current.get("vlan"), None, False)
+                if row:
+                    rows.append(row)
+
+    for m in _AIREOS_FIELD.finditer(config):
+        key, value = m.group(1).lower(), m.group(2)
+        if key == "interface name":
+            flush()
+            current = {"name": value}
+        elif current is None:
+            continue
+        elif key == "ip address" and "ip" not in current:
+            current["ip"] = value
+        elif key == "ip netmask":
+            current["mask"] = value
+        elif key == "vlan":
+            current["vlan"] = value if value.isdigit() else None
+    flush()
+    return rows
+
+
+def parse_interface_addresses(config: str, device_type: str) -> list[dict]:
+    if device_type == "fortinet" or "config system interface" in config:
+        return parse_fortigate_interface_addresses(config)
+    if device_type == "cisco_wlc" or "Interface Name....." in config:
+        return parse_aireos_interface_addresses(config)
+    return parse_cisco_interface_addresses(config)
+
+
 def guess_kind(platform: str | None, capabilities: str | None, name: str | None = None) -> str:
     text = f"{platform or ''} {capabilities or ''} {name or ''}".lower()
     if "phone" in text:
@@ -534,6 +770,8 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
     mac_rows: list[tuple[SnapshotInput, dict]] = []
     arp_ip_by_mac: dict[str, str] = {}
     uplink_ports: dict[str, set[str]] = defaultdict(set)
+    address_rows: list[tuple[SnapshotInput, dict]] = []
+    seen_ips: set[str] = set()
 
     for item in inputs:
         wanted = INVENTORY_COMMANDS.get(item.device_type, ("show version",))
@@ -582,6 +820,13 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
             if arp_output:
                 for row in parse_arp(arp_output):
                     arp_ip_by_mac.setdefault(row["mac"], row["ip"])
+                    if row.get("ip"):
+                        seen_ips.add(row["ip"])
+
+            running = find_section(item.content, "show running-config")
+            if running:
+                for row in parse_interface_addresses(running, item.device_type):
+                    address_rows.append((item, row))
         else:
             facts.commands_missing = list(wanted)
         devices.append(facts)
@@ -661,7 +906,71 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
         if u.platform:
             models[u.platform] += 1
 
-    return Inventory(now, devices, hardware, neighbors, access_points, endpoints, unmanaged, dict(sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))))
+    for d in devices:
+        seen_ips.add(d.host)
+    for ap in access_points:
+        if ap.ip:
+            seen_ips.add(ap.ip)
+    for n in neighbors:
+        if n.ip:
+            seen_ips.add(n.ip)
+    subnets = build_subnets(address_rows, seen_ips)
+
+    return Inventory(
+        now, devices, hardware, neighbors, access_points, endpoints, unmanaged, dict(sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))), subnets
+    )
+
+
+def _usable_hosts(network: ipaddress.IPv4Network) -> int:
+    if network.prefixlen >= 31:
+        return 2 if network.prefixlen == 31 else 1
+    return network.num_addresses - 2
+
+
+def build_subnets(address_rows: list[tuple[SnapshotInput, dict]], seen_ips: set[str]) -> list[Subnet]:
+    """Subnets in use on the site. Every interface address in a collected
+    config defines one; addresses seen anywhere else (ARP tables, access
+    points, neighbours, the managed devices' own management addresses)
+    count as hosts inside those, and the ones that fall outside every
+    configured subnet are grouped into inferred /24s so a subnet routed by
+    something Packrat does not manage still shows up."""
+    by_network: dict[ipaddress.IPv4Network, Subnet] = {}
+    interface_ips: set[str] = set()
+    for item, row in address_rows:
+        network = ipaddress.IPv4Network(row["network"])
+        subnet = by_network.get(network)
+        if subnet is None:
+            subnet = Subnet(str(network), network.prefixlen, str(network.netmask), None, None, None, [], 0, _usable_hosts(network), "config")
+            by_network[network] = subnet
+        subnet.addresses.append(
+            SubnetAddress(item.device_id, item.name, row["interface"], row["ip"], row["description"], row["vlan"], row["vrf"], row["secondary"])
+        )
+        subnet.vlan = subnet.vlan or row["vlan"]
+        subnet.name = subnet.name or row["description"]
+        subnet.vrf = subnet.vrf or row["vrf"]
+        interface_ips.add(row["ip"])
+
+    configured = sorted(by_network, key=lambda n: n.prefixlen, reverse=True)  # most specific first
+    inferred: dict[ipaddress.IPv4Network, set[str]] = defaultdict(set)
+    hosts: dict[ipaddress.IPv4Network, set[str]] = defaultdict(set)
+    for raw in seen_ips:
+        try:
+            ip = ipaddress.IPv4Address(raw)
+        except ValueError:
+            continue  # a hostname, or IPv6
+        if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_link_local or str(ip) in interface_ips:
+            continue
+        home = next((n for n in configured if ip in n), None)
+        if home is not None:
+            hosts[home].add(str(ip))
+        else:
+            inferred[ipaddress.IPv4Network(f"{ip}/24", strict=False)].add(str(ip))
+    for network, subnet in by_network.items():
+        subnet.hosts_seen = len(hosts[network])
+    for network, ips in inferred.items():
+        by_network[network] = Subnet(str(network), 24, str(network.netmask), None, None, None, [], len(ips), _usable_hosts(network), "seen")
+
+    return [by_network[n] for n in sorted(by_network, key=lambda n: (int(n.network_address), n.prefixlen))]
 
 
 _PORT_ABBREV = (

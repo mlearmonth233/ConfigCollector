@@ -54,6 +54,7 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
         ["Neighbour links (CDP/LLDP)", len(inventory.neighbors)],
         ["Unmanaged devices seen on the wire", len(inventory.unmanaged)],
         ["Endpoints (MAC addresses on access ports)", sum(1 for e in inventory.endpoints if not e.on_uplink)],
+        ["Subnets in use", len(inventory.subnets)],
         [],
         ["Model", "Count"],
     ]
@@ -61,7 +62,7 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
     for row in summary_rows:
         summary.append(row)
     summary["A1"].font = Font(bold=True)
-    for cell in summary[12]:
+    for cell in summary[13]:
         cell.fill = _HEADER_FILL
         cell.font = _HEADER_FONT
     summary.column_dimensions["A"].width = 46
@@ -94,6 +95,25 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
         wb.create_sheet("Unmanaged"),
         ["Kind", "Name", "IP", "Platform", "Capabilities", "Seen from", "Protocol"],
         [[u.kind, u.name, u.ip, u.platform, u.capabilities, "; ".join(u.seen_from), "/".join(p.upper() for p in u.protocols)] for u in inventory.unmanaged],
+    )
+    _write_table(
+        wb.create_sheet("Subnets"),
+        ["Network", "Mask", "VLAN", "Name", "VRF / VDOM", "Device interfaces (gateways)", "Addresses seen", "Usable hosts", "In use %", "Source"],
+        [
+            [
+                s.network,
+                s.mask,
+                s.vlan,
+                s.name,
+                s.vrf,
+                "; ".join(f"{a.device_name} {a.interface} {a.ip}{' (secondary)' if a.secondary else ''}" for a in s.addresses),
+                s.hosts_seen,
+                s.usable,
+                round(100 * (s.hosts_seen + len(s.addresses)) / s.usable) if s.usable else None,
+                "interface address" if s.source == "config" else "addresses seen only (inferred /24)",
+            ]
+            for s in inventory.subnets
+        ],
     )
     _write_table(
         wb.create_sheet("Endpoints"),

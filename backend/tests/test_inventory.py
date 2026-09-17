@@ -288,6 +288,7 @@ def _core_snapshot() -> str:
         ("sh lldp nei detail", LLDP_DETAIL),
         ("show mac address-table", MAC_TABLE_IOS),
         ("show ip arp", ARP_IOS),
+        ("show run", IOS_RUN_INTERFACES),
     )
 
 
@@ -383,18 +384,26 @@ async def test_inventory_api_and_excel_export(client: AsyncClient, unique_email,
     body = resp.json()
     # HQ-DIST-SW11 is not a managed device in this org, so it counts as unmanaged here (4 with the AP, phone and ESX host);
     # its uplink port Gi1/0/47 is the only one excluded from the endpoint count (4 MAC rows -> 3 endpoints).
+    subnet_count = body["summary"].pop("subnets")
     assert body["summary"] == {"devices": 2, "devices_with_config": 2, "devices_with_serial": 2, "hardware": 4, "access_points": 0, "neighbors": 5, "unmanaged": 4, "endpoints": 3}
+    by_net = {s["network"]: s for s in body["subnets"]}
+    assert subnet_count == len(by_net) >= 6
+    assert by_net["10.10.10.0/24"]["vlan"] == "10" and by_net["10.10.10.0/24"]["addresses"][0]["device_name"] == "HQ-CORE-SW01"
+    # The FortiGate collected no config here, so its LAN is only known from addresses in use: its own and one ARP entry.
+    assert by_net["10.44.0.0/24"]["source"] == "seen" and by_net["10.44.0.0/24"]["hosts_seen"] == 2
     core = next(d for d in body["devices"] if d["name"] == "HQ-CORE-SW01")
     fgt = next(d for d in body["devices"] if d["name"] == "BR04-FGT-EDGE")
     assert core["serial"] == "FOC2345X0AB" and core["snapshot_id"] and core["collected_at"]
-    assert fgt["model"] == "FortiGate-60F" and fgt["serial"] == "FGT60FTK20001234" and fgt["commands_missing"] == []
+    assert fgt["model"] == "FortiGate-60F" and fgt["serial"] == "FGT60FTK20001234" and fgt["commands_missing"] == ["show running-config"]
 
     export = await client.get("/api/inventory/export.xlsx", headers=_auth(token))
     assert export.status_code == 200, export.text
     assert export.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     assert 'filename="InventoryOrg-inventory-' in export.headers["content-disposition"]
     wb = load_workbook(BytesIO(export.content))
-    assert wb.sheetnames == ["Summary", "Devices", "Hardware", "Neighbors", "Access points", "Unmanaged", "Endpoints"]
+    assert wb.sheetnames == ["Summary", "Devices", "Hardware", "Neighbors", "Access points", "Unmanaged", "Subnets", "Endpoints"]
+    subnets = wb["Subnets"]
+    assert [c.value for c in subnets[1]][:3] == ["Network", "Mask", "VLAN"] and subnets.max_row == subnet_count + 1
     devices = wb["Devices"]
     header = [c.value for c in devices[1]]
     assert header[:8] == ["Name", "Hostname (reported)", "Management IP", "Type", "Site", "Role", "Model", "Serial"]
@@ -413,12 +422,13 @@ async def test_command_coverage_and_one_click_add(client: AsyncClient, unique_em
     # (abbreviated: "show ver", "sh lldp nei detail", "show mac address"...).
     assert ios["device_count"] == 1 and ios["is_custom_profile"] is False and ios["missing"] == []
     nxos = next(c for c in coverage if c["device_type"] == "cisco_nxos")
-    assert nxos["device_count"] == 0 and nxos["missing"] == list(inv.INVENTORY_COMMANDS["cisco_nxos"])  # its default is only show running-config
+    nxos_extra = [c for c in inv.INVENTORY_COMMANDS["cisco_nxos"] if c != "show running-config"]
+    assert nxos["device_count"] == 0 and nxos["missing"] == nxos_extra  # its default is only show running-config, which counts
 
     added = await client.post("/api/inventory/commands/cisco_nxos", headers=_auth(token))
     assert added.status_code == 200, added.text
     commands = added.json()["commands"]
-    assert commands == ["show running-config", *inv.INVENTORY_COMMANDS["cisco_nxos"]]  # existing kept first
+    assert commands == ["show running-config", *nxos_extra]  # existing kept first, nothing duplicated
     assert added.json()["is_custom"] is True
     after = (await client.get("/api/inventory/commands", headers=_auth(token))).json()
     assert next(c for c in after if c["device_type"] == "cisco_nxos")["missing"] == []
@@ -436,3 +446,174 @@ async def test_command_coverage_and_one_click_add(client: AsyncClient, unique_em
     member = (await client.post("/api/auth/login", json={"email": member_email, "password": "password123"})).json()["access_token"]
     assert (await client.post("/api/inventory/commands/cisco_nxos", headers=_auth(member))).status_code == 403
     assert (await client.get("/api/inventory", headers=_auth(member))).status_code == 200
+
+
+# --- subnets ------------------------------------------------------------------------------
+
+IOS_RUN_INTERFACES = """hostname HQ-CORE-SW01
+!
+interface Loopback0
+ ip address 10.255.0.1 255.255.255.255
+!
+interface Vlan10
+ description Users - floor 1
+ ip address 10.10.10.1 255.255.255.0
+ ip address 10.10.11.1 255.255.255.0 secondary
+!
+interface Vlan40
+ description Servers
+ vrf forwarding PROD
+ ip address 10.10.40.1 255.255.255.0
+!
+interface GigabitEthernet1/0/48
+ description Uplink to FW
+ no switchport
+ ip address 192.168.100.2 255.255.255.252
+!
+interface GigabitEthernet1/0/47.200
+ encapsulation dot1Q 200
+ ip address 172.16.200.1 255.255.255.128
+!
+interface GigabitEthernet1/0/1
+ switchport mode access
+!
+interface Vlan99
+ no ip address
+!
+router ospf 1
+ network 10.0.0.0 0.255.255.255 area 0
+"""
+
+NXOS_RUN_INTERFACES = """interface Vlan20
+  description Storage
+  vrf member STORAGE
+  ip address 10.20.20.1/24
+interface Ethernet1/49
+  description to core
+  ip address 10.20.255.1/31
+interface mgmt0
+  vrf member management
+  ip address 10.20.0.11/24
+"""
+
+FORTIGATE_CONFIG = """config system global
+    set hostname "BR04-FGT-EDGE"
+end
+config system interface
+    edit "wan1"
+        set vdom "root"
+        set ip 203.0.113.10 255.255.255.248
+        set alias "ISP"
+    next
+    edit "internal"
+        set vdom "root"
+        set ip 10.44.0.1 255.255.255.0
+        set description "Branch LAN"
+        config secondaryip
+            edit 1
+                set ip 10.44.1.1 255.255.255.0
+            next
+        end
+    next
+    edit "guest"
+        set vdom "root"
+        set ip 10.44.50.1 255.255.255.0
+        set interface "internal"
+        set vlanid 50
+    next
+end
+config firewall policy
+end
+"""
+
+AIREOS_RUN_CONFIG = """Interface Configuration
+
+Interface Name................................... management
+MAC Address...................................... 00:a2:ee:11:22:33
+IP Address....................................... 10.60.5.10
+IP Netmask....................................... 255.255.255.0
+IP Gateway....................................... 10.60.5.1
+VLAN............................................. 5
+Active Physical Port............................. LAG (13)
+
+Interface Name................................... staff-wireless
+IP Address....................................... 10.60.120.2
+IP Netmask....................................... 255.255.254.0
+IP Gateway....................................... 10.60.120.1
+VLAN............................................. 120
+
+Interface Name................................... virtual
+IP Address....................................... 192.0.2.1
+"""
+
+
+def test_cisco_interface_addresses_ios_and_nxos():
+    rows = inv.parse_cisco_interface_addresses(IOS_RUN_INTERFACES)
+    by_ip = {r["ip"]: r for r in rows}
+    assert set(by_ip) == {"10.255.0.1", "10.10.10.1", "10.10.11.1", "10.10.40.1", "192.168.100.2", "172.16.200.1"}
+    assert by_ip["10.10.10.1"] == {
+        "interface": "Vlan10",
+        "ip": "10.10.10.1",
+        "prefix_len": 24,
+        "network": "10.10.10.0/24",
+        "description": "Users - floor 1",
+        "vlan": "10",
+        "vrf": None,
+        "secondary": False,
+    }
+    assert by_ip["10.10.11.1"]["secondary"] is True and by_ip["10.10.11.1"]["vlan"] == "10"
+    assert by_ip["10.10.40.1"]["vrf"] == "PROD"
+    assert by_ip["192.168.100.2"]["network"] == "192.168.100.0/30" and by_ip["192.168.100.2"]["vlan"] is None
+    assert by_ip["172.16.200.1"]["vlan"] == "200" and by_ip["172.16.200.1"]["network"] == "172.16.200.0/25"
+
+    nx = {r["ip"]: r for r in inv.parse_cisco_interface_addresses(NXOS_RUN_INTERFACES)}
+    assert nx["10.20.20.1"]["network"] == "10.20.20.0/24" and nx["10.20.20.1"]["vrf"] == "STORAGE" and nx["10.20.20.1"]["vlan"] == "20"
+    assert nx["10.20.255.1"]["network"] == "10.20.255.0/31"
+    assert nx["10.20.0.11"]["interface"] == "mgmt0" and nx["10.20.0.11"]["vrf"] == "management"
+
+
+def test_fortigate_and_aireos_interface_addresses():
+    fgt = {r["ip"]: r for r in inv.parse_fortigate_interface_addresses(FORTIGATE_CONFIG)}
+    assert set(fgt) == {"203.0.113.10", "10.44.0.1", "10.44.1.1", "10.44.50.1"}
+    assert fgt["203.0.113.10"]["description"] == "ISP" and fgt["203.0.113.10"]["network"] == "203.0.113.8/29" and fgt["203.0.113.10"]["vrf"] == "root"
+    assert fgt["10.44.0.1"]["description"] == "Branch LAN" and fgt["10.44.0.1"]["secondary"] is False
+    assert fgt["10.44.1.1"]["interface"] == "internal" and fgt["10.44.1.1"]["secondary"] is True
+    assert fgt["10.44.50.1"]["vlan"] == "50"
+
+    wlc = {r["ip"]: r for r in inv.parse_aireos_interface_addresses(AIREOS_RUN_CONFIG)}
+    assert set(wlc) == {"10.60.5.10", "10.60.120.2"}  # the virtual interface has no netmask
+    assert wlc["10.60.5.10"]["interface"] == "management" and wlc["10.60.5.10"]["vlan"] == "5" and wlc["10.60.5.10"]["network"] == "10.60.5.0/24"
+    assert wlc["10.60.120.2"]["network"] == "10.60.120.0/23" and wlc["10.60.120.2"]["vlan"] == "120"
+
+    # Dispatcher: FortiOS and AireOS are recognised from the text even for a custom type.
+    assert inv.parse_interface_addresses(FORTIGATE_CONFIG, "custom_fw") == inv.parse_fortigate_interface_addresses(FORTIGATE_CONFIG)
+    assert inv.parse_interface_addresses(AIREOS_RUN_CONFIG, "cisco_wlc") == inv.parse_aireos_interface_addresses(AIREOS_RUN_CONFIG)
+    assert inv.parse_interface_addresses(IOS_RUN_INTERFACES, "cisco_ios")[1]["network"] == "10.10.10.0/24"
+
+
+def test_build_inventory_lists_subnets_with_hosts_and_inferred_ranges():
+    inputs = [
+        inv.SnapshotInput("d1", "HQ-CORE-SW01", "10.10.0.1", "cisco_ios", "HQ", None, _snapshot(("show run", IOS_RUN_INTERFACES), ("show ip arp", ARP_IOS))),
+        inv.SnapshotInput("d2", "HQ-DIST-SW11", "10.10.1.11", "cisco_ios", "HQ", None, _snapshot(("show running-config", "interface Vlan10\n ip address 10.10.10.2 255.255.255.0\n"))),
+        inv.SnapshotInput("f1", "BR04-FGT-EDGE", "10.44.0.1", "fortinet", "BR04", None, _snapshot(("show full-configuration", FORTIGATE_CONFIG), ("get system arp", ARP_FORTIGATE))),
+    ]
+    built = inv.build_inventory(inputs)
+    by_net = {s.network: s for s in built.subnets}
+
+    users = by_net["10.10.10.0/24"]
+    assert users.vlan == "10" and users.name == "Users - floor 1" and users.source == "config" and users.usable == 254
+    assert [(a.device_name, a.ip) for a in users.addresses] == [("HQ-CORE-SW01", "10.10.10.1"), ("HQ-DIST-SW11", "10.10.10.2")]
+    assert users.hosts_seen == 1  # 10.10.10.50 from ARP; the gateway's own ARP entry is an interface address, not a host
+    assert by_net["10.10.40.0/24"].vrf == "PROD" and by_net["10.10.40.0/24"].hosts_seen == 1  # 10.10.40.17
+    assert by_net["10.44.0.0/24"].hosts_seen == 1 and by_net["10.44.0.0/24"].name == "Branch LAN"  # FortiGate ARP
+    assert by_net["192.168.100.0/30"].usable == 2 and by_net["10.255.0.1/32"].usable == 1
+
+    # Management addresses of devices that sit in no configured subnet become inferred /24s.
+    inferred = by_net["10.10.0.0/24"]
+    assert inferred.source == "seen" and inferred.hosts_seen == 1 and inferred.addresses == [] and inferred.vlan is None
+    assert by_net["10.10.1.0/24"].source == "seen"
+    # Sorted by address.
+    assert [s.network for s in built.subnets][:3] == ["10.10.0.0/24", "10.10.1.0/24", "10.10.10.0/24"]
+    # The FortiGate's own management address is one of its interface addresses, so it is not counted as a host anywhere.
+    assert all("10.44.0.1" not in [a.ip for a in s.addresses] or s.network == "10.44.0.0/24" for s in built.subnets)
+    assert built.devices[0].commands_missing == [c for c in inv.INVENTORY_COMMANDS["cisco_ios"] if c not in ("show running-config", "show ip arp")]
