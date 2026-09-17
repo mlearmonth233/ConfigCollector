@@ -55,6 +55,23 @@ class Settings(BaseSettings):
     # Celery / Redis
     redis_url: str = "redis://localhost:6379/0"
     celery_task_always_eager: bool = False
+    # Where the API hands jobs to the worker. Empty means redis_url. The
+    # desktop bundle (app/desktop) sets a SQLite-backed queue instead -
+    # "sqla+sqlite:///.../queue.db" - so a laptop install needs no Redis.
+    celery_broker_url: str = ""
+    # Task results. Empty means "the broker when it is Redis, otherwise
+    # none": nothing in the app reads a task result (job progress lives in
+    # the database), so a broker without result support loses nothing.
+    celery_result_backend: str = ""
+    # Where beat remembers when each periodic task last ran (a small shelve
+    # file). Relative paths are relative to the working directory.
+    celery_beat_schedule_file: str = "celerybeat-schedule"
+
+    # A built frontend (frontend/dist) for the API to serve itself at "/",
+    # so one process answers both the pages and the API. Empty (the default
+    # for docker-compose and development) leaves the frontend to Vite or
+    # the frontend container; the desktop bundle points this at its copy.
+    frontend_dist_dir: str = ""
 
     # Netmiko connection defaults
     device_connect_timeout: int = 20

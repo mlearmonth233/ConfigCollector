@@ -18,6 +18,9 @@ an Excel export, pushes firmware images onto device storage, bulk-checks DNS and
 ping, and opens a browser terminal to any device - over SSH, or out of band
 through its console server when the device's network is down.
 
+- **Install it**: the [latest release](https://github.com/mlearmonth233/ConfigCollector/releases)
+  has a Windows installer and macOS disk images. One program, no Redis or
+  Python to set up; see [Install](#install-windows-and-macos) below.
 - **User guide**: [docs/USER_GUIDE.md](docs/USER_GUIDE.md) - every page,
   step by step, plus troubleshooting.
 - **Marketing site**: [website/](website/) - a static page ready to host.
@@ -47,6 +50,25 @@ frontend (React/Vite) --HTTP--> backend (FastAPI) --enqueues--> Celery worker --
                                      |                                |
                                      +----------- Redis (broker) -----+
 ```
+
+## Install (Windows and macOS)
+
+Download from the [releases page](https://github.com/mlearmonth233/ConfigCollector/releases):
+`Packrat-Setup-<version>-windows.exe`, or `Packrat-<version>-macos-arm64.dmg`
+(Apple Silicon) / `-x86_64.dmg` (Intel). Run the installer or drag the app
+to Applications, open Packrat, and the browser opens at
+http://127.0.0.1:8321. It sits in the tray / menu bar; right-click for
+Open, log folder, start at login, Quit.
+
+The desktop build is the same backend with three differences, all in
+`backend/app/desktop/` and described in [installer/README.md](installer/README.md):
+the API, worker and scheduler run as child processes of one launcher; the
+job queue is a SQLite file (`CELERY_BROKER_URL=sqla+sqlite:///...`) instead
+of Redis; and the API serves the built frontend itself
+(`FRONTEND_DIST_DIR`). Data lives in `%LOCALAPPDATA%\Packrat` or
+`~/Library/Application Support/Packrat`. Installers are built by
+`.github/workflows/installers.yml` on every `v*` tag, or locally with
+`installer/build-windows.ps1` and `installer/build-mac.sh`.
 
 ## Quickstart (Docker Compose)
 
@@ -489,14 +511,13 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
 
 ## Known limitations / next steps
 
-- Schema is bootstrapped via `Base.metadata.create_all` at startup rather
-  than Alembic migrations — fine for getting started, but add Alembic
-  before running this against a production database with real data in it.
-  For the local SQLite dev database specifically, a model gaining a new
-  column is detected automatically at startup and the file is reset (with a
-  console message explaining why) rather than crashing on the first request
-  that touches it — since that data is disposable anyway. This detection
-  never runs against Postgres.
+- The desktop installers are unsigned until a code-signing certificate
+  (Windows) and an Apple Developer ID (macOS) are bought: customers see a
+  SmartScreen / Gatekeeper prompt on first launch. See
+  [installer/README.md](installer/README.md) for what to add.
+- A development SQLite database whose schema has drifted is still reset on
+  start (with a console message); outside `ENVIRONMENT=development` that
+  never happens and Alembic migrations alone bring the database up to date.
 - MFA support covers the two most common device-side patterns: a push
   approval you wait out with a longer timeout, and a passcode appended to
   the password. A device whose AAA presents its own extra interactive CLI
@@ -505,6 +526,3 @@ is silently overwritten). `GET /api/jobs/{id}/download` takes the same
 - No password reset / email verification flow.
 - RBAC is a single `admin`/`member` flag per user; no per-device or
   per-team permissions yet.
-- No scheduled/recurring collection jobs (only on-demand).
-- No diffing between config snapshots yet — each collection just adds a new
-  timestamped snapshot per device.

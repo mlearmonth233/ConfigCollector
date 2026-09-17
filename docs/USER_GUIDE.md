@@ -30,11 +30,67 @@ every page of the app in the order you will meet them.
 
 ## 1. Install and start
 
+The quickest way is the installer for Windows or macOS. The other ways
+below run the same app from source and suit a shared server or
+development.
+
+### Windows and macOS installers
+
+Download the latest release from
+[github.com/mlearmonth233/ConfigCollector/releases](https://github.com/mlearmonth233/ConfigCollector/releases):
+
+- **Windows**: `Packrat-Setup-<version>-windows.exe`. Run it (no
+  administrator rights needed), keep "Start Packrat when I sign in"
+  ticked if you want scheduled backups to run without you starting it, and
+  finish with "Start Packrat now". Windows may show "Windows protected your
+  PC" for a new download: choose *More info* > *Run anyway*.
+- **macOS**: `Packrat-<version>-macos-arm64.dmg` on an Apple Silicon Mac
+  (M1 or later) or `...-x86_64.dmg` on an Intel Mac. Open it, drag Packrat
+  to Applications, then open Packrat from Applications. The first time,
+  macOS may say the developer cannot be verified: right-click Packrat and
+  choose *Open*, then *Open* again.
+
+Packrat starts as an icon in the system tray (Windows) or menu bar (Mac)
+and opens your browser at http://127.0.0.1:8321. Everything runs on that
+machine: the API, the worker that talks to your devices, the scheduler and
+the web pages, with nothing else to install. Right-click (Mac: click) the
+icon for *Open Packrat*, *Open log folder*, *Start Packrat when I sign in*
+and *Quit Packrat*. Closing the browser tab does not stop it; Quit does.
+
+Your data lives in one folder, which the uninstaller leaves alone:
+
+| | Folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\Packrat` (for example `C:\Users\you\AppData\Local\Packrat`) |
+| macOS | `~/Library/Application Support/Packrat` |
+
+Inside are `packrat.db` (devices, configs, history, users), `packrat.env`
+(the secrets Packrat generated on first run, which protect logins and the
+stored device passwords), `logs/` and `firmware_images/`. Back up
+`packrat.db` and `packrat.env` together. `packrat.env` also takes optional
+settings, one per line, applied at the next start:
+
+```
+PACKRAT_PORT=8321          # move the app to another port
+PACKRAT_HOST=0.0.0.0       # let other machines on the network open it (put it behind HTTPS if you do)
+LOG_LEVEL=DEBUG            # verbose logs for a support case
+```
+
+Scheduled backups, monitoring and alerts run only while Packrat is running,
+so on a laptop that sleeps or a machine that is switched off overnight they
+wait until it is back. A machine that stays on, or the Docker Compose stack
+on a server, is the right home for a nightly schedule.
+
+Upgrading is installing the new version over the old one; the database is
+brought up to date automatically on the first start.
+
+### From source
+
 Packrat is three processes: a backend API, a worker that talks to devices,
 and the web frontend. A fourth, the scheduler ("beat"), is needed only if
 you use Schedules or snapshot retention.
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 1. Install Python 3.11 or newer, Node.js 20 or newer, and
    [Memurai](https://www.memurai.com/) (a Redis-compatible Windows
@@ -60,7 +116,7 @@ split into four panes, and `.\run-dev.ps1 -Windows` gives each process its
 own window. To run without Memurai (jobs then run inside the backend and
 "Start collection" waits until they finish), use `.\run-dev.ps1 -Eager`.
 
-### Linux and macOS
+#### Linux and macOS
 
 ```bash
 cd backend
@@ -80,7 +136,7 @@ Redis must be reachable at `redis://localhost:6379/0` for the worker.
 Without Redis, start the API with `CELERY_TASK_ALWAYS_EAGER=true` instead
 of running a worker.
 
-### Docker Compose
+#### Docker Compose
 
 ```bash
 cp .env.example .env    # set JWT_SECRET_KEY and CREDENTIAL_ENCRYPTION_KEY
@@ -91,13 +147,13 @@ Frontend on http://localhost:4173, API docs on http://localhost:8000/docs.
 This stack uses Postgres and Redis and is the recommended shape for a
 shared server.
 
-### Before anything real
+#### Before anything real
 
 Packrat needs two secrets of its own: `JWT_SECRET_KEY`, which signs
 logins, and `CREDENTIAL_ENCRYPTION_KEY`, which encrypts every stored device
-password. On Windows the run scripts create `backend\.env` with freshly
-generated values the first time they run, so you are covered. Elsewhere,
-copy `.env.example` to `.env` and generate them:
+password. The installers and the Windows run scripts generate them for you
+(`packrat.env` in the data folder, or `backend\.env`), so you are covered.
+Elsewhere, copy `.env.example` to `.env` and generate them:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"

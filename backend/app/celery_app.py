@@ -70,9 +70,34 @@ def _brief(args) -> str:
     args = list(args)
     return "[" + str(args[0])[:60] + (", …" if len(args) > 1 else "") + "]"
 
-celery_app = Celery("configcollector", broker=settings.redis_url, backend=settings.redis_url)
+def broker_url(settings=settings) -> str:
+    return settings.celery_broker_url or settings.redis_url
+
+
+def result_backend(settings=settings) -> str | None:
+    """Explicit CELERY_RESULT_BACKEND wins ("none" disables results);
+    otherwise Redis brokers double as the backend and anything else (the
+    desktop bundle's SQLite queue) runs without one."""
+    configured = settings.celery_result_backend.strip()
+    if configured:
+        return None if configured.lower() == "none" else configured
+    url = broker_url(settings)
+    return url if url.startswith(("redis://", "rediss://")) else None
+
+
+_broker = broker_url()
+_backend = result_backend()
+# kombu's SQL transport has no fanout exchange, which is what the worker's
+# remote-control mailbox (celery inspect/control) is built on; leaving it
+# on just produces connection warnings on every start.
+_supports_control = not _broker.startswith(("sqla+", "sqlalchemy+", "filesystem://"))
+
+celery_app = Celery("configcollector", broker=_broker, backend=_backend)
 celery_app.conf.update(
     task_always_eager=settings.celery_task_always_eager,
+    task_ignore_result=_backend is None,
+    worker_enable_remote_control=_supports_control,
+    beat_schedule_filename=settings.celery_beat_schedule_file,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],

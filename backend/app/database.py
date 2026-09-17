@@ -169,10 +169,13 @@ def migrate_to_head(sync_engine) -> None:
 
 
 async def init_db() -> None:
-    # Local SQLite keeps its convenience behaviour (in-place column adds,
-    # wipe on incompatible drift), then Alembic takes over for everything.
+    # A development SQLite file keeps its convenience behaviour (in-place
+    # column adds, wipe on incompatible drift), then Alembic takes over for
+    # everything. Outside development the file is real data - a desktop
+    # install's whole history - so it is never wiped; migrations alone
+    # bring it up to date.
     db_path = _sqlite_path_from_url(settings.database_url)
-    if db_path is not None:
+    if db_path is not None and settings.environment.lower() in ("development", "dev", "test", "testing"):
         _reset_sqlite_if_schema_drifted(db_path)
 
     import asyncio  # noqa: PLC0415

@@ -1,0 +1,195 @@
+# Builds the desktop installers on GitHub's own Windows and macOS machines,
+# so a release needs no Mac (or Windows) of your own.
+#
+#   Tag a release:   git tag v0.1.0 && git push origin v0.1.0
+#   -> a GitHub Release "v0.1.0" appears with
+#        Packrat-Setup-0.1.0-windows.exe
+#        Packrat-0.1.0-macos-arm64.dmg      (Apple Silicon)
+#        Packrat-0.1.0-macos-x86_64.dmg     (Intel)
+#
+#   Or run it by hand (Actions > Installers > Run workflow) to get the same
+#   files as downloadable artifacts of the run, without making a release.
+#
+# Mac signing is optional. Add repository secrets MACOS_CERTIFICATE_P12
+# (base64 of a Developer ID Application .p12), MACOS_CERTIFICATE_PASSWORD,
+# MACOS_CODESIGN_IDENTITY ("Developer ID Application: Name (TEAMID)"),
+# and for notarization APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD; the
+# build signs and notarizes when they are present and ad-hoc signs when
+# they are not.
+name: Installers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  version:
+    name: Work out the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            base="$(tr -d '[:space:]' < installer/VERSION)"
+            echo "version=${base}-dev.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows:
+    name: Windows installer
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            installer/requirements-desktop.txt
+      - name: Build
+        shell: pwsh
+        run: ./installer/build-windows.ps1 -Version "${{ needs.version.outputs.version }}"
+      - name: Smoke test the bundle
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "packrat-smoke"
+          $p = Start-Process -FilePath "dist\Packrat\Packrat.exe" -ArgumentList "--no-tray","--no-browser","--data-dir",$data,"--port","8399" -PassThru
+          $ok = $false
+          foreach ($i in 1..90) {
+            Start-Sleep -Seconds 1
+            try { $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8399/health" -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          $index = $null
+          if ($ok) { try { $index = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8399/" -TimeoutSec 5).Content } catch {} }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Get-Process Packrat -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-ChildItem (Join-Path $data "logs") | ForEach-Object { Write-Host "----- $($_.Name)"; Get-Content $_.FullName -Tail 40 }
+          if (-not $ok) { throw "The bundled API did not answer /health" }
+          if (-not $index -or $index -notmatch "<title>") { throw "The bundle did not serve the frontend" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installer/Packrat-Setup-*.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            installer/requirements-desktop.txt
+      - name: Import signing certificate
+        if: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p build "$RUNNER_TEMP/build.keychain"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain"
+          security unlock-keychain -p build "$RUNNER_TEMP/build.keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$RUNNER_TEMP/build.keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k build "$RUNNER_TEMP/build.keychain"
+      - name: Store notarization credentials
+        if: ${{ secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials packrat --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          echo "NOTARY_PROFILE=packrat" >> "$GITHUB_ENV"
+      - name: Build
+        env:
+          PACKRAT_VERSION: ${{ needs.version.outputs.version }}
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: ./installer/build-mac.sh
+      - name: Smoke test the bundle
+        run: |
+          data="$RUNNER_TEMP/packrat-smoke"
+          ./dist/Packrat.app/Contents/MacOS/Packrat --no-tray --no-browser --data-dir "$data" --port 8399 &
+          pid=$!
+          ok=0
+          for i in $(seq 1 90); do
+            sleep 1
+            if curl -fsS http://127.0.0.1:8399/health >/dev/null 2>&1; then ok=1; break; fi
+          done
+          index="$(curl -fsS http://127.0.0.1:8399/ || true)"
+          kill "$pid" 2>/dev/null || true
+          sleep 3
+          for f in "$data"/logs/*; do echo "----- $f"; tail -n 40 "$f"; done
+          [[ "$ok" == 1 ]] || { echo "The bundled API did not answer /health"; exit 1; }
+          grep -q "<title>" <<< "$index" || { echo "The bundle did not serve the frontend"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/installer/Packrat-*.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: List
+        run: ls -la artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Packrat ${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/*.exe
+            artifacts/*.dmg
+          body: |
+            ## Install
+
+            **Windows** — download `Packrat-Setup-${{ needs.version.outputs.version }}-windows.exe`, run it, and open Packrat from the Start Menu. It lives in the system tray; right-click the icon to open or quit.
+
+            **macOS** — download the `.dmg` for your Mac (`arm64` for Apple Silicon, `x86_64` for Intel), drag Packrat to Applications, then open it. The first time, right-click Packrat > Open if macOS says it is from an unidentified developer. It appears in the menu bar.
+
+            Your browser opens at the app; create the first account there. Everything is stored on your machine (`%LOCALAPPDATA%\Packrat` on Windows, `~/Library/Application Support/Packrat` on a Mac).

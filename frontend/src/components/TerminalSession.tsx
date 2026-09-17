@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-import { API_BASE_URL, getToken } from "../api/client";
+import { absoluteApiBase, getToken } from "../api/client";
 import type { Device, TerminalVia } from "../api/types";
 
 export type SessionState = "connecting" | "connected" | "closed";
@@ -33,7 +33,7 @@ const TERMINAL_THEME = {
 };
 
 function websocketBase(): string {
-  return API_BASE_URL.replace(/^http/, "ws");
+  return absoluteApiBase().replace(/^http/, "ws");
 }
 
 interface Props {

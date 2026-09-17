@@ -123,3 +123,42 @@ app.include_router(terminal.router)
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+def _serve_frontend(dist_dir: str, application: FastAPI = app) -> bool:
+    """Serves a built frontend from `dist_dir` at "/" with the usual
+    single-page-app fallback: real files (the hashed bundles, icons, the
+    service worker) are sent as-is, every other path gets index.html so
+    the router can take it from there. Registered last so the API routes
+    above always win. Returns False, serving nothing, if there is no build
+    there - the desktop bundle relies on this, docker-compose and
+    development leave it off."""
+    from pathlib import Path  # noqa: PLC0415
+
+    from fastapi import HTTPException  # noqa: PLC0415
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+
+    dist = Path(dist_dir).expanduser().resolve()
+    index = dist / "index.html"
+    if not index.is_file():
+        log.warning("FRONTEND_DIST_DIR=%s has no index.html; not serving a frontend", dist_dir)
+        return False
+
+    @application.get("/{path:path}", include_in_schema=False)
+    async def frontend(path: str):
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        if path:
+            candidate = (dist / path).resolve()
+            if candidate.is_file() and dist in candidate.parents:
+                return FileResponse(candidate)
+        # The shell must never be cached: a new version's hashed bundles are
+        # only reachable through a fresh index.html.
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+    log.info("Serving the frontend from %s", dist)
+    return True
+
+
+if get_settings().frontend_dist_dir:
+    _serve_frontend(get_settings().frontend_dist_dir)

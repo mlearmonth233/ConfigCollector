@@ -1,0 +1,7 @@
+# Extras for the desktop build only (installer/), on top of
+# backend/requirements.txt. Customers never install these; the build
+# machine (or the GitHub Actions runner) does.
+pyinstaller==6.22.3
+# Tray / menu-bar icon and the icon image handling behind it.
+pystray==0.19.5
+pillow==12.3.0

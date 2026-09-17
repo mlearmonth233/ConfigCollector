@@ -31,3 +31,7 @@ frontend/vite.config.js
 website/packrat-site.zip
 backend/licensing/
 *.pem
+
+# Desktop build output (installer/)
+build/
+installer/.venv/

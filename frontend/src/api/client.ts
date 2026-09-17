@@ -1,6 +1,24 @@
 import axios from "axios";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// Where the API lives. VITE_API_BASE_URL wins when set (docker-compose sets
+// it; an empty string means "same origin"). Without it the dev server talks
+// to the backend's default port, and a production build assumes the API is
+// serving the pages itself (the desktop bundle does exactly that), so
+// requests are relative and work on whatever host and port the app has.
+function defaultApiBase(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured !== undefined) return configured;
+  return import.meta.env.DEV ? "http://localhost:8000" : "";
+}
+
+export const API_BASE_URL = defaultApiBase();
+
+/** The API base as an absolute URL, for places that cannot use a relative
+ *  one (opening a WebSocket). */
+export function absoluteApiBase(): string {
+  if (API_BASE_URL) return API_BASE_URL;
+  return window.location.origin;
+}
 
 export const apiClient = axios.create({ baseURL: API_BASE_URL });
 
