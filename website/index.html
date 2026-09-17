@@ -135,6 +135,22 @@
   .shot ul { margin: 14px 0 0; padding-left: 18px; color: var(--ink-2); }
   .shot li + li { margin-top: 6px; }
 
+  /* ---- download ---- */
+  .download { background: var(--surface); }
+  .downloads { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 36px; }
+  .dl { position: relative; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .dl h3 { margin: 0; font-size: 19px; }
+  .dl .arch { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .dl p { margin: 0; color: var(--ink-2); font-size: 14.5px; flex: 1; }
+  .dl .btn { justify-content: center; margin-top: 6px; }
+  .dl .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); min-height: 1.2em; }
+  .dl.recommended { border-color: var(--copper); box-shadow: 0 0 0 3px rgba(208,138,74,.16); }
+  .dl .badge { display: none; position: absolute; top: -12px; left: 18px; background: var(--copper); color: #1a0f05; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; }
+  .dl.recommended .badge { display: inline-block; }
+  .dl.unavailable .btn { opacity: .55; }
+  .download .note { margin-top: 18px; color: var(--muted); font-size: 14px; max-width: var(--measure); }
+  .download .note a { color: var(--teal-ink); }
+
   /* ---- pricing ---- */
   .pricing { background: var(--surface-2); }
   .tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 40px; }
@@ -167,7 +183,11 @@
     .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .shot, .shot:nth-child(even) { grid-template-columns: 1fr; direction: ltr; }
     .tiers { grid-template-columns: 1fr; }
+    .downloads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ledger .row { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 640px) {
+    .downloads { grid-template-columns: 1fr; }
   }
   @media (max-width: 520px) {
     .steps { grid-template-columns: 1fr; }
@@ -185,10 +205,11 @@
       <a href="#hoard">What it hoards</a>
       <a href="#how">How a backup runs</a>
       <a href="#tour">Tour</a>
+      <a href="#download">Download</a>
       <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <a class="btn btn-copper" href="#pricing">Get Packrat</a>
+    <a class="btn btn-copper" href="#download">Get Packrat</a>
   </div>
 </div>
 
@@ -199,7 +220,7 @@
       <h1 style="margin-top:14px">Hoards every config.<br /><em>Forgets nothing.</em></h1>
       <p class="sub">Packrat logs into every switch, controller, firewall and PDU you own, stashes the running config, and tells you exactly what changed since last time. Nightly, weekly, before a change window, or right now.</p>
       <div class="cta">
-        <a class="btn btn-copper" href="#pricing">Start hoarding free</a>
+        <a class="btn btn-copper" href="#download">Start hoarding free</a>
         <a class="btn btn-ghost" href="#tour">See it work</a>
       </div>
       <p class="fine">Self-hosted. Credentials encrypted at rest. Works with TACACS+, Duo push and one-time passcodes.</p>
@@ -308,6 +329,49 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
   </div>
 </section>
 
+<section id="download" class="download">
+  <div class="wrap">
+    <p class="eyebrow">Download</p>
+    <h2 style="margin-top:12px">Install it like any other program.</h2>
+    <p class="lede" style="margin-top:16px">One download, nothing else to set up. Packrat runs on your own PC or Mac, sits in the tray or menu bar, and opens in your browser. Pick the build for your machine; the highlighted one is our best guess for the computer you are on now.</p>
+    <div class="downloads" id="downloads" data-repo="mlearmonth233/ConfigCollector">
+      <div class="dl" data-build="windows-x64">
+        <span class="badge">Looks like your machine</span>
+        <h3>Windows</h3>
+        <span class="arch">Intel / AMD · 64-bit · Windows 10 or 11</span>
+        <p>The usual choice for a PC or laptop. Also runs on Windows on Arm through Windows' built-in emulation.</p>
+        <a class="btn btn-copper" href="https://github.com/mlearmonth233/ConfigCollector/releases/latest" rel="noopener">Download for Windows</a>
+        <span class="meta"></span>
+      </div>
+      <div class="dl" data-build="windows-arm64">
+        <span class="badge">Looks like your machine</span>
+        <h3>Windows on Arm</h3>
+        <span class="arch">Arm64 · Surface Pro X, Snapdragon laptops</span>
+        <p>Native build for Arm PCs. If a release does not include it yet, the Windows Intel/AMD build works there too.</p>
+        <a class="btn btn-outline" href="https://github.com/mlearmonth233/ConfigCollector/releases/latest" rel="noopener">Download for Windows on Arm</a>
+        <span class="meta"></span>
+      </div>
+      <div class="dl" data-build="macos-arm64">
+        <span class="badge">Looks like your machine</span>
+        <h3>Mac, Apple Silicon</h3>
+        <span class="arch">M1 and later · macOS 12 or later</span>
+        <p>Apple menu &rsaquo; About This Mac says "Chip: Apple M1", M2, M3 or M4.</p>
+        <a class="btn btn-copper" href="https://github.com/mlearmonth233/ConfigCollector/releases/latest" rel="noopener">Download for Apple Silicon</a>
+        <span class="meta"></span>
+      </div>
+      <div class="dl" data-build="macos-x86_64">
+        <span class="badge">Looks like your machine</span>
+        <h3>Mac, Intel</h3>
+        <span class="arch">x86_64 · macOS 12 or later</span>
+        <p>About This Mac says "Processor: Intel". This build also runs on Apple Silicon through Rosetta if you are unsure.</p>
+        <a class="btn btn-outline" href="https://github.com/mlearmonth233/ConfigCollector/releases/latest" rel="noopener">Download for Intel Mac</a>
+        <span class="meta"></span>
+      </div>
+    </div>
+    <p class="note" id="download-note">Latest release: <span id="release-version">see the releases page</span>. Windows may show "Windows protected your PC" for a new download: choose <em>More info</em> &rsaquo; <em>Run anyway</em>. On a Mac, right-click Packrat &rsaquo; <em>Open</em> the first time. Running it on a server instead? The <a href="https://github.com/mlearmonth233/ConfigCollector#quickstart-docker-compose">Docker Compose stack</a> is the same app with Postgres and Redis. Every build is free to use as Nest; a Colony key unlocks the rest.</p>
+  </div>
+</section>
+
 <section id="pricing" class="pricing">
   <div class="wrap">
     <p class="eyebrow">Pricing</p>
@@ -318,7 +382,7 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
         <div><h3>Nest</h3><p class="who">For a lab, a home rack, or one engineer's corner of the network.</p></div>
         <p class="price">$0<small>forever</small></p>
         <ul><li>Up to 10 devices, 1 user</li><li>Manual config backups with history and diffs, kept 14 days</li><li>Ping monitor, terminal and console access, DNS check</li><li>SNMP polling and the inventory view</li><li>Community support</li></ul>
-        <a class="btn btn-outline" href="https://github.com/mlearmonth233/ConfigCollector/releases/latest">Download for Windows or Mac</a>
+        <a class="btn btn-outline" href="#download">Download for Windows or Mac</a>
       </div>
       <div class="tier featured">
         <div><h3>Colony</h3><p class="who">For a team running a campus, a data center, or a few dozen branches.</p></div>
@@ -382,6 +446,99 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
       button.rel = "noopener";
       button.removeAttribute("data-fallback");
     }
+  })();
+
+  // ---- Downloads ---------------------------------------------------------
+  // Every button starts as a link to the releases page, which always works.
+  // Then two things happen if the browser lets them: the latest release is
+  // fetched from GitHub's API and each button becomes a direct link to its
+  // file (with version and size shown), and the visitor's own machine is
+  // guessed so that one card is highlighted.
+  (function () {
+    var grid = document.getElementById("downloads");
+    if (!grid || !window.fetch) return;
+    var repo = grid.getAttribute("data-repo");
+    var releasesPage = "https://github.com/" + repo + "/releases/latest";
+    var patterns = {
+      "windows-x64": /-windows-x64\.exe$/i,
+      "windows-arm64": /-windows-arm64\.exe$/i,
+      "macos-arm64": /-macos-arm64\.dmg$/i,
+      "macos-x86_64": /-macos-x86_64\.dmg$/i
+    };
+    var cards = {};
+    Array.prototype.forEach.call(grid.querySelectorAll(".dl"), function (card) {
+      cards[card.getAttribute("data-build")] = card;
+    });
+
+    function megabytes(bytes) { return (bytes / 1048576).toFixed(0) + " MB"; }
+
+    fetch("https://api.github.com/repos/" + repo + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (release) {
+        if (!release || !release.assets) return;
+        var version = document.getElementById("release-version");
+        if (version) {
+          version.textContent = "";
+          var link = document.createElement("a");
+          link.href = release.html_url || releasesPage;
+          link.textContent = release.tag_name || release.name || "latest";
+          version.appendChild(link);
+        }
+        Object.keys(patterns).forEach(function (key) {
+          var card = cards[key];
+          if (!card) return;
+          var asset = null;
+          for (var i = 0; i < release.assets.length; i++) {
+            if (patterns[key].test(release.assets[i].name)) { asset = release.assets[i]; break; }
+          }
+          var button = card.querySelector(".btn");
+          var meta = card.querySelector(".meta");
+          if (asset) {
+            button.href = asset.browser_download_url;
+            meta.textContent = asset.name + " · " + megabytes(asset.size);
+          } else {
+            card.classList.add("unavailable");
+            meta.textContent = "Not in this release yet - the button opens the releases page.";
+          }
+        });
+      })
+      .catch(function () { /* the buttons already point at the releases page */ });
+
+    // Best guess at the visitor's machine. Safari and Firefox on a Mac report
+    // an Intel user agent even on Apple Silicon, so the graphics chip name
+    // (Apple GPU vs Intel/AMD) is used as a tie-breaker there.
+    function guessBuild() {
+      var ua = navigator.userAgent || "";
+      var isWindows = /Windows/i.test(ua);
+      var isMac = /Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad/i.test(ua);
+      if (!isWindows && !isMac) return Promise.resolve(null);
+      var fallback = isWindows ? "windows-x64" : null;
+      var fromArch = function (arch) {
+        if (!arch) return fallback;
+        var arm = /arm/i.test(arch);
+        if (isWindows) return arm ? "windows-arm64" : "windows-x64";
+        return arm ? "macos-arm64" : "macos-x86_64";
+      };
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        return navigator.userAgentData.getHighEntropyValues(["architecture"])
+          .then(function (values) { return fromArch(values.architecture); })
+          .catch(function () { return fallback; });
+      }
+      if (isWindows) return Promise.resolve(/ARM64|aarch64/i.test(ua) ? "windows-arm64" : "windows-x64");
+      try {
+        var canvas = document.createElement("canvas");
+        var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        var info = gl && gl.getExtension("WEBGL_debug_renderer_info");
+        var renderer = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : "";
+        if (/Apple/i.test(renderer)) return Promise.resolve("macos-arm64");
+        if (/Intel|AMD|Radeon|NVIDIA/i.test(renderer)) return Promise.resolve("macos-x86_64");
+      } catch (e) { /* no WebGL */ }
+      return Promise.resolve(null);
+    }
+
+    guessBuild().then(function (key) {
+      if (key && cards[key]) cards[key].classList.add("recommended");
+    });
   })();
 </script>
 <!-- ARTIFACT-END -->
