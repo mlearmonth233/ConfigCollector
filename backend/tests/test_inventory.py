@@ -612,8 +612,11 @@ def test_build_inventory_lists_subnets_with_hosts_and_inferred_ranges():
     inferred = by_net["10.10.0.0/24"]
     assert inferred.source == "seen" and inferred.hosts_seen == 1 and inferred.addresses == [] and inferred.vlan is None
     assert by_net["10.10.1.0/24"].source == "seen"
-    # Sorted by address.
-    assert [s.network for s in built.subnets][:3] == ["10.10.0.0/24", "10.10.1.0/24", "10.10.10.0/24"]
+    # VLAN order first (10, 10 for the secondary, 40, 50, 200), then everything without a VLAN by address.
+    networks = [s.network for s in built.subnets]
+    assert networks[:5] == ["10.10.10.0/24", "10.10.11.0/24", "10.10.40.0/24", "10.44.50.0/24", "172.16.200.0/25"]
+    assert [s.vlan for s in built.subnets[:5]] == ["10", "10", "40", "50", "200"]
+    assert all(s.vlan is None for s in built.subnets[5:]) and networks[5] == "10.10.0.0/24"
     # The FortiGate's own management address is one of its interface addresses, so it is not counted as a host anywhere.
     assert all("10.44.0.1" not in [a.ip for a in s.addresses] or s.network == "10.44.0.0/24" for s in built.subnets)
     assert built.devices[0].commands_missing == [c for c in inv.INVENTORY_COMMANDS["cisco_ios"] if c not in ("show running-config", "show ip arp")]

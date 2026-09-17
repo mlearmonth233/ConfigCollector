@@ -970,7 +970,15 @@ def build_subnets(address_rows: list[tuple[SnapshotInput, dict]], seen_ips: set[
     for network, ips in inferred.items():
         by_network[network] = Subnet(str(network), 24, str(network.netmask), None, None, None, [], len(ips), _usable_hosts(network), "seen")
 
-    return [by_network[n] for n in sorted(by_network, key=lambda n: (int(n.network_address), n.prefixlen))]
+    def order(network: ipaddress.IPv4Network) -> tuple:
+        # VLAN order first, the way an engineer thinks about a site; subnets
+        # without a VLAN (routed links, loopbacks, inferred ranges) follow,
+        # by address.
+        vlan = by_network[network].vlan
+        has_vlan = vlan is not None and vlan.isdigit()
+        return (0 if has_vlan else 1, int(vlan) if has_vlan else 0, int(network.network_address), network.prefixlen)
+
+    return [by_network[n] for n in sorted(by_network, key=order)]
 
 
 _PORT_ABBREV = (
