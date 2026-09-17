@@ -46,6 +46,13 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* The vertical scrollbar is always present, so long tables show where you
+     are on the page and the layout does not jump when content grows. */
+  overflow-y: scroll;
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 
 body {
@@ -1818,3 +1825,46 @@ a:hover {
 .usage-bar-fill.high { background: #dc2626; }
 .usage-bar-label { font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--muted, #64748b); white-space: nowrap; }
 .plain-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+
+/* Back to top (components/BackToTop.tsx): appears once the page has scrolled */
+.back-to-top {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--bg-deep-2);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.12s ease;
+}
+.back-to-top.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.back-to-top:hover {
+  background: var(--bg-deep);
+  color: #fff;
+}
+.back-to-top:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .back-to-top { transition: none; }
+}
+@media (max-width: 640px) {
+  .back-to-top { right: 14px; bottom: 14px; }
+}

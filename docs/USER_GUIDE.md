@@ -259,9 +259,9 @@ found on the wire behind them is on the [Inventory](#5-inventory) page).
 | Type | Used for | Notes |
 |---|---|---|
 | Cisco IOS Switch/Router | Catalyst, ISR, older Nexus-like IOS | Full audit command set by default |
-| Cisco Nexus (NX-OS) | Nexus 3000/5000/7000/9000 | `show running-config` by default |
-| Cisco Catalyst 9800 WLC (IOS-XE) | 9800 controllers | Controller-specific commands |
-| Cisco AireOS WLC | 5520, 8540, 3504 | `show run-config` and friends |
+| Cisco Nexus (NX-OS) | Nexus 3000/5000/7000/9000 | Running config plus version, inventory, CDP/LLDP detail, interfaces, VLANs, port-channels, vPC, MAC and ARP tables |
+| Cisco Catalyst 9800 WLC (IOS-XE) | 9800 controllers | Running config, AP summary and details, CDP, WLANs, wireless clients |
+| Cisco AireOS WLC | 5520, 8540, 3504 | `show run-config`, AP summary, CDP detail, WLANs, clients |
 | Fortinet FortiGate | FortiOS firewalls | VDOM-aware command set |
 | APC Switched PDU | APC NMC PDUs | Section names, not show commands |
 | Versa SD-WAN Router (VOS) | Versa appliances | Confirm commands against a real unit |

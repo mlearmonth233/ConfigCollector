@@ -424,8 +424,13 @@ async def test_command_coverage_and_one_click_add(client: AsyncClient, unique_em
     # (abbreviated: "show ver", "sh lldp nei detail", "show mac address"...).
     assert ios["device_count"] == 1 and ios["is_custom_profile"] is False and ios["missing"] == []
     nxos = next(c for c in coverage if c["device_type"] == "cisco_nxos")
+    assert nxos["device_count"] == 0 and nxos["missing"] == []  # the built-in NX-OS list is complete too
+    # A trimmed custom list is what the one-click add is for.
+    await client.put("/api/command-profiles/cisco_nxos", headers=_auth(token), json={"commands": ["show running-config"]})
+    coverage = (await client.get("/api/inventory/commands", headers=_auth(token))).json()
+    nxos = next(c for c in coverage if c["device_type"] == "cisco_nxos")
     nxos_extra = [c for c in inv.INVENTORY_COMMANDS["cisco_nxos"] if c != "show running-config"]
-    assert nxos["device_count"] == 0 and nxos["missing"] == nxos_extra  # its default is only show running-config, which counts
+    assert nxos["is_custom_profile"] is True and nxos["missing"] == nxos_extra
 
     added = await client.post("/api/inventory/commands/cisco_nxos", headers=_auth(token))
     assert added.status_code == 200, added.text

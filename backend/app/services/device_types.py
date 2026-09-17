@@ -122,8 +122,9 @@ _CISCO_IOS_COMMANDS: tuple[str, ...] = (
 # not detected" errors back when this used pattern-based reads - see
 # collector.py's use_timing_read.
 _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
+    "show ap summary",
     "show ap stats ethernet summary",
-    "show cdp neighbors",
+    "show cdp neighbors detail",
     "show lldp neighbors",
     "show advanced 802.11a summary",
     "show advanced 802.11b summary",
@@ -154,15 +155,35 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     "show vers",
     "sh cdp nei",
     "sh cdp nei detail",
+    "show ap summary",
     "show ap ethernet statistics",
     "show wlan summary",
     "show interface summary",
+    "show running-config",
     # Wireless clients. IOS-XE wireless syntax ("show wireless ..."): the
     # AireOS "show client summary" does not exist on a 9800. The summary
     # lists every client with its AP, WLAN, state, protocol and auth
     # method; the stats summary adds RSSI, SNR and data rates per client.
     "show wireless client summary",
     "show wireless stats client summary",
+)
+
+# Nexus (NX-OS). Paging is disabled by the driver. The running config plus
+# what the Inventory page reads: identity, components, neighbours, MAC and
+# ARP tables, and the interface/VLAN state useful in a backup.
+_CISCO_NXOS_COMMANDS: tuple[str, ...] = (
+    "show version",
+    "show inventory",
+    "show cdp neighbors detail",
+    "show lldp neighbors detail",
+    "show interface status",
+    "show vlan brief",
+    "show port-channel summary",
+    "show vpc",
+    "show mac address-table",
+    "show ip arp",
+    "show ip interface brief vrf all",
+    "show running-config",
 )
 
 # VDOM-enabled FortiGates need "config vdom" / "edit root" before the
@@ -225,7 +246,7 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeSpec] = {
     # --- Switches / routers ---
     "cisco_ios": DeviceTypeSpec("Cisco IOS Switch/Router", "switch", "cisco_ios", _CISCO_IOS_COMMANDS),
     "cisco_nxos": DeviceTypeSpec(
-        "Cisco Nexus (NX-OS)", "switch", "cisco_nxos", ("show running-config",)
+        "Cisco Nexus (NX-OS)", "switch", "cisco_nxos", _CISCO_NXOS_COMMANDS
     ),
     "versa": DeviceTypeSpec(
         "Versa SD-WAN Router (VOS)", "router", "generic_termserver", _VERSA_COMMANDS, secret_supported=False

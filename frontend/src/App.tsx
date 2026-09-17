@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { BackToTop } from "./components/BackToTop";
 import { NavBar } from "./components/NavBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
@@ -179,6 +180,7 @@ export function App() {
         />
         <Route path="*" element={<Navigate to="/devices" replace />} />
       </Routes>
+      <BackToTop />
       </LicenceProvider>
     </AuthProvider>
   );
