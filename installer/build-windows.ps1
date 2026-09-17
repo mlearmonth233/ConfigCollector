@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Builds the Packrat Windows installer: dist\installer\Packrat-Setup-<version>-windows.exe
+  Builds the Packrat Windows installer: dist\installer\Packrat-Setup-<version>-windows-<x64|arm64>.exe
 
 .DESCRIPTION
   1. Builds the frontend (npm ci + npm run build) unless -SkipFrontend.
@@ -30,6 +30,11 @@ $installer = $PSScriptRoot
 if (-not $Version) { $Version = (Get-Content (Join-Path $installer "VERSION") -Raw).Trim() }
 $env:PACKRAT_VERSION = $Version
 $env:PACKRAT_BUILD_CONSOLE = if ($Console) { "1" } else { "" }
+# PyInstaller builds for the CPU of the Python it runs under, which is the
+# machine's own: x64 on Intel/AMD, arm64 on Windows on Arm. The installer
+# is labelled to match.
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+Write-Host "Building Packrat $Version for Windows $arch" -ForegroundColor Cyan
 
 function Invoke-Checked {
     param([string]$Description, [scriptblock]$Command)
@@ -79,6 +84,6 @@ if (-not $iscc) {
     exit 0
 }
 New-Item -ItemType Directory -Force (Join-Path $root "dist\installer") | Out-Null
-Invoke-Checked "Inno Setup" { & $iscc "/DMyAppVersion=$Version" (Join-Path $installer "packrat.iss") }
+Invoke-Checked "Inno Setup" { & $iscc "/DMyAppVersion=$Version" "/DArch=$arch" (Join-Path $installer "packrat.iss") }
 $out = Get-ChildItem (Join-Path $root "dist\installer\Packrat-Setup-*.exe") | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Write-Host "Built $($out.FullName) ($([math]::Round($out.Length / 1MB, 1)) MB)" -ForegroundColor Green

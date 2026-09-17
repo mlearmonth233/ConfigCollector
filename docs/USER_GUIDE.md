@@ -39,16 +39,23 @@ development.
 Download the latest release from
 [github.com/mlearmonth233/ConfigCollector/releases](https://github.com/mlearmonth233/ConfigCollector/releases):
 
-- **Windows**: `Packrat-Setup-<version>-windows.exe`. Run it (no
-  administrator rights needed), keep "Start Packrat when I sign in"
-  ticked if you want scheduled backups to run without you starting it, and
-  finish with "Start Packrat now". Windows may show "Windows protected your
-  PC" for a new download: choose *More info* > *Run anyway*.
-- **macOS**: `Packrat-<version>-macos-arm64.dmg` on an Apple Silicon Mac
-  (M1 or later) or `...-x86_64.dmg` on an Intel Mac. Open it, drag Packrat
-  to Applications, then open Packrat from Applications. The first time,
-  macOS may say the developer cannot be verified: right-click Packrat and
-  choose *Open*, then *Open* again.
+- **Windows 10 or 11, 64-bit**: `Packrat-Setup-<version>-windows-x64.exe`.
+  Run it (no administrator rights needed), keep "Start Packrat when I sign
+  in" ticked if you want scheduled backups to run without you starting it,
+  and finish with "Start Packrat now". Windows may show "Windows protected
+  your PC" for a new download: choose *More info* > *Run anyway*. On a
+  Windows on Arm PC (Surface Pro X, Snapdragon laptops) take the
+  `-windows-arm64.exe` when the release lists one; otherwise the `-x64`
+  installer works there too, run through Windows' built-in emulation.
+  32-bit Windows is not supported.
+- **macOS 12 or later**: `Packrat-<version>-macos-arm64.dmg` on an Apple
+  Silicon Mac (M1 or later; Apple menu > About This Mac says "Chip: Apple
+  M…") or `...-x86_64.dmg` on an Intel Mac ("Processor: Intel…"). Open it,
+  drag Packrat to Applications, then open Packrat from Applications. The
+  first time, macOS may say the developer cannot be verified: right-click
+  Packrat and choose *Open*, then *Open* again. The Intel build also runs
+  on an Apple Silicon Mac through Rosetta if you pick the wrong one; the
+  Apple Silicon build does not run on an Intel Mac.
 
 Packrat starts as an icon in the system tray (Windows) or menu bar (Mac)
 and opens your browser at http://127.0.0.1:8321. Everything runs on that

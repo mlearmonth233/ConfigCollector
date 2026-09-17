@@ -7,6 +7,12 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
+; "x64" (Intel/AMD, also runs on Arm PCs through Windows' emulation) or
+; "arm64" (native build for Windows on Arm). Set with /DArch=... by
+; build-windows.ps1 from the CPU it is building on.
+#ifndef Arch
+  #define Arch "x64"
+#endif
 #define MyAppName "Packrat"
 #define MyAppPublisher "MIL Networks Limited"
 #define MyAppURL "https://milnetworkslimited.co.uk"
@@ -29,10 +35,16 @@ DisableProgramGroupPage=yes
 ; %LOCALAPPDATA%\Programs. The dialog lets an admin choose all-users.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+#if Arch == "arm64"
+ArchitecturesAllowed=arm64
+ArchitecturesInstallIn64BitMode=arm64
+#else
+; x64compatible = x64 machines plus Arm64 machines running x64 code.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 OutputDir=..\dist\installer
-OutputBaseFilename=Packrat-Setup-{#MyAppVersion}-windows
+OutputBaseFilename=Packrat-Setup-{#MyAppVersion}-windows-{#Arch}
 SetupIconFile=assets\packrat.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}

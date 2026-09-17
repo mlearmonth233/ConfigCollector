@@ -136,7 +136,18 @@ def main(argv: list[str] | None = None) -> int:
     env = prepare_environment(data)
     os.chdir(data)
     _configure_launcher_logging(data / "logs")
-    log.info("%s starting; data in %s", APP_NAME, data)
+    import platform  # noqa: PLC0415
+
+    log.info(
+        "%s starting; data in %s; %s %s on %s, Python %s%s",
+        APP_NAME,
+        data,
+        platform.system(),
+        platform.release(),
+        platform.machine(),
+        platform.python_version(),
+        " (bundled)" if getattr(sys, "frozen", False) else "",
+    )
 
     host = env.get("PACKRAT_HOST", "127.0.0.1")
     port = args.port or int(env.get("PACKRAT_PORT", "8321"))

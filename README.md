@@ -54,11 +54,18 @@ frontend (React/Vite) --HTTP--> backend (FastAPI) --enqueues--> Celery worker --
 ## Install (Windows and macOS)
 
 Download from the [releases page](https://github.com/mlearmonth233/ConfigCollector/releases):
-`Packrat-Setup-<version>-windows.exe`, or `Packrat-<version>-macos-arm64.dmg`
-(Apple Silicon) / `-x86_64.dmg` (Intel). Run the installer or drag the app
-to Applications, open Packrat, and the browser opens at
-http://127.0.0.1:8321. It sits in the tray / menu bar; right-click for
-Open, log folder, start at login, Quit.
+
+| Machine | File |
+|---|---|
+| Windows 10/11, Intel or AMD (64-bit) | `Packrat-Setup-<version>-windows-x64.exe` |
+| Windows on Arm | `Packrat-Setup-<version>-windows-arm64.exe` when present, otherwise the x64 installer (runs under Windows' emulation) |
+| Mac, Apple Silicon (M1+) | `Packrat-<version>-macos-arm64.dmg` |
+| Mac, Intel | `Packrat-<version>-macos-x86_64.dmg` (also runs on Apple Silicon under Rosetta) |
+
+Run the installer or drag the app to Applications, open Packrat, and the
+browser opens at http://127.0.0.1:8321. It sits in the tray / menu bar;
+right-click for Open, log folder, start at login, Quit. Every build is
+made and smoke-tested on a GitHub runner of that architecture.
 
 The desktop build is the same backend with three differences, all in
 `backend/app/desktop/` and described in [installer/README.md](installer/README.md):

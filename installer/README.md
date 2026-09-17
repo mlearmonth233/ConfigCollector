@@ -22,7 +22,7 @@ python -m app.desktop --data-dir /tmp/packrat-test --port 8399 --no-browser
 
 | | Windows | macOS |
 |---|---|---|
-| Download | `Packrat-Setup-<version>-windows.exe` | `Packrat-<version>-macos-arm64.dmg` (Apple Silicon) or `-x86_64.dmg` (Intel) |
+| Download | `Packrat-Setup-<version>-windows-x64.exe` (Intel/AMD; also runs on Arm PCs under emulation) or `-windows-arm64.exe` (native Windows on Arm, best effort) | `Packrat-<version>-macos-arm64.dmg` (Apple Silicon) or `-x86_64.dmg` (Intel; also runs on Apple Silicon under Rosetta) |
 | Install | Run Setup; per-user, no admin prompt; Start Menu entry; optional "start when I sign in" | Drag Packrat to Applications |
 | Runs as | Tray icon | Menu-bar icon (no Dock icon) |
 | Data | `%LOCALAPPDATA%\Packrat` | `~/Library/Application Support/Packrat` |
@@ -42,16 +42,33 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-`.github/workflows/installers.yml` builds the Windows installer and both Mac
-disk images on GitHub's runners, smoke-tests each bundle (starts it, checks
-`/health` and that the UI is served), and publishes a GitHub Release with
-the three files attached. *Actions > Installers > Run workflow* does the
-same without a tag and leaves the files as run artifacts.
+`.github/workflows/installers.yml` builds on GitHub's own machines, one job
+per architecture, so each build is produced and tested on the CPU it is
+for:
+
+| Job | Runner | Output | Required for the release |
+|---|---|---|---|
+| Windows x64 | `windows-latest` | `...-windows-x64.exe` | yes |
+| Windows arm64 | `windows-11-arm` | `...-windows-arm64.exe` | no (best effort: a dependency without an arm64 wheel fails only this job) |
+| macOS arm64 | `macos-latest` (Apple Silicon) | `...-macos-arm64.dmg` | yes |
+| macOS x86_64 | `macos-15-intel` | `...-macos-x86_64.dmg` | yes |
+
+Each job smoke-tests its bundle (starts it, checks `/health` and that the UI
+is served, and on a Mac that the binary is the expected architecture), then
+the release job attaches every file to a GitHub Release. *Actions >
+Installers > Run workflow* does the same without a tag and leaves the files
+as run artifacts.
+
+A single universal Mac app is not built on purpose: PyInstaller can only
+make one when every compiled dependency ships a universal wheel, and
+several here (cryptography, pydantic-core, bcrypt, greenlet) ship one wheel
+per architecture. Two disk images are the reliable option. 32-bit Windows
+is not supported.
 
 **On your own machine:**
 
 ```powershell
-.\installer\build-windows.ps1          # -> dist\installer\Packrat-Setup-<version>-windows.exe
+.\installer\build-windows.ps1          # -> dist\installer\Packrat-Setup-<version>-windows-<x64|arm64>.exe
 ```
 
 ```bash
@@ -61,7 +78,9 @@ same without a tag and leaves the files as run artifacts.
 Both need Python 3.11-3.13 and Node 20+. Windows also needs
 [Inno Setup 6](https://jrsoftware.org/isdl.php) for the Setup `.exe`
 (without it the script stops after producing the portable folder
-`dist\Packrat\`). A Mac can only build for its own CPU type.
+`dist\Packrat\`). A machine builds for its own CPU type only: an Intel PC
+makes the x64 installer, an Arm PC the arm64 one, an Apple Silicon Mac the
+arm64 image, an Intel Mac the x86_64 image.
 
 The version comes from `installer/VERSION`, overridden by the tag on
 Actions (`v0.2.0` builds `0.2.0`). Bump the file when you bump the tag so

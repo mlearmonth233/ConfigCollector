@@ -3,9 +3,10 @@
 #
 #   Tag a release:   git tag v0.1.0 && git push origin v0.1.0
 #   -> a GitHub Release "v0.1.0" appears with
-#        Packrat-Setup-0.1.0-windows.exe
-#        Packrat-0.1.0-macos-arm64.dmg      (Apple Silicon)
-#        Packrat-0.1.0-macos-x86_64.dmg     (Intel)
+#        Packrat-Setup-0.1.0-windows-x64.exe    (Intel/AMD PCs; runs on Arm PCs via emulation)
+#        Packrat-Setup-0.1.0-windows-arm64.exe  (native Windows on Arm, when the build succeeds)
+#        Packrat-0.1.0-macos-arm64.dmg          (Apple Silicon)
+#        Packrat-0.1.0-macos-x86_64.dmg         (Intel Macs; also runs on Apple Silicon via Rosetta)
 #
 #   Or run it by hand (Actions > Installers > Run workflow) to get the same
 #   files as downloadable artifacts of the run, without making a release.
@@ -49,9 +50,25 @@ jobs:
           fi
 
   windows:
-    name: Windows installer
+    name: Windows ${{ matrix.arch }}
     needs: version
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x64 runs on every Intel/AMD PC and, through Windows' emulation,
+          # on Arm PCs too - this is the one a release must have.
+          - runner: windows-latest
+            arch: x64
+            required: true
+          # Native Windows on Arm. Best effort: a dependency without an
+          # arm64 wheel fails this job without failing the release, and
+          # Arm users fall back to the x64 installer.
+          - runner: windows-11-arm
+            arch: arm64
+            required: false
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ !matrix.required }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,9 +103,15 @@ jobs:
           Get-ChildItem (Join-Path $data "logs") | ForEach-Object { Write-Host "----- $($_.Name)"; Get-Content $_.FullName -Tail 40 }
           if (-not $ok) { throw "The bundled API did not answer /health" }
           if (-not $index -or $index -notmatch "<title>") { throw "The bundle did not serve the frontend" }
+      - name: Check the installer is for this architecture
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "dist\installer\Packrat-Setup-*-windows-${{ matrix.arch }}.exe"
+          if (-not $exe) { throw "No installer named for ${{ matrix.arch }} was produced" }
+          Write-Host "Built $($exe.Name)"
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: windows-${{ matrix.arch }}
           path: dist/installer/Packrat-Setup-*.exe
           if-no-files-found: error
 
@@ -99,8 +122,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Apple Silicon (M1 and later).
           - runner: macos-latest
             arch: arm64
+          # Intel Macs. This build also runs on Apple Silicon under Rosetta.
           - runner: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.runner }}
@@ -144,6 +169,10 @@ jobs:
           PACKRAT_VERSION: ${{ needs.version.outputs.version }}
           CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
         run: ./installer/build-mac.sh
+      - name: Check the app is built for this architecture
+        run: |
+          file dist/Packrat.app/Contents/MacOS/Packrat
+          file dist/Packrat.app/Contents/MacOS/Packrat | grep -q "${{ matrix.arch }}" || { echo "Binary is not ${{ matrix.arch }}"; exit 1; }
       - name: Smoke test the bundle
         run: |
           data="$RUNNER_TEMP/packrat-smoke"
@@ -188,8 +217,8 @@ jobs:
           body: |
             ## Install
 
-            **Windows** — download `Packrat-Setup-${{ needs.version.outputs.version }}-windows.exe`, run it, and open Packrat from the Start Menu. It lives in the system tray; right-click the icon to open or quit.
+            **Windows 10 / 11 (64-bit)** — download `Packrat-Setup-${{ needs.version.outputs.version }}-windows-x64.exe`, run it, and open Packrat from the Start Menu. It lives in the system tray; right-click the icon to open or quit. On a Windows on Arm PC (Surface Pro X, Snapdragon laptops) use the `-arm64` installer if it is listed, otherwise the `-x64` one, which Windows runs through its built-in emulation.
 
-            **macOS** — download the `.dmg` for your Mac (`arm64` for Apple Silicon, `x86_64` for Intel), drag Packrat to Applications, then open it. The first time, right-click Packrat > Open if macOS says it is from an unidentified developer. It appears in the menu bar.
+            **macOS 12 or later** — download the `.dmg` for your Mac: `arm64` for Apple Silicon (M1 and later; Apple menu > About This Mac says "Chip: Apple M…"), `x86_64` for Intel. Drag Packrat to Applications, then open it. The first time, right-click Packrat > Open if macOS says it is from an unidentified developer. It appears in the menu bar.
 
             Your browser opens at the app; create the first account there. Everything is stored on your machine (`%LOCALAPPDATA%\Packrat` on Windows, `~/Library/Application Support/Packrat` on a Mac).
