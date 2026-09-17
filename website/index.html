@@ -324,11 +324,11 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
         <div><h3>Colony</h3><p class="who">For a team running a campus, a data center, or a few dozen branches.</p></div>
         <p class="price">$79<small>per month</small></p>
         <ul><li>Up to 500 devices, unlimited users</li><li>Scheduled backups and config-change alerts</li><li>Alerts by email, Microsoft Teams and Slack</li><li>SNMP monitoring, firmware push, inventory Excel export</li><li>Unlimited snapshot history</li><li>Email support, next business day</li></ul>
-        <!-- Stripe Payment Link for the Colony subscription. Create it in the
-             Stripe dashboard (see website/README.md, "Taking payments") and
-             paste the URL into STRIPE_PAYMENT_LINK in the script at the foot
-             of this page. Until then the button falls back to email. -->
-        <a class="btn btn-teal" id="buy-colony" href="mailto:admin@milnetworkslimited.co.uk?subject=Packrat%20Colony" data-fallback="mailto:admin@milnetworkslimited.co.uk?subject=Packrat%20Colony">Start a 30-day trial</a>
+        <!-- Stripe Payment Link for the Colony subscription (see
+             website/README.md, "Taking payments"). The same URL is set in
+             STRIPE_PAYMENT_LINK at the foot of this page; the href here means
+             the button works even with scripts blocked. -->
+        <a class="btn btn-teal" id="buy-colony" href="https://buy.stripe.com/6oU5kFdxLbT11YfeZkfw400" rel="noopener" data-fallback="mailto:admin@milnetworkslimited.co.uk?subject=Packrat%20Colony">Start a 30-day trial</a>
       </div>
       <div class="tier">
         <div><h3>Warren</h3><p class="who">For a fleet with thousands of devices, many sites, and an audit calendar.</p></div>
@@ -372,7 +372,7 @@ HQ-CORE-SW02   Gig 1/0/1      151      C9300-48   Gig 1/0/1
   //   https://<your site>/thanks.html?session_id={CHECKOUT_SESSION_ID}
   // While this still says REPLACE_ME the button keeps its email fallback,
   // so a half-configured deploy never ships a dead Buy button.
-  var STRIPE_PAYMENT_LINK = "https://buy.stripe.com/REPLACE_ME";
+  var STRIPE_PAYMENT_LINK = "https://buy.stripe.com/6oU5kFdxLbT11YfeZkfw400";
 
   (function () {
     var button = document.getElementById("buy-colony");
