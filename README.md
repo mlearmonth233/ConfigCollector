@@ -58,7 +58,7 @@ Download from the [releases page](https://github.com/mlearmonth233/ConfigCollect
 | Machine | File |
 |---|---|
 | Windows 10/11, Intel or AMD (64-bit) | `Packrat-Setup-<version>-windows-x64.exe` |
-| Windows on Arm | `Packrat-Setup-<version>-windows-arm64.exe` when present, otherwise the x64 installer (runs under Windows' emulation) |
+| Windows on Arm | The x64 installer, which Windows runs under its built-in emulation. A native arm64 build waits on the cryptography package shipping Arm64 Windows wheels |
 | Mac, Apple Silicon (M1+) | `Packrat-<version>-macos-arm64.dmg` |
 | Mac, Intel | `Packrat-<version>-macos-x86_64.dmg` (also runs on Apple Silicon under Rosetta) |
 

@@ -104,37 +104,75 @@ a = Analysis(  # noqa: F821
 )
 if sys.platform == "darwin":
     # Two OpenSSLs meet in the bundle: the one Python's own _ssl module was
-    # built against, and the newer one the cryptography wheel ships in its
-    # .dylibs folder and needs (its Rust extension calls symbols that only
-    # exist in OpenSSL 3.2+). PyInstaller places shared libraries at the
-    # top of Contents/Frameworks by file name, so only one libssl.3.dylib
-    # survives - and if it is Python's older copy, cryptography fails to
-    # import ("Symbol not found: _SSL_get0_group_name"). OpenSSL 3.x is
-    # backwards compatible within the major version, so keep the newer
-    # wheel copy for both users.
+    # built against (3.0.x) and the one the cryptography extension links
+    # to - either the copy inside its wheel or, when pip had to compile it
+    # (no Intel wheel), Homebrew's much newer openssl@3. PyInstaller keeps
+    # a single libssl.3.dylib / libcrypto.3.dylib at the top of
+    # Contents/Frameworks, and if Python's older copy wins, cryptography
+    # fails to import ("Symbol not found: _SSL_get0_group_name"). OpenSSL
+    # is backwards compatible within 3.x, so keep the newest copy for both.
     import glob
+    import re
+    import subprocess
 
     import cryptography
 
-    wheel_libs = {
-        os.path.basename(p): p
-        for p in glob.glob(os.path.join(os.path.dirname(cryptography.__file__), ".dylibs", "lib*.dylib"))
-    }
-    openssl_names = {n for n in wheel_libs if n.startswith(("libssl", "libcrypto"))}
-    if openssl_names:
-        kept = []
-        for entry in a.binaries:
-            dest, source = entry[0], entry[1]
-            if os.path.basename(dest) in openssl_names or os.path.basename(source) in openssl_names:
-                if source in wheel_libs.values() and os.path.dirname(dest) == "":
-                    kept.append(entry)  # already the wheel's copy at the top level
+    OPENSSL_LIBS = ("libssl.3.dylib", "libcrypto.3.dylib")
+
+    def openssl_version(path):
+        try:
+            with open(path, "rb") as fh:
+                m = re.search(rb"OpenSSL (\d+)\.(\d+)\.(\d+)", fh.read())
+        except OSError:
+            return (0, 0, 0)
+        return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+    def linked_openssl(extension):
+        """{basename: resolved path} of the OpenSSL libraries an extension links to."""
+        found = {}
+        try:
+            out = subprocess.check_output(["otool", "-L", extension], text=True)
+        except Exception:  # noqa: BLE001
+            return found
+        for line in out.splitlines()[1:]:
+            ref = line.strip().split(" (")[0]
+            base = os.path.basename(ref)
+            if base not in OPENSSL_LIBS:
                 continue
-            kept.append(entry)
-        for name in sorted(openssl_names):
-            if not any(os.path.basename(e[0]) == name and os.path.dirname(e[0]) == "" for e in kept):
-                kept.append((name, wheel_libs[name], "BINARY"))
-        print(f"packrat.spec: using cryptography's OpenSSL ({', '.join(sorted(openssl_names))}) for the whole bundle")
-        a.binaries = type(a.binaries)(kept) if not isinstance(a.binaries, list) else kept
+            path = ref
+            if ref.startswith("@loader_path/"):
+                path = os.path.normpath(os.path.join(os.path.dirname(extension), ref[len("@loader_path/"):]))
+            elif ref.startswith("@rpath/"):
+                for rpath in (os.path.dirname(extension), os.path.join(os.path.dirname(cryptography.__file__), ".dylibs"), "/usr/local/opt/openssl@3/lib", "/opt/homebrew/opt/openssl@3/lib"):
+                    candidate = os.path.join(rpath, ref[len("@rpath/"):])
+                    if os.path.exists(candidate):
+                        path = candidate
+                        break
+            if os.path.exists(path):
+                found[base] = path
+        return found
+
+    candidates = {name: {} for name in OPENSSL_LIBS}
+    for entry in a.binaries:
+        base = os.path.basename(entry[0])
+        if base in OPENSSL_LIBS and os.path.exists(entry[1]):
+            candidates[base][entry[1]] = openssl_version(entry[1])
+    for ext in glob.glob(os.path.join(os.path.dirname(cryptography.__file__), "hazmat", "bindings", "_rust*.so")):
+        for base, path in linked_openssl(ext).items():
+            candidates[base][path] = openssl_version(path)
+
+    replaced = False
+    for base, options in candidates.items():
+        if not options:
+            continue
+        best_path, best_version = max(options.items(), key=lambda kv: kv[1])
+        kept = [e for e in a.binaries if os.path.basename(e[0]) != base]
+        kept.append((base, best_path, "BINARY"))
+        a.binaries = kept
+        replaced = True
+        print(f"packrat.spec: {base} -> OpenSSL {'.'.join(map(str, best_version))} from {best_path} (of {len(options)} candidates)")
+    if not replaced:
+        print("packrat.spec: no OpenSSL libraries to reconcile")
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
 

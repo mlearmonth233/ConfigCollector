@@ -22,7 +22,7 @@ python -m app.desktop --data-dir /tmp/packrat-test --port 8399 --no-browser
 
 | | Windows | macOS |
 |---|---|---|
-| Download | `Packrat-Setup-<version>-windows-x64.exe` (Intel/AMD; also runs on Arm PCs under emulation) or `-windows-arm64.exe` (native Windows on Arm, best effort) | `Packrat-<version>-macos-arm64.dmg` (Apple Silicon) or `-x86_64.dmg` (Intel; also runs on Apple Silicon under Rosetta) |
+| Download | `Packrat-Setup-<version>-windows-x64.exe` (Intel/AMD; also runs on Arm PCs under emulation) | `Packrat-<version>-macos-arm64.dmg` (Apple Silicon) or `-x86_64.dmg` (Intel; also runs on Apple Silicon under Rosetta) |
 | Install | Run Setup; per-user, no admin prompt; Start Menu entry; optional "start when I sign in" | Drag Packrat to Applications |
 | Runs as | Tray icon | Menu-bar icon (no Dock icon) |
 | Data | `%LOCALAPPDATA%\Packrat` | `~/Library/Application Support/Packrat` |
@@ -49,7 +49,7 @@ for:
 | Job | Runner | Output | Required for the release |
 |---|---|---|---|
 | Windows x64 | `windows-latest` | `...-windows-x64.exe` | yes |
-| Windows arm64 | `windows-11-arm` | `...-windows-arm64.exe` | no (best effort: a dependency without an arm64 wheel fails only this job) |
+| Windows arm64 | (`windows-11-arm`, not in the matrix yet) | `...-windows-arm64.exe` | no: cryptography ships no Arm64 Windows wheel, so the job cannot build; re-add the matrix entry when it does |
 | macOS arm64 | `macos-latest` (Apple Silicon) | `...-macos-arm64.dmg` | yes |
 | macOS x86_64 | `macos-15-intel` | `...-macos-x86_64.dmg` | yes |
 

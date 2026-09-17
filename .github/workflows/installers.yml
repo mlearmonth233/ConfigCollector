@@ -4,7 +4,6 @@
 #   Tag a release:   git tag v0.1.0 && git push origin v0.1.0
 #   -> a GitHub Release "v0.1.0" appears with
 #        Packrat-Setup-0.1.0-windows-x64.exe    (Intel/AMD PCs; runs on Arm PCs via emulation)
-#        Packrat-Setup-0.1.0-windows-arm64.exe  (native Windows on Arm, when the build succeeds)
 #        Packrat-0.1.0-macos-arm64.dmg          (Apple Silicon)
 #        Packrat-0.1.0-macos-x86_64.dmg         (Intel Macs; also runs on Apple Silicon via Rosetta)
 #
@@ -57,16 +56,14 @@ jobs:
       matrix:
         include:
           # x64 runs on every Intel/AMD PC and, through Windows' emulation,
-          # on Arm PCs too - this is the one a release must have.
+          # on Arm PCs too. A native Windows on Arm build (runner
+          # windows-11-arm, arch arm64) is not attempted yet: the
+          # cryptography package ships no Arm64 Windows wheel and cannot be
+          # compiled on the runner. Add the matrix entry back when it does;
+          # build-windows.ps1 and packrat.iss already handle arm64.
           - runner: windows-latest
             arch: x64
             required: true
-          # Native Windows on Arm. Best effort: a dependency without an
-          # arm64 wheel fails this job without failing the release, and
-          # Arm users fall back to the x64 installer.
-          - runner: windows-11-arm
-            arch: arm64
-            required: false
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ !matrix.required }}
     steps:
@@ -189,7 +186,7 @@ jobs:
           index="$(curl -fsS http://127.0.0.1:8399/ || true)"
           kill "$pid" 2>/dev/null || true
           sleep 3
-          for f in "$data"/logs/*; do echo "----- $f"; tail -n 40 "$f"; done
+          for f in "$data"/logs/*; do [[ -f "$f" ]] && { echo "----- $f"; tail -n 40 "$f"; }; done || true
           [[ "$ok" == 1 ]] || { echo "The bundled API did not answer /health"; exit 1; }
           grep -q "<title>" <<< "$index" || { echo "The bundle did not serve the frontend"; exit 1; }
       - uses: actions/upload-artifact@v4

@@ -44,10 +44,10 @@ Download the latest release from
   in" ticked if you want scheduled backups to run without you starting it,
   and finish with "Start Packrat now". Windows may show "Windows protected
   your PC" for a new download: choose *More info* > *Run anyway*. On a
-  Windows on Arm PC (Surface Pro X, Snapdragon laptops) take the
-  `-windows-arm64.exe` when the release lists one; otherwise the `-x64`
-  installer works there too, run through Windows' built-in emulation.
-  32-bit Windows is not supported.
+  Windows on Arm PC (Surface Pro X, Snapdragon laptops) the same `-x64`
+  installer works, run through Windows' built-in emulation; a native
+  `-windows-arm64.exe` will be added to releases when its dependencies
+  ship Arm64 builds. 32-bit Windows is not supported.
 - **macOS 12 or later**: `Packrat-<version>-macos-arm64.dmg` on an Apple
   Silicon Mac (M1 or later; Apple menu > About This Mac says "Chip: Apple
   M…") or `...-x86_64.dmg` on an Intel Mac ("Processor: Intel…"). Open it,
