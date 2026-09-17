@@ -323,6 +323,8 @@ def test_build_inventory_joins_everything_together():
     # Endpoints: MAC table joined with ARP; ports with a neighbour are flagged as uplinks.
     endpoints = {(e.device_name, e.mac): e for e in built.endpoints}
     assert endpoints[("HQ-CORE-SW01", "a4bb.6d12.3456")].ip == "10.10.10.50" and endpoints[("HQ-CORE-SW01", "a4bb.6d12.3456")].on_uplink is False
+    assert endpoints[("HQ-CORE-SW01", "a4bb.6d12.3456")].manufacturer == "Dell Inc."
+    assert endpoints[("HQ-CORE-SW01", "0050.5686.aa01")].manufacturer == "VMware, Inc."
     assert endpoints[("HQ-CORE-SW01", "001e.c9aa.bbcc")].on_uplink is True  # Gi1/0/47 leads to HQ-DIST-SW11
     assert endpoints[("HQ-CORE-SW01", "0050.5686.aa01")].on_uplink is False  # Te1/1/3 has the ESX host on LLDP: a host, not an uplink
     assert endpoints[("HQ-CORE-SW01", "0011.2233.4455")].on_uplink is False  # the phone's port likewise

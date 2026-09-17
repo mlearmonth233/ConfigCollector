@@ -510,8 +510,9 @@ export function Inventory() {
       {tab === "endpoints" && (
         <>
           <p className="page-subtitle" style={{ marginTop: 8 }}>
-            MAC addresses learned on each switch port ("show mac address-table"), with the IP from any device's ARP table when one is known. A port that
-            leads to another switch carries that switch's whole table, so those rows are marked.
+            MAC addresses learned on each switch port ("show mac address-table"), with the IP from any device's ARP table when one is known and the
+            maker from the IEEE address registry. Phones and laptops that use a private, randomised address show as such. A port that leads to another
+            switch carries that switch's whole table, so those rows are marked.
           </p>
           <table className="data-table" style={{ marginTop: 8 }}>
             <thead>
@@ -520,6 +521,7 @@ export function Inventory() {
                 <th>Port</th>
                 <th>VLAN</th>
                 <th>MAC</th>
+                <th>Manufacturer</th>
                 <th>IP</th>
                 <th>Type</th>
                 <th>Note</th>
@@ -527,13 +529,14 @@ export function Inventory() {
             </thead>
             <tbody>
               {data.endpoints
-                .filter((e) => matches(q, e.device_name, e.port, e.vlan, e.mac, e.ip))
+                .filter((e) => matches(q, e.device_name, e.port, e.vlan, e.mac, e.ip, e.manufacturer))
                 .map((e, i) => (
                   <tr key={`${e.device_id}-${e.mac}-${i}`}>
                     <td>{e.device_name}</td>
                     <td>{e.port}</td>
                     <td>{dash(e.vlan)}</td>
                     <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{e.mac}</td>
+                    <td>{e.manufacturer === "Randomised private address" ? <span className="field-hint">randomised (private) address</span> : dash(e.manufacturer)}</td>
                     <td>{dash(e.ip)}</td>
                     <td>{dash(e.entry_type)}</td>
                     <td>{e.on_uplink ? <span className="field-hint">behind another switch</span> : ""}</td>
@@ -541,7 +544,7 @@ export function Inventory() {
                 ))}
               {data.endpoints.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="empty-state">
+                  <td colSpan={8} className="empty-state">
                     No MAC address tables collected yet - the device type has to run "show mac address-table" (and "show ip arp" for IPs). See Coverage.
                   </td>
                 </tr>

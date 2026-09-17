@@ -117,8 +117,8 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
     )
     _write_table(
         wb.create_sheet("Endpoints"),
-        ["Switch", "Port", "VLAN", "MAC", "IP (from ARP)", "Entry type", "Port has a neighbour switch"],
-        [[e.device_name, e.port, e.vlan, e.mac, e.ip, e.entry_type, "yes" if e.on_uplink else ""] for e in inventory.endpoints],
+        ["Switch", "Port", "VLAN", "MAC", "Manufacturer", "IP (from ARP)", "Entry type", "Port has a neighbour switch"],
+        [[e.device_name, e.port, e.vlan, e.mac, e.manufacturer, e.ip, e.entry_type, "yes" if e.on_uplink else ""] for e in inventory.endpoints],
     )
 
     buffer = BytesIO()

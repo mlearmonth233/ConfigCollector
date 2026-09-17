@@ -29,6 +29,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.services import oui
 from app.services.neighbor_discovery import normalize_device_name
 
 # --- snapshot sections -----------------------------------------------------------------
@@ -229,6 +230,7 @@ class Endpoint:
     ip: str | None
     entry_type: str | None
     on_uplink: bool  # the port also has a CDP/LLDP neighbor, so this MAC is probably behind another switch
+    manufacturer: str | None = None  # from the IEEE OUI registries, or oui.RANDOMIZED for a private address
 
 
 @dataclass
@@ -871,6 +873,7 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
                 arp_ip_by_mac.get(row["mac"]),
                 row["type"],
                 _short_port(row["port"]) in uplink_ports.get(item.device_id, set()),
+                oui.manufacturer(row["mac"]),
             )
         )
 

@@ -355,8 +355,12 @@ components, access points, and **unmanaged** devices. The tabs:
   with the ports it was seen from. Switches and routers here are the ones
   to add to Devices.
 - **Endpoints**: MAC addresses per switch port with the IP from ARP when
-  known. A port that leads to another switch carries that switch's whole
-  MAC table, so those rows are marked "behind another switch".
+  known and the **manufacturer** looked up from the MAC's IEEE address
+  block (24, 28 and 36-bit assignments, bundled with Packrat so nothing is
+  looked up online). A phone or laptop using a randomised per-network
+  address shows "randomised (private) address" instead of a maker. A port
+  that leads to another switch carries that switch's whole MAC table, so
+  those rows are marked "behind another switch".
 - **Coverage**: for each device type you use, which inventory commands its
   command list does not run yet, with an **Add inventory commands** button
   that appends them (admins). The next collection then fills the gap - the
@@ -366,6 +370,11 @@ components, access points, and **unmanaged** devices. The tabs:
 **Download Excel** saves one workbook with a Summary sheet (counts and a
 model tally) and a sheet per tab, headers frozen and filterable. The search
 box filters the visible tab by any column.
+
+The manufacturer table is a copy of the IEEE registries shipped inside
+Packrat (about 54,000 address blocks). New blocks are assigned every week,
+so a brand-new device model can show no maker until the table is refreshed
+with `python backend/scripts/update_oui.py` in a future release.
 
 Screen-scraping CLI output is best-effort: a field the parser cannot find is
 left blank rather than guessed, and platforms outside the list above only

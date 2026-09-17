@@ -67,6 +67,7 @@ class EndpointOut(BaseModel):
     ip: str | None
     entry_type: str | None
     on_uplink: bool
+    manufacturer: str | None = None
 
 
 class UnmanagedDeviceOut(BaseModel):

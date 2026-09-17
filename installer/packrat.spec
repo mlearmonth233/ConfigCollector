@@ -32,6 +32,7 @@ if not (FRONTEND_DIST / "index.html").is_file():
 datas = [
     (str(BACKEND / "alembic"), "alembic"),
     (str(BACKEND / "alembic.ini"), "."),
+    (str(BACKEND / "app" / "data"), "app/data"),
     (str(FRONTEND_DIST), "frontend"),
     (str(INSTALLER / "assets" / "packrat-icon.png"), "."),
 ]

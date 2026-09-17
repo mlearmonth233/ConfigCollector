@@ -538,6 +538,7 @@ export interface InventoryEndpoint {
   ip: string | null;
   entry_type: string | null;
   on_uplink: boolean;
+  manufacturer: string | null;
 }
 
 export interface InventoryUnmanaged {
