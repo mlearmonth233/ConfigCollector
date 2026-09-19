@@ -21,6 +21,10 @@ def _fmt_dt(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M UTC") if value else ""
 
 
+def _yes_no(value: bool | None) -> str | None:
+    return None if value is None else ("Yes" if value else "No")
+
+
 def _write_table(ws: Worksheet, headers: list[str], rows: list[list]) -> None:
     ws.append(headers)
     for cell in ws[1]:
@@ -94,8 +98,11 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
     )
     _write_table(
         wb.create_sheet("Wireless clients"),
-        ["Controller", "Client MAC", "Manufacturer", "IP", "Access point", "SSID", "WLAN ID", "Radio / protocol", "State", "Auth", "Role"],
-        [[c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state, c.auth, c.role] for c in inventory.wireless_clients],
+        ["Controller", "Client MAC", "Manufacturer", "IP", "Access point", "SSID", "WLAN ID", "Radio / protocol", "State", "Auth", "Key management", "Fast Transition (802.11r)", "WLAN FT setting", "Role"],
+        [
+            [c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state, c.auth, c.akm, _yes_no(c.ft), c.wlan_ft, c.role]
+            for c in inventory.wireless_clients
+        ],
     )
     _write_table(
         wb.create_sheet("Unmanaged"),

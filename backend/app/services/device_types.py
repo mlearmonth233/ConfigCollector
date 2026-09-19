@@ -140,6 +140,10 @@ _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
     # state, then the same list keyed by IP address (8.x).
     "show client summary",
     "show client summary ip",
+    # Per-client detail, run once for every MAC in the summary above
+    # ("{client}" is filled in at collection time): key management, so the
+    # inventory can tell which clients are on 802.11r Fast Transition.
+    "show client detail {client}",
 )
 
 # Catalyst 9800 WLC (cisco_xe driver, IOS-XE). Distinct AP-inventory-style
@@ -166,6 +170,10 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     # method; the device-tracking database gives each client's IP address.
     "show wireless client summary",
     "show wireless device-tracking database ip",
+    # Per-client detail, run once for every MAC in the summary above
+    # ("{client}" is filled in at collection time): key management, so the
+    # inventory can tell which clients are on 802.11r Fast Transition.
+    "show wireless client mac-address {client} detail",
 )
 
 # Nexus (NX-OS). Paging is disabled by the driver. The running config plus

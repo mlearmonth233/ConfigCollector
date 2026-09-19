@@ -51,6 +51,12 @@ export function Commands() {
         over whatever's saved here, and a one-time override entered when starting a collection wins over
         both.
       </p>
+      <p className="page-subtitle">
+        A command containing <code>{"{client}"}</code> runs once per wireless client: at collection time it is repeated for every
+        MAC address listed by an earlier client summary in the same list ("show wireless client summary" on a 9800, "show client
+        summary" on AireOS). That is how the Inventory learns each client's key management and whether it is on 802.11r Fast
+        Transition. Every client is one more command on the controller, so a busy site's collection takes a few minutes longer.
+      </p>
       {error && <div className="error-banner">{error}</div>}
 
       <CustomDeviceTypesSection />

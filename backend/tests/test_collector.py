@@ -495,3 +495,82 @@ def test_should_cancel_stops_before_the_next_command(monkeypatch):
         )
 
     assert fake.pattern_based_calls == ["show version"]
+
+
+class _FakeWlcConnection(_FakeConnection):
+    """A controller: the client summary lists two clients, everything else
+    echoes the command."""
+
+    def send_command_timing(self, command, last_read=None, read_timeout=None):
+        self.timing_based_calls.append(command)
+        if command == "show client summary":
+            return (
+                "Number of Clients................................ 2\n\n"
+                "MAC Address       AP Name           Slot Status        WLAN  Auth Protocol         Port Wired  Tunnel  Role\n"
+                "----------------- ----------------- ---- ------------- ----- ---- ---------------- ---- ----- ------- ----------------\n"
+                "a4:bb:6d:12:34:56 AP-WAREHOUSE-01    1   Associated     1    Yes  802.11ac(5 GHz)   1    No    No      Local\n"
+                "3c:22:fb:aa:bb:cc AP-WAREHOUSE-01    0   Probing        N/A  No   802.11n(2.4 GHz)  1    No    No      Local\n"
+                "a4:bb:6d:12:34:56 AP-WAREHOUSE-01    1   Associated     1    Yes  802.11ac(5 GHz)   1    No    No      Local\n"
+            )
+        return f"timing-output:{command}"
+
+
+def test_client_placeholder_runs_the_command_once_per_listed_client(monkeypatch):
+    fake = _FakeWlcConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    output = collect_device_config(
+        host="10.60.5.10",
+        port=22,
+        device_type="cisco_wlc",
+        username="admin",
+        password="pw",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["show sysinfo", "show client summary", "show client detail {client}"],
+    )
+
+    # One detail command per distinct MAC, spelt as the controller printed it.
+    assert fake.timing_based_calls == [
+        "show sysinfo",
+        "show client summary",
+        "show client detail a4:bb:6d:12:34:56",
+        "show client detail 3c:22:fb:aa:bb:cc",
+    ]
+    assert "! ---- show client detail a4:bb:6d:12:34:56 ----\ntiming-output:show client detail a4:bb:6d:12:34:56" in output
+    assert "{client}" not in output
+
+
+def test_client_placeholder_with_no_clients_leaves_a_note_instead(monkeypatch):
+    fake = _FakeConnection()
+    monkeypatch.setattr(collector_module, "ConnectHandler", lambda **kwargs: fake)
+
+    output = collect_device_config(
+        host="10.60.5.10",
+        port=22,
+        device_type="cisco_wlc",
+        username="admin",
+        password="pw",
+        secret=None,
+        custom_commands=None,
+        auth_timeout=5,
+        commands_override=["show client detail {client}", "show sysinfo"],
+    )
+
+    # Nothing listed clients before the template, so it is not run at all -
+    # but the snapshot still records the section so coverage knows it was in the list.
+    assert fake.timing_based_calls == ["show sysinfo"]
+    assert "! ---- show client detail {client} ----\n(no wireless clients listed earlier" in output
+
+
+def test_client_macs_only_come_from_client_summary_sections():
+    outputs = [
+        "! ---- show ip arp ----",
+        "Internet  10.0.0.1  0  0011.2233.4455  ARPA  Vlan1\n0011.2233.4455 at line start too\n",
+        "! ---- show wireless client summary ----",
+        "MAC Address    AP Name\n-----\na4bb.6d12.3456 AP-1  WLAN 1  Run  11ax(5)  Dot1x  Local\nA4BB.6D12.3456 dup\n0050.5686.cc99 AP-2  WLAN 1  Run  11n(2.4) None  Local\n",
+        "! ---- show client summary ip ----",
+        "aaaa.bbbb.cccc  AP-3  10.1.1.1\n",
+    ]
+    assert collector_module.client_macs_from_outputs(outputs) == ["a4bb.6d12.3456", "0050.5686.cc99"]

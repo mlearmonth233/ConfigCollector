@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { extractErrorMessage } from "../api/client";
 import { inventoryApi } from "../api/resources";
-import type { Inventory as InventoryData, InventoryCommandCoverage } from "../api/types";
+import type { Inventory as InventoryData, InventoryCommandCoverage, InventoryWirelessClient } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { formatLocalDateTime } from "../utils/formatDate";
 import { useLicence } from "../context/LicenceContext";
@@ -62,6 +62,82 @@ function dash(value: string | null | undefined): string {
   return value && value.trim() ? value : "—";
 }
 
+type WirelessSort = "wlan" | "ap" | "manufacturer" | "ip" | "mac" | "ft";
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function ipSortKey(ip: string | null): string {
+  if (!ip) return "999.999.999.999";
+  return ip
+    .split(".")
+    .map((part) => part.padStart(3, "0"))
+    .join(".");
+}
+
+/** The backend already orders clients by controller, WLAN, AP and MAC; the
+ * other orders are picked here. Ties fall back to that WLAN order so the
+ * table stays stable. */
+function sortWireless(rows: InventoryWirelessClient[], sort: WirelessSort): InventoryWirelessClient[] {
+  if (sort === "wlan") return rows;
+  const keyed = rows.map((row, index) => ({ row, index }));
+  const text = (value: string | null | undefined) => value ?? "￿";
+  keyed.sort((a, b) => {
+    let result = 0;
+    switch (sort) {
+      case "ap":
+        result = collator.compare(text(a.row.ap_name), text(b.row.ap_name));
+        break;
+      case "manufacturer":
+        result = collator.compare(text(a.row.manufacturer), text(b.row.manufacturer));
+        break;
+      case "ip":
+        result = collator.compare(ipSortKey(a.row.ip), ipSortKey(b.row.ip));
+        break;
+      case "mac":
+        result = collator.compare(a.row.mac, b.row.mac);
+        break;
+      case "ft": {
+        // Clients on FT first, then not, then unknown.
+        const rank = (value: boolean | null) => (value === true ? 0 : value === false ? 1 : 2);
+        result = rank(a.row.ft) - rank(b.row.ft) || collator.compare(text(a.row.akm), text(b.row.akm));
+        break;
+      }
+    }
+    return result || a.index - b.index;
+  });
+  return keyed.map((k) => k.row);
+}
+
+/** The FT cell: what the client negotiated when its detail was collected,
+ * otherwise what the WLAN offers. */
+function ftCell(c: InventoryWirelessClient) {
+  if (c.ft === true) {
+    return (
+      <>
+        <span className="ft-yes">Yes</span>
+        {c.akm ? <span className="table-hint"> {c.akm}</span> : null}
+      </>
+    );
+  }
+  if (c.ft === false) {
+    return (
+      <>
+        No
+        {c.akm ? <span className="table-hint"> {c.akm}</span> : null}
+        {c.wlan_ft && c.wlan_ft !== "Disabled" ? <span className="table-hint"> · WLAN offers FT ({c.wlan_ft.toLowerCase()})</span> : null}
+      </>
+    );
+  }
+  if (c.wlan_ft) {
+    return (
+      <span className="table-hint" title="This client's detail was not collected; the WLAN's own 802.11r setting is shown instead">
+        unknown · WLAN {c.wlan_ft.toLowerCase()}
+      </span>
+    );
+  }
+  return <span className="table-hint">unknown</span>;
+}
+
 /** Everything the collected configs say about the hardware on site: the
  * managed devices' models and serials, their line cards and optics, what
  * CDP/LLDP see plugged into each port, access points, and the MAC/IP of
@@ -76,6 +152,7 @@ export function Inventory() {
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("devices");
   const [query, setQuery] = useState("");
+  const [wirelessSort, setWirelessSort] = useState<WirelessSort>("wlan");
   const [downloading, setDownloading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,6 +214,31 @@ export function Inventory() {
   const missingCoverage = useMemo(() => coverage.filter((c) => c.device_count > 0 && c.missing.length > 0), [coverage]);
   const notCollected = useMemo(() => data?.devices.filter((d) => !d.has_snapshot) ?? [], [data]);
   const topModels = useMemo(() => Object.entries(data?.models ?? {}).slice(0, 8), [data]);
+  const wirelessRows = useMemo(() => {
+    const q = query.trim();
+    const filtered = (data?.wireless_clients ?? []).filter((c) =>
+      matches(q, c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state, c.akm, c.wlan_ft),
+    );
+    return sortWireless(filtered, wirelessSort);
+  }, [data, query, wirelessSort]);
+  const wirelessGroupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of wirelessRows) {
+      const key = `${c.controller_id}|${c.wlan_id ?? ""}|${c.ssid ?? ""}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [wirelessRows]);
+  const wirelessFt = useMemo(() => {
+    let yes = 0;
+    let known = 0;
+    for (const c of wirelessRows) {
+      if (c.ft === null) continue;
+      known += 1;
+      if (c.ft) yes += 1;
+    }
+    return { yes, known, unknown: wirelessRows.length - known };
+  }, [wirelessRows]);
 
   if (error && !data) return <div className="page error-banner">{error}</div>;
   if (!data) return <div className="page">Loading…</div>;
@@ -403,7 +505,33 @@ export function Inventory() {
             Every client associated to your wireless controllers when their configs were last collected ("show wireless client summary" on a 9800,
             "show client summary" on AireOS), with the SSID from "show wlan summary", the maker from the MAC address, and the IP from the
             controller's client table or any switch's ARP table. Phones and laptops using a private, randomised address show as such.
+            FT (802.11r Fast Transition) comes from each client's detail ("show wireless client mac-address … detail" / "show client detail …"),
+            which the built-in command lists run for every client; without it the column shows what the WLAN itself offers.
           </p>
+          <div className="wireless-toolbar">
+            <label>
+              Sort by{" "}
+              <select value={wirelessSort} onChange={(e) => setWirelessSort(e.target.value as WirelessSort)}>
+                <option value="wlan">WLAN / SSID</option>
+                <option value="ap">Access point</option>
+                <option value="manufacturer">Manufacturer</option>
+                <option value="ip">IP address</option>
+                <option value="mac">MAC address</option>
+                <option value="ft">Fast Transition</option>
+              </select>
+            </label>
+            <span className="wireless-toolbar-summary">
+              {wirelessRows.length} client{wirelessRows.length === 1 ? "" : "s"}
+              {wirelessFt.known > 0 && <> · {wirelessFt.yes} on FT, {wirelessFt.known - wirelessFt.yes} not</>}
+              {wirelessFt.unknown > 0 && wirelessFt.known > 0 && <> · {wirelessFt.unknown} unknown</>}
+            </span>
+          </div>
+          {wirelessRows.length > 0 && wirelessFt.known === 0 && (
+            <div className="info-banner" style={{ marginTop: 8 }}>
+              FT is unknown for every client: the controllers were last collected before the per-client detail command was in their list.
+              Run a collection of the controllers again (see Coverage if the command is missing).
+            </div>
+          )}
           <table className="data-table" style={{ marginTop: 8 }}>
             <thead>
               <tr>
@@ -416,32 +544,52 @@ export function Inventory() {
                 <th>Radio</th>
                 <th>State</th>
                 <th>Auth</th>
+                <th title="802.11r Fast Transition: the key management the client negotiated (FT-802.1x, FT-PSK, FT-SAE) means yes">FT (802.11r)</th>
                 <th>Role</th>
               </tr>
             </thead>
             <tbody>
-              {data.wireless_clients
-                .filter((c) => matches(q, c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state))
-                .map((c, i) => (
-                  <tr key={`${c.controller_id}-${c.mac}-${i}`}>
-                    <td>{c.controller_name}</td>
-                    <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{c.mac}</td>
-                    <td>{c.manufacturer === "Randomised private address" ? <span className="field-hint">randomised (private) address</span> : dash(c.manufacturer)}</td>
-                    <td>{dash(c.ip)}</td>
-                    <td>{dash(c.ap_name)}</td>
-                    <td>
-                      {dash(c.ssid ?? (c.wlan_id ? `WLAN ${c.wlan_id}` : null))}
-                      {c.ssid && c.wlan_id ? <span className="field-hint"> · WLAN {c.wlan_id}</span> : null}
-                    </td>
-                    <td>{dash(c.protocol)}</td>
-                    <td>{dash(c.state)}</td>
-                    <td>{dash(c.auth)}</td>
-                    <td>{dash(c.role)}</td>
-                  </tr>
-                ))}
+              {wirelessRows.map((c, i) => {
+                const groupKey = `${c.controller_id}|${c.wlan_id ?? ""}|${c.ssid ?? ""}`;
+                const previous = i > 0 ? wirelessRows[i - 1] : null;
+                const previousKey = previous ? `${previous.controller_id}|${previous.wlan_id ?? ""}|${previous.ssid ?? ""}` : null;
+                const header =
+                  wirelessSort === "wlan" && groupKey !== previousKey ? (
+                    <tr key={`group-${groupKey}`} className="table-group-row">
+                      <td colSpan={11}>
+                        <strong>{c.ssid ?? (c.wlan_id ? `WLAN ${c.wlan_id}` : "No WLAN (probing / not associated)")}</strong>
+                        {c.ssid && c.wlan_id ? <span> · WLAN {c.wlan_id}</span> : null}
+                        <span> · {c.controller_name}</span>
+                        <span> · {wirelessGroupCounts.get(groupKey) ?? 0} client{(wirelessGroupCounts.get(groupKey) ?? 0) === 1 ? "" : "s"}</span>
+                        {c.wlan_ft ? <span> · FT {c.wlan_ft.toLowerCase()} on this WLAN</span> : null}
+                      </td>
+                    </tr>
+                  ) : null;
+                return (
+                  <Fragment key={`${c.controller_id}-${c.mac}-${i}`}>
+                    {header}
+                    <tr>
+                      <td>{c.controller_name}</td>
+                      <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{c.mac}</td>
+                      <td>{c.manufacturer === "Randomised private address" ? <span className="field-hint">randomised (private) address</span> : dash(c.manufacturer)}</td>
+                      <td>{dash(c.ip)}</td>
+                      <td>{dash(c.ap_name)}</td>
+                      <td>
+                        {dash(c.ssid ?? (c.wlan_id ? `WLAN ${c.wlan_id}` : null))}
+                        {c.ssid && c.wlan_id ? <span className="field-hint"> · WLAN {c.wlan_id}</span> : null}
+                      </td>
+                      <td>{dash(c.protocol)}</td>
+                      <td>{dash(c.state)}</td>
+                      <td>{dash(c.auth)}</td>
+                      <td>{ftCell(c)}</td>
+                      <td>{dash(c.role)}</td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
               {data.wireless_clients.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="empty-state">
+                  <td colSpan={11} className="empty-state">
                     No wireless clients yet. A controller has to be collected with "show wireless client summary" (9800) or "show client summary"
                     (AireOS); both are in the built-in command lists. See Coverage.
                   </td>

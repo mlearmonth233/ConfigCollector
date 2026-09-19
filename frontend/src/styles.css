@@ -490,6 +490,48 @@ a:hover {
   border-bottom: none;
 }
 
+/* A heading row inside a table (Inventory: wireless clients grouped per WLAN). */
+.data-table tr.table-group-row td {
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 12.5px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.data-table tr.table-group-row:hover {
+  background: var(--surface-muted);
+}
+
+.table-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ft-yes {
+  color: var(--success, #1a7f4b);
+  font-weight: 600;
+}
+
+.wireless-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin-top: 12px;
+  font-size: 13.5px;
+}
+
+.wireless-toolbar select {
+  width: auto;
+  padding: 5px 8px;
+}
+
+.wireless-toolbar-summary {
+  color: var(--text-muted);
+}
+
 .empty-state,
 .data-table td.empty-state {
   text-align: center;

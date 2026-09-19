@@ -8,6 +8,7 @@ may need a one-time passcode appended to the password. See Credential.mfa_mode.
 """
 
 import logging
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from hashlib import sha1
@@ -283,7 +284,8 @@ def collect_device_config(
         # behaves.
         use_timing_read = spec.uses_timing_read
         outputs = []
-        for command in commands:
+
+        def run_one(command: str) -> None:
             if should_cancel is not None and should_cancel():
                 _emit("\nCancelled - stopping before the next command.\n")
                 log.info("%s:%s collection cancelled before '%s'", host, port, command)
@@ -301,7 +303,72 @@ def collect_device_config(
             outputs.append(output)
             _emit(output + "\n")
             log.debug("%s:%s '%s' returned %d chars", host, port, command, len(output))
+
+        for command in commands:
+            if CLIENT_PLACEHOLDER not in command:
+                run_one(command)
+                continue
+            # A per-client template: run it once for every wireless client
+            # the session has already listed (a controller's client summary
+            # must come earlier in the list).
+            macs = client_macs_from_outputs(outputs)
+            if not macs:
+                outputs.append(f"! ---- {command} ----")
+                outputs.append("(no wireless clients listed earlier in this collection, nothing to expand)")
+                _emit(f"\n$ {command}\n(no wireless clients listed earlier in this collection, nothing to expand)\n")
+                continue
+            if len(macs) > MAX_CLIENT_EXPANSION:
+                _emit(f"\n{len(macs)} clients listed; running '{command}' for the first {MAX_CLIENT_EXPANSION} only.\n")
+                log.warning("%s:%s %d clients, capping '%s' at %d", host, port, len(macs), command, MAX_CLIENT_EXPANSION)
+                macs = macs[:MAX_CLIENT_EXPANSION]
+            else:
+                _emit(f"\nRunning '{command}' for {len(macs)} clients...\n")
+            for mac in macs:
+                run_one(command.replace(CLIENT_PLACEHOLDER, mac))
         return "\n".join(outputs)
+
+
+# A command in a device's list may carry this placeholder; at collection
+# time it is run once per wireless client MAC listed by an earlier command
+# in the same session ("show wireless client summary" on a 9800, "show
+# client summary" on AireOS), spelt the way the controller printed it. That
+# is how per-client detail (key management / 802.11r, RSSI...) gets into a
+# snapshot without the user knowing the MACs in advance.
+CLIENT_PLACEHOLDER = "{client}"
+# Every expansion is one more command round-trip on the controller (a couple
+# of seconds each on a WLC's timing-based read), so a very large site is
+# capped rather than left running for an hour.
+MAX_CLIENT_EXPANSION = 1000
+
+_CLIENT_SOURCE_COMMANDS = ("show wireless client summary", "show client summary")
+_SECTION_MARKER = re.compile(r"^! ---- (?P<command>.+?) ----$")
+_MAC_AT_LINE_START = re.compile(r"(?im)^\s*((?:[0-9a-f]{4}\.){2}[0-9a-f]{4}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\b")
+
+
+def client_macs_from_outputs(outputs: list[str]) -> list[str]:
+    """Client MACs, in order and without repeats, from the client-summary
+    sections collected so far (`outputs` alternates section markers and
+    command output, as collect_device_config builds them)."""
+    from app.services.inventory import command_matches  # local: inventory imports nothing from here, but keep the module light
+
+    macs: list[str] = []
+    seen: set[str] = set()
+    wanted = False
+    for chunk in outputs:
+        marker = _SECTION_MARKER.match(chunk)
+        if marker:
+            typed = marker.group("command")
+            wanted = any(command_matches(typed, canonical) for canonical in _CLIENT_SOURCE_COMMANDS)
+            continue
+        if not wanted:
+            continue
+        for m in _MAC_AT_LINE_START.finditer(chunk):
+            mac = m.group(1)
+            key = mac.lower()
+            if key not in seen:
+                seen.add(key)
+                macs.append(mac)
+    return macs
 
 
 @contextmanager

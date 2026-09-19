@@ -117,6 +117,9 @@ class WirelessClientOut(BaseModel):
     protocol: str | None
     auth: str | None
     role: str | None
+    akm: str | None = None
+    ft: bool | None = None
+    wlan_ft: str | None = None
 
 
 class InventorySummaryOut(BaseModel):

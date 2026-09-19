@@ -65,6 +65,7 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show ap summary",
         "show running-config",
         "show wireless client summary",
+        "show wireless client mac-address {client} detail",
     ),
     "cisco_wlc": (
         "show sysinfo",
@@ -73,6 +74,7 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show ap summary",
         "show running-config",
         "show client summary",
+        "show client detail {client}",
     ),
     "fortinet": (
         "get system status",
@@ -108,9 +110,15 @@ def command_matches(typed: str, canonical: str) -> bool:
         canon_words = _words(candidate)
         if len(typed_words) != len(canon_words):
             continue
-        if all(c.startswith(t) for t, c in zip(typed_words, canon_words)):
+        # A "{client}"-style placeholder in the canonical command stands for
+        # whatever was substituted at collection time (a MAC address).
+        if all(_is_placeholder(c) or c.startswith(t) for t, c in zip(typed_words, canon_words)):
             return True
     return False
+
+
+def _is_placeholder(word: str) -> bool:
+    return len(word) > 2 and word[0] == "{" and word[-1] == "}"
 
 
 def sections(snapshot: str) -> list[tuple[str, str]]:
@@ -238,6 +246,15 @@ class WirelessClient:
     protocol: str | None  # "11ax(5)", "802.11ac(5 GHz)" - the radio the client is on
     auth: str | None  # 9800: the method (Dot1x, PSK, None); AireOS: Yes/No authenticated
     role: str | None  # Local, Anchor, Foreign...
+    # From the per-client detail, when collected: the key management the
+    # client negotiated ("FT-802.1x", "PSK", "SAE"...) and whether that is
+    # 802.11r Fast Transition. None when the detail was not collected.
+    akm: str | None = None
+    ft: bool | None = None
+    # What the WLAN offers, from the controller's config: "Enabled",
+    # "Adaptive" or "Disabled". Tells you whether FT was even on the table
+    # when the client's own detail is missing.
+    wlan_ft: str | None = None
 
 
 @dataclass
@@ -797,6 +814,124 @@ def parse_wireless_clients_aireos(output: str) -> list[dict[str, str | None]]:
     return rows
 
 
+# Per-client detail: 9800 "show wireless client mac-address <mac> detail"
+# ("Authentication Key Management : FT-802.1x"), AireOS "show client detail
+# <mac>" ("Authentication Key Management.................... FT-PSK",
+# "Fast BSS Transition.............................. Implemented").
+CLIENT_DETAIL_COMMANDS = ("show wireless client mac-address {client} detail", "show client detail {client}")
+_AKM_LINE = re.compile(r"^\s*Authentication Key Management[\s.]*:?\s*(?P<v>\S.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+_FT_LINE = re.compile(
+    r"^\s*(?:Fast (?:BSS )?Transition|802\.11r(?: Fast Transition)?)(?: Status| Support)?[\s.]*:?\s*(?P<v>\S.*?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_FT_AKM = re.compile(r"(?i)\bft\b")
+
+
+def parse_client_detail(output: str) -> dict:
+    """{'akm': 'FT-802.1x', 'ft': True} from either controller's per-client
+    detail. FT is read from the negotiated key management when it is shown
+    (an FT-* AKM means the client is using 802.11r), else from a Fast
+    Transition line."""
+    akm = None
+    for m in _AKM_LINE.finditer(output):
+        value = m.group("v").strip()
+        if value and value not in ("None", "N/A"):
+            akm = value
+            break
+    ft: bool | None = None
+    if akm:
+        ft = bool(_FT_AKM.search(akm))
+    else:
+        for m in _FT_LINE.finditer(output):
+            value = m.group("v").strip().lower()
+            if value in ("details", "details:", ""):
+                continue
+            if value.startswith(("not", "dis", "no", "false")):
+                ft = False
+            elif value.startswith(("impl", "en", "yes", "true", "adap")):
+                ft = True
+            break
+    return {"akm": akm, "ft": ft}
+
+
+def client_details(snapshot: str) -> dict[str, dict]:
+    """MAC -> parse_client_detail() for every per-client detail section in
+    a controller's snapshot."""
+    details: dict[str, dict] = {}
+    for typed, output in sections(snapshot):
+        if not typed or not any(command_matches(typed, canonical) for canonical in CLIENT_DETAIL_COMMANDS):
+            continue
+        m = _MAC_ANY.search(typed)
+        mac = normalize_mac(m.group(0)) if m else None
+        if mac:
+            details[mac] = parse_client_detail(output)
+    return details
+
+
+# WLAN-level 802.11r setting from the running config.
+# 9800: "wlan <profile> <id> <ssid>" blocks with "security ft" / "security ft
+# adaptive" / "no security ft adaptive" and "security wpa akm ft dot1x".
+# AireOS show run-config: "WLAN Identifier..... 1" then "FT Support..... Enabled".
+_XE_WLAN_HEADER = re.compile(r"^wlan\s+\S+\s+(?P<id>\d+)\s+\S", re.IGNORECASE)
+_AIREOS_WLAN_ID = re.compile(r"^\s*WLAN Identifier[\s.]*(?P<id>\d+)\s*$", re.IGNORECASE)
+_AIREOS_FT_SUPPORT = re.compile(r"^\s*FT Support[\s.]*(?P<v>Enabled|Adaptive|Disabled)\b", re.IGNORECASE)
+
+
+def parse_wlan_ft(config: str) -> dict[str, str]:
+    """WLAN id -> 'Enabled' | 'Adaptive' | 'Disabled' from a 9800 or AireOS
+    running config. A 9800 WLAN with no ft line is at its default,
+    adaptive."""
+    result: dict[str, str] = {}
+    xe_current: str | None = None  # 9800 wlan block being read
+    xe_mode: str | None = None
+    xe_akm_ft = False
+    aireos_current: str | None = None  # AireOS WLAN record being read
+
+    def flush_xe() -> None:
+        if xe_current is not None:
+            result[xe_current] = xe_mode or ("Enabled" if xe_akm_ft else "Adaptive")
+
+    for raw in config.splitlines():
+        line = raw.rstrip()
+        header = _XE_WLAN_HEADER.match(line)
+        if header:
+            flush_xe()
+            xe_current, xe_mode, xe_akm_ft = header.group("id"), None, False
+            aireos_current = None
+            continue
+        aireos_id = _AIREOS_WLAN_ID.match(line)
+        if aireos_id:
+            flush_xe()
+            xe_current = None
+            aireos_current = aireos_id.group("id")
+            continue
+        if aireos_current is not None:
+            ft_support = _AIREOS_FT_SUPPORT.match(line)
+            if ft_support:
+                result[aireos_current] = ft_support.group("v").capitalize()
+            continue
+        if xe_current is None:
+            continue
+        if line and not line[0].isspace():
+            # Left the wlan block (a 9800 block's body is indented).
+            flush_xe()
+            xe_current = None
+            continue
+        words = line.strip().lower().split()
+        if words[:3] == ["security", "ft", "adaptive"]:
+            xe_mode = "Adaptive"
+        elif words[:2] == ["security", "ft"]:
+            xe_mode = xe_mode or "Enabled"
+        elif words[:4] == ["no", "security", "ft", "adaptive"]:
+            xe_mode = xe_mode if xe_mode == "Enabled" else "Disabled"
+        elif words[:3] == ["no", "security", "ft"]:
+            xe_mode = "Disabled"
+        elif words[:4] == ["security", "wpa", "akm", "ft"]:
+            xe_akm_ft = True
+    flush_xe()
+    return result
+
+
 def parse_mac_ip_table(output: str) -> dict[str, str]:
     """MAC -> IP from any table that lists both on one line: the 9800's
     'show wireless device-tracking database ip', AireOS 'show client summary ip'."""
@@ -939,6 +1074,8 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
                 client_rows += parse_wireless_clients_aireos(clients_aireos)
             if client_rows:
                 wlans = parse_wlan_summary(find_section(item.content, "show wlan summary") or "")
+                wlan_ft = parse_wlan_ft(running) if running else {}
+                details = client_details(item.content)
                 controller_ips: dict[str, str] = {}
                 for table in ("show wireless device-tracking database ip", "show client summary ip"):
                     section = find_section(item.content, table)
@@ -947,6 +1084,7 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
                 for row in client_rows:
                     if not row["mac"]:
                         continue
+                    detail = details.get(row["mac"], {})
                     wireless_clients.append(
                         WirelessClient(
                             item.device_id,
@@ -961,6 +1099,9 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
                             row["protocol"],
                             row["auth"],
                             row["role"],
+                            akm=detail.get("akm"),
+                            ft=detail.get("ft"),
+                            wlan_ft=wlan_ft.get(row["wlan"] or ""),
                         )
                     )
         else:
@@ -1049,7 +1190,17 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
         client.ip = client.ip or arp_ip_by_mac.get(client.mac)
         if client.ip:
             seen_ips.add(client.ip)
-    wireless_clients.sort(key=lambda c: (c.controller_name.lower(), (c.ssid or "").lower(), (c.ap_name or "").lower(), c.mac))
+    # Per controller, grouped by WLAN (in id order, so it reads like the
+    # controller's own WLAN list), then by access point and MAC.
+    wireless_clients.sort(
+        key=lambda c: (
+            c.controller_name.lower(),
+            int(c.wlan_id) if c.wlan_id and c.wlan_id.isdigit() else 10**6,
+            (c.ssid or "").lower(),
+            (c.ap_name or "").lower(),
+            c.mac,
+        )
+    )
 
     for d in devices:
         seen_ips.add(d.host)

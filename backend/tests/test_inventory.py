@@ -738,3 +738,141 @@ def test_build_inventory_lists_wireless_clients_with_ssid_ip_and_maker():
     assert any(s.network == "10.10.120.0/24" and s.hosts_seen == 1 for s in built.subnets)
     # Sorted by controller, then SSID, AP, MAC.
     assert [c.controller_name for c in built.wireless_clients] == ["HQ-WLC-9800"] * 3 + ["PLANT-WLC"] * 2
+
+
+# --- wireless client detail: key management / 802.11r ---------------------------------------
+
+WLC9800_CLIENT_DETAIL_FT = """Client MAC Address : a4bb.6d12.3456
+Client MAC Type : Universally Administered Address
+Client IPv4 Address : 10.10.120.55
+AP Name: AP-LOBBY-01
+Wireless LAN Id: 1
+WLAN Profile Name: corp
+Wireless LAN Network Name (SSID): Corp WiFi
+Policy Manager State: Run
+Policy Type : WPA2
+Encryption Cipher : CCMP (AES)
+Authentication Key Management : FT-802.1x
+AAA override passed : Yes
+"""
+
+WLC9800_CLIENT_DETAIL_PSK = """Client MAC Address : daa1.1912.3456
+Policy Type : WPA2
+Encryption Cipher : CCMP (AES)
+Authentication Key Management : PSK
+"""
+
+AIREOS_CLIENT_DETAIL_FT = """Client MAC Address............................... a4:bb:6d:12:34:56
+Client Username ................................. N/A
+AP MAC Address................................... 00:aa:bb:cc:dd:e0
+AP Name.......................................... AP-WAREHOUSE-01
+Policy Type...................................... WPA2
+Authentication Key Management.................... FT-PSK
+Encryption Cipher................................ CCMP-128 (AES)
+Fast BSS Transition.............................. Implemented
+Fast BSS Transition Details:
+    Reassociation Timeout........................ 20
+"""
+
+AIREOS_CLIENT_DETAIL_NO_AKM = """Client MAC Address............................... 3c:22:fb:aa:bb:cc
+Policy Type...................................... N/A
+Fast BSS Transition.............................. Not Implemented
+"""
+
+WLC9800_RUN_WLANS = """!
+wlan corp 1 Corp WiFi
+ security ft
+ security wpa akm ft dot1x
+ no security wpa akm dot1x
+ security dot1x authentication-list ISE
+wlan guest 2 Northwind-Guest
+ no security ft adaptive
+ no security wpa
+wlan iot 3 Plant IoT
+ security wpa akm ft psk
+ security wpa psk set-key ascii 0 secret
+wlan default 4 Default
+ no shutdown
+!
+interface Vlan120
+ ip address 10.10.120.1 255.255.255.0
+"""
+
+AIREOS_RUN_WLANS = """WLAN Configuration
+
+WLAN Identifier.................................. 1
+Profile Name..................................... staff
+Network Name (SSID).............................. Plant Staff
+Status........................................... Enabled
+   FT Support..................................... Adaptive
+   FT Reassociation Timeout....................... 20
+
+WLAN Identifier.................................. 2
+Profile Name..................................... guest
+Network Name (SSID).............................. Plant Guest
+   FT Support..................................... Disabled
+"""
+
+
+def test_client_detail_parsers_read_key_management_and_ft():
+    assert inv.parse_client_detail(WLC9800_CLIENT_DETAIL_FT) == {"akm": "FT-802.1x", "ft": True}
+    assert inv.parse_client_detail(WLC9800_CLIENT_DETAIL_PSK) == {"akm": "PSK", "ft": False}
+    assert inv.parse_client_detail(AIREOS_CLIENT_DETAIL_FT) == {"akm": "FT-PSK", "ft": True}
+    # No usable AKM line: fall back to the Fast BSS Transition line.
+    assert inv.parse_client_detail(AIREOS_CLIENT_DETAIL_NO_AKM) == {"akm": None, "ft": False}
+    assert inv.parse_client_detail("nothing useful here") == {"akm": None, "ft": None}
+
+
+def test_wlan_ft_from_running_configs():
+    assert inv.parse_wlan_ft(WLC9800_RUN_WLANS) == {"1": "Enabled", "2": "Disabled", "3": "Enabled", "4": "Adaptive"}
+    assert inv.parse_wlan_ft(AIREOS_RUN_WLANS) == {"1": "Adaptive", "2": "Disabled"}
+
+
+def test_placeholder_commands_match_their_expansions():
+    assert inv.command_matches("show wireless client mac-address a4bb.6d12.3456 detail", "show wireless client mac-address {client} detail")
+    assert inv.command_matches("show client detail a4:bb:6d:12:34:56", "show client detail {client}")
+    # The unexpanded template (written when there were no clients) matches too, an unrelated command does not.
+    assert inv.command_matches("show client detail {client}", "show client detail {client}")
+    assert not inv.command_matches("show client summary", "show client detail {client}")
+
+
+def test_build_inventory_adds_ft_from_client_detail_and_wlan_config():
+    inputs = [
+        inv.SnapshotInput(
+            "w1", "HQ-WLC-9800", "10.10.5.10", "cisco_wlc_9800", "HQ", None,
+            _snapshot(
+                ("show running-config", WLC9800_RUN_WLANS),
+                ("show wireless client summary", WLC9800_CLIENT_SUMMARY),
+                ("show wlan summary", WLC9800_WLAN_SUMMARY),
+                ("show wireless client mac-address a4bb.6d12.3456 detail", WLC9800_CLIENT_DETAIL_FT),
+                ("show wireless client mac-address daa1.1912.3456 detail", WLC9800_CLIENT_DETAIL_PSK),
+            ),
+        ),
+        inv.SnapshotInput(
+            "w2", "PLANT-WLC", "10.60.5.10", "cisco_wlc", None, None,
+            _snapshot(
+                ("show run-config", AIREOS_RUN_WLANS),
+                ("show client summary", AIREOS_CLIENT_SUMMARY),
+                ("show wlan summary", AIREOS_WLAN_SUMMARY),
+                ("show client detail a4:bb:6d:12:34:56", AIREOS_CLIENT_DETAIL_FT),
+            ),
+        ),
+    ]
+    built = inv.build_inventory(inputs)
+    clients = {(c.controller_name, c.mac): c for c in built.wireless_clients}
+    ft_client = clients[("HQ-WLC-9800", "a4bb.6d12.3456")]
+    assert ft_client.akm == "FT-802.1x" and ft_client.ft is True and ft_client.wlan_ft == "Enabled"
+    psk_client = clients[("HQ-WLC-9800", "daa1.1912.3456")]
+    assert psk_client.akm == "PSK" and psk_client.ft is False and psk_client.wlan_ft == "Disabled"
+    # No detail collected for this one: FT unknown, but its WLAN's setting is known.
+    dock = clients[("HQ-WLC-9800", "0050.5686.cc99")]
+    assert dock.akm is None and dock.ft is None and dock.wlan_ft == "Enabled"
+    plant = clients[("PLANT-WLC", "a4bb.6d12.3456")]
+    assert plant.akm == "FT-PSK" and plant.ft is True and plant.wlan_ft == "Adaptive"
+    probing = clients[("PLANT-WLC", "3c22.fbaa.bbcc")]
+    assert probing.ft is None and probing.wlan_ft is None
+    # Ordered per controller by WLAN id, then AP, then MAC.
+    hq = [(c.wlan_id, c.ap_name, c.mac) for c in built.wireless_clients if c.controller_name == "HQ-WLC-9800"]
+    assert hq == [("1", "AP-DOCK-02", "0050.5686.cc99"), ("1", "AP-LOBBY-01", "a4bb.6d12.3456"), ("2", "AP-FLOOR2-03", "daa1.1912.3456")]
+    # A client with no WLAN sorts after the numbered ones.
+    assert [c.wlan_id for c in built.wireless_clients if c.controller_name == "PLANT-WLC"] == ["1", None]

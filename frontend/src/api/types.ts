@@ -588,6 +588,9 @@ export interface InventoryWirelessClient {
   protocol: string | null;
   auth: string | null;
   role: string | null;
+  akm: string | null;
+  ft: boolean | null;
+  wlan_ft: string | null;
 }
 
 export interface InventorySummary {

@@ -327,6 +327,7 @@ runs:
 | show running-config (show run-config on AireOS, show full-configuration on FortiGate) | interface IP addresses and masks, descriptions, VLANs and VRFs, which become the list of subnets |
 | show ap summary (or show ap config general) | access points on a wireless controller: name, model, MAC, IP, serial |
 | show wireless client summary (9800) / show client summary (AireOS), with show wlan summary and the controller's client IP table | every associated wireless client: MAC, maker, IP, access point, SSID, radio, state, auth, role |
+| show wireless client mac-address {client} detail (9800) / show client detail {client} (AireOS) | each client's key management (FT-802.1x, FT-PSK, PSK, SAE...), so the inventory can say whether it is on 802.11r Fast Transition. `{client}` is filled in at collection time with every MAC from the client summary |
 | get system status / get system arp | FortiGate model, serial, hostname and ARP |
 | about | APC PDU model, serial and MAC |
 
@@ -347,7 +348,19 @@ components, access points, and **unmanaged** devices. The tabs:
   (`show wireless device-tracking database ip` on a 9800, `show client
   summary ip` on AireOS) or, failing that, from any switch's ARP table;
   the maker comes from the MAC address, with randomised private addresses
-  labelled as such. Rows are grouped by controller, then SSID, then AP.
+  labelled as such. Rows are grouped per WLAN (in WLAN id order, with a
+  heading row per SSID showing its client count and FT setting), then by
+  AP; the "Sort by" box switches to access point, manufacturer, IP, MAC or
+  Fast Transition order instead. The **FT (802.11r)** column says whether
+  the client is using Fast Transition: "Yes" with the negotiated key
+  management (FT-802.1x, FT-PSK, FT-SAE) or "No" with what it used instead.
+  That needs the per-client detail command (`show wireless client
+  mac-address {client} detail` on a 9800, `show client detail {client}` on
+  AireOS), which the built-in command lists run once for every client in
+  the summary; until a controller has been collected with it, the column
+  shows "unknown" plus what the WLAN itself offers (enabled, adaptive or
+  disabled, read from the running config). Each client is one more command
+  on the controller, so a busy site's collection takes a few minutes longer.
 - **Subnets**: every IP subnet in use on the site. Each interface address
   in a collected running config (an SVI, a routed port, a sub-interface, a
   FortiGate or controller interface) defines a subnet, shown with its
