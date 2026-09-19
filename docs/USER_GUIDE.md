@@ -850,6 +850,9 @@ it a numbered tab, for example `HQ-CORE-SW01 (2)`.
 - **Disconnect** and **Reconnect** in the toolbar act on the tab you are
   looking at. A reconnect keeps the earlier output above and, for
   passcode MFA, asks for a fresh code.
+- Sessions survive a visit to another page: go to Devices or Jobs and
+  back, and every tab is still connected with its output intact. They end
+  when you close them, log out, or close the browser tab.
 
 ### Out-of-band console
 

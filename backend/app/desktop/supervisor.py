@@ -123,7 +123,20 @@ class Supervisor:
             procs = [c.process for c in self.children.values() if c.process is not None and c.process.poll() is None]
             for proc in procs:
                 try:
-                    proc.terminate()
+                    if sys.platform == "win32":
+                        # Take the whole tree: a ping.exe the worker is
+                        # waiting on would otherwise outlive it briefly.
+                        subprocess.run(
+                            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            creationflags=CREATE_NO_WINDOW,
+                            timeout=10,
+                            check=False,
+                        )
+                    else:
+                        proc.terminate()
                 except Exception:  # noqa: BLE001
                     pass
             deadline = time.monotonic() + timeout

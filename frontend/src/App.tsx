@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { BackToTop } from "./components/BackToTop";
 import { NavBar } from "./components/NavBar";
+import { PersistentTerminal, TerminalRoute } from "./components/PersistentTerminal";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
 import { LicenceProvider } from "./context/LicenceContext";
@@ -24,7 +25,6 @@ import { Inventory } from "./pages/Inventory";
 import { Settings } from "./pages/Settings";
 import { Snmp } from "./pages/Snmp";
 import { SnmpJobDetail } from "./pages/SnmpJobDetail";
-import { Terminal } from "./pages/Terminal";
 
 export function App() {
   return (
@@ -134,7 +134,7 @@ export function App() {
           path="/terminal"
           element={
             <ProtectedRoute>
-              <Terminal />
+              <TerminalRoute />
             </ProtectedRoute>
           }
         />
@@ -180,6 +180,7 @@ export function App() {
         />
         <Route path="*" element={<Navigate to="/devices" replace />} />
       </Routes>
+      <PersistentTerminal />
       <BackToTop />
       </LicenceProvider>
     </AuthProvider>

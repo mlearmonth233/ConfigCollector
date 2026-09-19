@@ -23,7 +23,10 @@ const STATE_LABEL: Record<SessionState, string> = {
   closed: "Disconnected",
 };
 
-export function Terminal() {
+/** `active` is false while the user is on another page: the component
+ * stays mounted (see components/PersistentTerminal) so sessions survive,
+ * and refreshes its device list and refits the terminal when shown again. */
+export function Terminal({ active = true }: { active?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [devices, setDevices] = useState<Device[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -36,7 +39,10 @@ export function Terminal() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const handles = useRef(new Map<string, SessionHandle>());
 
+  // Device and credential lists: loaded on mount and again each time the
+  // page is shown, since devices may have been added in between.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     (async () => {
       try {
@@ -44,6 +50,7 @@ export function Terminal() {
         if (cancelled) return;
         setDevices(sortByDeviceName(devicesRes.data, (d) => d.name));
         setCredentials(credsRes.data);
+        setLoadError(null);
       } catch (err) {
         if (!cancelled) setLoadError(extractErrorMessage(err));
       }
@@ -51,7 +58,26 @@ export function Terminal() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [active]);
+
+  // "SSH" on the Devices or Monitor page navigates here with ?device=...:
+  // pick that device up whenever the address changes while we are shown.
+  useEffect(() => {
+    if (!active) return;
+    const device = searchParams.get("device");
+    if (!device) return;
+    setSelectedId(device);
+    setVia(searchParams.get("via") === "console" ? "console" : "management");
+  }, [active, searchParams]);
+
+  // Shown again after another page: the surface has a size once more, so
+  // the live tab is refitted and focused.
+  useEffect(() => {
+    if (!active || !activeId) return;
+    const frame = requestAnimationFrame(() => handles.current.get(activeId)?.focus());
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   const credentialFor = useCallback(
     (device: Device | undefined): Credential | undefined => {

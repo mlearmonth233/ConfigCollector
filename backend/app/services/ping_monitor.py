@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, select
 
 from app.db_sync import SyncSessionLocal
+from app.services.reachability import hidden_subprocess_kwargs
 from app.models.device import Device
 from app.models.organization import Organization
 from app.models.ping_monitor import PingMonitorConfig, PingSample, PingStatus
@@ -63,7 +64,9 @@ def _ping_blocking(host: str, timeout_ms: int) -> float | None:
             _ping_args(host, timeout_ms),
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
             timeout=timeout_ms / 1000 + 2,
+            **hidden_subprocess_kwargs(),  # no console window per ping on Windows
         )
     except Exception:  # noqa: BLE001 - missing binary, timeout, permissions: all "no reply"
         return None

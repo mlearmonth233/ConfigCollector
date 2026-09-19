@@ -1,4 +1,5 @@
 import asyncio
+import os
 import platform
 import subprocess
 from dataclasses import dataclass
@@ -26,13 +27,28 @@ def _is_windows() -> bool:
     return platform.system() == "Windows"
 
 
+def hidden_subprocess_kwargs() -> dict:
+    """Extra subprocess.run() arguments so a console tool (ping) started
+    from a process without a console of its own - the desktop build's
+    worker and API - does not pop up a black window for each call. A
+    no-op elsewhere."""
+    if os.name != "nt" or not hasattr(subprocess, "STARTUPINFO"):
+        return {}
+    startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+    startupinfo.wShowWindow = subprocess.SW_HIDE  # type: ignore[attr-defined]
+    return {"creationflags": subprocess.CREATE_NO_WINDOW, "startupinfo": startupinfo}  # type: ignore[attr-defined]
+
+
 def _run_ping(args: list[str]) -> bool:
     try:
         result = subprocess.run(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             timeout=_PING_TIMEOUT_SECONDS + 2,
+            **hidden_subprocess_kwargs(),
         )
     except Exception:  # noqa: BLE001
         # Deliberately broad: ping is a best-effort diagnostic, so anything
