@@ -387,6 +387,7 @@ async def test_inventory_api_and_excel_export(client: AsyncClient, unique_email,
     # HQ-DIST-SW11 is not a managed device in this org, so it counts as unmanaged here (4 with the AP, phone and ESX host);
     # its uplink port Gi1/0/47 is the only one excluded from the endpoint count (4 MAC rows -> 3 endpoints).
     subnet_count = body["summary"].pop("subnets")
+    assert body["summary"].pop("wireless_clients") == 0
     assert body["summary"] == {"devices": 2, "devices_with_config": 2, "devices_with_serial": 2, "hardware": 4, "access_points": 0, "neighbors": 5, "unmanaged": 4, "endpoints": 3}
     by_net = {s["network"]: s for s in body["subnets"]}
     assert subnet_count == len(by_net) >= 6
@@ -403,7 +404,7 @@ async def test_inventory_api_and_excel_export(client: AsyncClient, unique_email,
     assert export.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     assert 'filename="InventoryOrg-inventory-' in export.headers["content-disposition"]
     wb = load_workbook(BytesIO(export.content))
-    assert wb.sheetnames == ["Summary", "Devices", "Hardware", "Neighbors", "Access points", "Unmanaged", "Subnets", "Endpoints"]
+    assert wb.sheetnames == ["Summary", "Devices", "Hardware", "Neighbors", "Access points", "Wireless clients", "Unmanaged", "Subnets", "Endpoints"]
     subnets = wb["Subnets"]
     assert [c.value for c in subnets[1]][:3] == ["Network", "Mask", "VLAN"] and subnets.max_row == subnet_count + 1
     devices = wb["Devices"]
@@ -627,3 +628,113 @@ def test_build_inventory_lists_subnets_with_hosts_and_inferred_ranges():
     # The FortiGate's own management address is one of its interface addresses, so it is not counted as a host anywhere.
     assert all("10.44.0.1" not in [a.ip for a in s.addresses] or s.network == "10.44.0.0/24" for s in built.subnets)
     assert built.devices[0].commands_missing == [c for c in inv.INVENTORY_COMMANDS["cisco_ios"] if c not in ("show running-config", "show ip arp")]
+
+
+# --- wireless clients -----------------------------------------------------------------------
+
+WLC9800_CLIENT_SUMMARY = """Number of Clients: 3
+
+MAC Address    AP Name                          Type ID   State             Protocol Method     Role
+-------------------------------------------------------------------------------------------------------------------------
+a4bb.6d12.3456 AP-LOBBY-01                      WLAN 1    Run               11ax(5)  Dot1x      Local
+da a1.1912.3456 not-a-row
+daa1.1912.3456 AP-FLOOR2-03                     WLAN 2    IP Learn          11ac     PSK        Local
+0050.5686.cc99 AP-DOCK-02                       WLAN 1    Webauth Pending   11n(2.4) None       Export Anchor
+
+Number of Excluded Clients: 0
+"""
+
+WLC9800_WLAN_SUMMARY = """Number of WLANs: 2
+
+ID   Profile Name                     SSID                             Status Security
+----------------------------------------------------------------------------------------------------
+1    corp                             Corp WiFi                        UP     [WPA2][802.1x][AES]
+2    guest                            Northwind-Guest                  UP     [open]
+"""
+
+WLC9800_DEVICE_TRACKING = """IP                                 VLAN   STATE       MAC
+------------------------------------------------------------------------
+10.10.120.55                       120    REACHABLE   a4bb.6d12.3456
+10.10.121.7                        121    REACHABLE   daa1.1912.3456
+"""
+
+AIREOS_CLIENT_SUMMARY = """Number of Clients................................ 2
+
+Number of EoGRE Clients.......................... 0
+
+                                                                    RLAN/
+MAC Address       AP Name           Slot Status        WLAN  Auth Protocol         Port Wired  Tunnel  Role
+----------------- ----------------- ---- ------------- ----- ---- ---------------- ---- ----- ------- ----------------
+a4:bb:6d:12:34:56 AP-WAREHOUSE-01    1   Associated     1    Yes  802.11ac(5 GHz)   1    No    No      Local
+3c:22:fb:aa:bb:cc AP-WAREHOUSE-01    0   Probing        N/A  No   802.11n(2.4 GHz)  1    No    No      Local
+"""
+
+AIREOS_WLAN_SUMMARY = """Number of WLANs.................................. 1
+
+WLAN ID  WLAN Profile Name / SSID               Status    Interface Name        PMIPv6 Mobility
+-------  -------------------------------------  --------  --------------------  ---------------
+1        staff / Plant Staff                    Enabled   staff-wireless        none
+"""
+
+AIREOS_CLIENT_IP = """Number of Clients................................ 2
+
+MAC Address       AP Name           IP Address
+----------------- ----------------- ---------------
+a4:bb:6d:12:34:56 AP-WAREHOUSE-01   10.60.120.44
+"""
+
+
+def test_wireless_client_parsers():
+    rows = inv.parse_wireless_clients_9800(WLC9800_CLIENT_SUMMARY)
+    assert [r["mac"] for r in rows] == ["a4bb.6d12.3456", "daa1.1912.3456", "0050.5686.cc99"]
+    assert rows[0] == {"mac": "a4bb.6d12.3456", "ap": "AP-LOBBY-01", "wlan": "1", "state": "Run", "protocol": "11ax(5)", "auth": "Dot1x", "role": "Local"}
+    assert rows[1]["state"] == "IP Learn" and rows[1]["auth"] == "PSK"
+    assert rows[2]["state"] == "Webauth Pending" and rows[2]["protocol"] == "11n(2.4)" and rows[2]["role"] == "Export Anchor"
+    assert inv.parse_wlan_summary(WLC9800_WLAN_SUMMARY) == {"1": "Corp WiFi", "2": "Northwind-Guest"}
+    assert inv.parse_mac_ip_table(WLC9800_DEVICE_TRACKING) == {"a4bb.6d12.3456": "10.10.120.55", "daa1.1912.3456": "10.10.121.7"}
+
+    aireos = inv.parse_wireless_clients_aireos(AIREOS_CLIENT_SUMMARY)
+    assert aireos[0] == {
+        "mac": "a4bb.6d12.3456",
+        "ap": "AP-WAREHOUSE-01",
+        "wlan": "1",
+        "state": "Associated",
+        "protocol": "802.11ac(5 GHz)",
+        "auth": "Authenticated",
+        "role": "Local",
+    }
+    assert aireos[1]["wlan"] is None and aireos[1]["auth"] == "Not authenticated" and aireos[1]["protocol"] == "802.11n(2.4 GHz)"
+    assert inv.parse_wlan_summary(AIREOS_WLAN_SUMMARY) == {"1": "Plant Staff"}
+    assert inv.parse_mac_ip_table(AIREOS_CLIENT_IP) == {"a4bb.6d12.3456": "10.60.120.44"}
+
+
+def test_build_inventory_lists_wireless_clients_with_ssid_ip_and_maker():
+    inputs = [
+        inv.SnapshotInput(
+            "w1", "HQ-WLC-9800", "10.10.5.10", "cisco_wlc_9800", "HQ", None,
+            _snapshot(("show wireless client summary", WLC9800_CLIENT_SUMMARY), ("show wlan summary", WLC9800_WLAN_SUMMARY), ("show wireless device-tracking database ip", WLC9800_DEVICE_TRACKING)),
+        ),
+        inv.SnapshotInput(
+            "w2", "PLANT-WLC", "10.60.5.10", "cisco_wlc", None, None,
+            _snapshot(("show client summary", AIREOS_CLIENT_SUMMARY), ("show wlan summary", AIREOS_WLAN_SUMMARY), ("show client summary ip", AIREOS_CLIENT_IP)),
+        ),
+        inv.SnapshotInput("d1", "HQ-CORE-SW01", "10.10.0.1", "cisco_ios", "HQ", None, _snapshot(("show ip arp", "Internet  10.10.9.9   5   0050.5686.cc99  ARPA   Vlan9\n"))),
+    ]
+    built = inv.build_inventory(inputs)
+    clients = {(c.controller_name, c.mac): c for c in built.wireless_clients}
+    assert len(clients) == 5
+
+    dell = clients[("HQ-WLC-9800", "a4bb.6d12.3456")]
+    assert dell.ssid == "Corp WiFi" and dell.wlan_id == "1" and dell.ip == "10.10.120.55" and dell.manufacturer == "Dell Inc."
+    assert dell.ap_name == "AP-LOBBY-01" and dell.protocol == "11ax(5)" and dell.auth == "Dot1x" and dell.role == "Local"
+    private = clients[("HQ-WLC-9800", "daa1.1912.3456")]
+    assert private.manufacturer == "Randomised private address" and private.ssid == "Northwind-Guest" and private.ip == "10.10.121.7"
+    # No controller IP for this one: the switch's ARP table supplies it.
+    assert clients[("HQ-WLC-9800", "0050.5686.cc99")].ip == "10.10.9.9"
+    plant = clients[("PLANT-WLC", "a4bb.6d12.3456")]
+    assert plant.ssid == "Plant Staff" and plant.ip == "10.60.120.44" and plant.auth == "Authenticated"
+    assert clients[("PLANT-WLC", "3c22.fbaa.bbcc")].ssid is None and clients[("PLANT-WLC", "3c22.fbaa.bbcc")].wlan_id is None
+    # Client addresses count as hosts in the subnet list.
+    assert any(s.network == "10.10.120.0/24" and s.hosts_seen == 1 for s in built.subnets)
+    # Sorted by controller, then SSID, AP, MAC.
+    assert [c.controller_name for c in built.wireless_clients] == ["HQ-WLC-9800"] * 3 + ["PLANT-WLC"] * 2

@@ -163,9 +163,9 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     # Wireless clients. IOS-XE wireless syntax ("show wireless ..."): the
     # AireOS "show client summary" does not exist on a 9800. The summary
     # lists every client with its AP, WLAN, state, protocol and auth
-    # method; the stats summary adds RSSI, SNR and data rates per client.
+    # method; the device-tracking database gives each client's IP address.
     "show wireless client summary",
-    "show wireless stats client summary",
+    "show wireless device-tracking database ip",
 )
 
 # Nexus (NX-OS). Paging is disabled by the driver. The running config plus

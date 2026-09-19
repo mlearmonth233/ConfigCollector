@@ -55,6 +55,7 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
         ["Unmanaged devices seen on the wire", len(inventory.unmanaged)],
         ["Endpoints (MAC addresses on access ports)", sum(1 for e in inventory.endpoints if not e.on_uplink)],
         ["Subnets in use", len(inventory.subnets)],
+        ["Wireless clients", len(inventory.wireless_clients)],
         [],
         ["Model", "Count"],
     ]
@@ -62,7 +63,7 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
     for row in summary_rows:
         summary.append(row)
     summary["A1"].font = Font(bold=True)
-    for cell in summary[13]:
+    for cell in summary[14]:
         cell.fill = _HEADER_FILL
         cell.font = _HEADER_FONT
     summary.column_dimensions["A"].width = 46
@@ -90,6 +91,11 @@ def build_workbook(inventory: Inventory, org_name: str) -> bytes:
         wb.create_sheet("Access points"),
         ["Controller", "AP name", "Model", "MAC", "IP", "Serial", "Software"],
         [[a.controller_name, a.name, a.model, a.mac, a.ip, a.serial, a.software] for a in inventory.access_points],
+    )
+    _write_table(
+        wb.create_sheet("Wireless clients"),
+        ["Controller", "Client MAC", "Manufacturer", "IP", "Access point", "SSID", "WLAN ID", "Radio / protocol", "State", "Auth", "Role"],
+        [[c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state, c.auth, c.role] for c in inventory.wireless_clients],
     )
     _write_table(
         wb.create_sheet("Unmanaged"),

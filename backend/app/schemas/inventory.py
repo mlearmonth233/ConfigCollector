@@ -104,6 +104,21 @@ class SubnetOut(BaseModel):
     source: str  # "config" or "seen"
 
 
+class WirelessClientOut(BaseModel):
+    controller_id: str
+    controller_name: str
+    mac: str
+    manufacturer: str | None
+    ip: str | None
+    ap_name: str | None
+    wlan_id: str | None
+    ssid: str | None
+    state: str | None
+    protocol: str | None
+    auth: str | None
+    role: str | None
+
+
 class InventorySummaryOut(BaseModel):
     devices: int
     devices_with_config: int
@@ -114,6 +129,7 @@ class InventorySummaryOut(BaseModel):
     unmanaged: int
     endpoints: int  # on access ports (excludes uplinks)
     subnets: int = 0
+    wireless_clients: int = 0
 
 
 class InventoryOut(BaseModel):
@@ -127,6 +143,7 @@ class InventoryOut(BaseModel):
     endpoints: list[EndpointOut]
     unmanaged: list[UnmanagedDeviceOut]
     subnets: list[SubnetOut] = []
+    wireless_clients: list[WirelessClientOut] = []
 
 
 class InventoryCommandCoverageOut(BaseModel):

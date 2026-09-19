@@ -326,6 +326,7 @@ runs:
 | show ip arp | MAC to IP, so endpoints get an address, and which addresses are in use in each subnet |
 | show running-config (show run-config on AireOS, show full-configuration on FortiGate) | interface IP addresses and masks, descriptions, VLANs and VRFs, which become the list of subnets |
 | show ap summary (or show ap config general) | access points on a wireless controller: name, model, MAC, IP, serial |
+| show wireless client summary (9800) / show client summary (AireOS), with show wlan summary and the controller's client IP table | every associated wireless client: MAC, maker, IP, access point, SSID, radio, state, auth, role |
 | get system status / get system arp | FortiGate model, serial, hostname and ARP |
 | about | APC PDU model, serial and MAC |
 
@@ -339,6 +340,14 @@ components, access points, and **unmanaged** devices. The tabs:
 - **Neighbors**: every CDP/LLDP link, and whether the far end is a device
   Packrat manages (matched by name, reported hostname or management IP).
 - **Access points**: APs reported by your controllers.
+- **Wireless clients**: every client associated to your controllers at
+  the last collection, with the access point it is on, the SSID (from
+  `show wlan summary`), radio and protocol, state, authentication and
+  mobility role. The IP comes from the controller's own client table
+  (`show wireless device-tracking database ip` on a 9800, `show client
+  summary ip` on AireOS) or, failing that, from any switch's ARP table;
+  the maker comes from the MAC address, with randomised private addresses
+  labelled as such. Rows are grouped by controller, then SSID, then AP.
 - **Subnets**: every IP subnet in use on the site. Each interface address
   in a collected running config (an SVI, a routed port, a sub-interface, a
   FortiGate or controller interface) defines a subnet, shown with its

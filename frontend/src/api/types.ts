@@ -575,6 +575,21 @@ export interface InventorySubnet {
   source: "config" | "seen";
 }
 
+export interface InventoryWirelessClient {
+  controller_id: string;
+  controller_name: string;
+  mac: string;
+  manufacturer: string | null;
+  ip: string | null;
+  ap_name: string | null;
+  wlan_id: string | null;
+  ssid: string | null;
+  state: string | null;
+  protocol: string | null;
+  auth: string | null;
+  role: string | null;
+}
+
 export interface InventorySummary {
   devices: number;
   devices_with_config: number;
@@ -585,6 +600,7 @@ export interface InventorySummary {
   unmanaged: number;
   endpoints: number;
   subnets: number;
+  wireless_clients: number;
 }
 
 export interface Inventory {
@@ -598,6 +614,7 @@ export interface Inventory {
   endpoints: InventoryEndpoint[];
   unmanaged: InventoryUnmanaged[];
   subnets: InventorySubnet[];
+  wireless_clients: InventoryWirelessClient[];
 }
 
 export interface InventoryCommandCoverage {

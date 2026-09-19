@@ -78,6 +78,7 @@ def _to_out(built: inv.Inventory) -> InventoryOut:
             unmanaged=len(built.unmanaged),
             endpoints=sum(1 for e in built.endpoints if not e.on_uplink),
             subnets=len(built.subnets),
+            wireless_clients=len(built.wireless_clients),
         ),
         models=built.models,
         devices=[asdict(d) for d in built.devices],
@@ -87,6 +88,7 @@ def _to_out(built: inv.Inventory) -> InventoryOut:
         endpoints=[asdict(e) for e in built.endpoints],
         unmanaged=[asdict(u) for u in built.unmanaged],
         subnets=[asdict(s) for s in built.subnets],
+        wireless_clients=[asdict(c) for c in built.wireless_clients],
     )
 
 

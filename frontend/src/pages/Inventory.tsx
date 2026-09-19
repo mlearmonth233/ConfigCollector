@@ -9,13 +9,14 @@ import { formatLocalDateTime } from "../utils/formatDate";
 import { useLicence } from "../context/LicenceContext";
 import { UpgradeNotice } from "../components/UpgradeNotice";
 
-type Tab = "devices" | "hardware" | "neighbors" | "aps" | "subnets" | "unmanaged" | "endpoints" | "coverage";
+type Tab = "devices" | "hardware" | "neighbors" | "aps" | "wireless" | "subnets" | "unmanaged" | "endpoints" | "coverage";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "devices", label: "Devices" },
   { key: "hardware", label: "Hardware" },
   { key: "neighbors", label: "Neighbors" },
   { key: "aps", label: "Access points" },
+  { key: "wireless", label: "Wireless clients" },
   { key: "subnets", label: "Subnets" },
   { key: "unmanaged", label: "Unmanaged" },
   { key: "endpoints", label: "Endpoints" },
@@ -173,6 +174,7 @@ export function Inventory() {
         <StatTile label="Serials found" value={String(s.devices_with_serial)} hint="Devices whose serial number was read from show version / show inventory" />
         <StatTile label="Components" value={String(s.hardware)} hint="Chassis, modules, power supplies and optics from show inventory" />
         <StatTile label="Access points" value={String(s.access_points)} />
+        <StatTile label="Wireless clients" value={String(s.wireless_clients)} hint="Clients associated to your controllers at the last collection" />
         <StatTile label="Subnets" value={String(s.subnets)} hint="IP subnets in use: interface addresses in the collected configs, plus ranges only seen in ARP tables" />
         <StatTile label="Unmanaged" value={String(s.unmanaged)} tone={s.unmanaged ? "unknown" : "neutral"} hint="Devices CDP/LLDP can see that are not in your Devices list" />
       </div>
@@ -393,6 +395,61 @@ export function Inventory() {
             )}
           </tbody>
         </table>
+      )}
+
+      {tab === "wireless" && (
+        <>
+          <p className="page-subtitle" style={{ marginTop: 8 }}>
+            Every client associated to your wireless controllers when their configs were last collected ("show wireless client summary" on a 9800,
+            "show client summary" on AireOS), with the SSID from "show wlan summary", the maker from the MAC address, and the IP from the
+            controller's client table or any switch's ARP table. Phones and laptops using a private, randomised address show as such.
+          </p>
+          <table className="data-table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Controller</th>
+                <th>Client MAC</th>
+                <th>Manufacturer</th>
+                <th>IP</th>
+                <th>Access point</th>
+                <th>SSID</th>
+                <th>Radio</th>
+                <th>State</th>
+                <th>Auth</th>
+                <th>Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.wireless_clients
+                .filter((c) => matches(q, c.controller_name, c.mac, c.manufacturer, c.ip, c.ap_name, c.ssid, c.wlan_id, c.protocol, c.state))
+                .map((c, i) => (
+                  <tr key={`${c.controller_id}-${c.mac}-${i}`}>
+                    <td>{c.controller_name}</td>
+                    <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{c.mac}</td>
+                    <td>{c.manufacturer === "Randomised private address" ? <span className="field-hint">randomised (private) address</span> : dash(c.manufacturer)}</td>
+                    <td>{dash(c.ip)}</td>
+                    <td>{dash(c.ap_name)}</td>
+                    <td>
+                      {dash(c.ssid ?? (c.wlan_id ? `WLAN ${c.wlan_id}` : null))}
+                      {c.ssid && c.wlan_id ? <span className="field-hint"> · WLAN {c.wlan_id}</span> : null}
+                    </td>
+                    <td>{dash(c.protocol)}</td>
+                    <td>{dash(c.state)}</td>
+                    <td>{dash(c.auth)}</td>
+                    <td>{dash(c.role)}</td>
+                  </tr>
+                ))}
+              {data.wireless_clients.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="empty-state">
+                    No wireless clients yet. A controller has to be collected with "show wireless client summary" (9800) or "show client summary"
+                    (AireOS); both are in the built-in command lists. See Coverage.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </>
       )}
 
       {tab === "subnets" && (

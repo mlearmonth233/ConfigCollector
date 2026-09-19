@@ -64,6 +64,7 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show cdp neighbors detail",
         "show ap summary",
         "show running-config",
+        "show wireless client summary",
     ),
     "cisco_wlc": (
         "show sysinfo",
@@ -71,6 +72,7 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show cdp neighbors detail",
         "show ap summary",
         "show running-config",
+        "show client summary",
     ),
     "fortinet": (
         "get system status",
@@ -221,6 +223,24 @@ class AccessPoint:
 
 
 @dataclass
+class WirelessClient:
+    """One associated wireless client, from a controller's client summary."""
+
+    controller_id: str
+    controller_name: str
+    mac: str
+    manufacturer: str | None
+    ip: str | None
+    ap_name: str | None
+    wlan_id: str | None
+    ssid: str | None
+    state: str | None
+    protocol: str | None  # "11ax(5)", "802.11ac(5 GHz)" - the radio the client is on
+    auth: str | None  # 9800: the method (Dot1x, PSK, None); AireOS: Yes/No authenticated
+    role: str | None  # Local, Anchor, Foreign...
+
+
+@dataclass
 class Endpoint:
     device_id: str
     device_name: str
@@ -285,6 +305,7 @@ class Inventory:
     unmanaged: list[UnmanagedDevice]
     models: dict[str, int]  # model -> count across devices, APs and unmanaged neighbours' platforms
     subnets: list[Subnet] = field(default_factory=list)
+    wireless_clients: list[WirelessClient] = field(default_factory=list)
 
 
 # --- parsers: show version and friends ------------------------------------------------------
@@ -709,6 +730,84 @@ def parse_interface_addresses(config: str, device_type: str) -> list[dict]:
     return parse_cisco_interface_addresses(config)
 
 
+# --- parsers: wireless clients ----------------------------------------------------------------
+
+# 9800 "show wireless client summary":
+# MAC Address    AP Name    Type ID   State     Protocol Method     Role
+# a4bb.6d12.3456 AP-LOBBY-01 WLAN 1   Run       11ax(5)  Dot1x      Local
+_WLC9800_CLIENT_ROW = re.compile(
+    rf"^(?P<mac>{_MAC_DOTTED})\s+(?P<ap>\S+)\s+(?P<kind>WLAN|RLAN|GLAN)\s+(?P<wlan>\d+)\s+(?P<state>.+?)\s{{2,}}(?P<proto>\S+)\s+(?P<method>\S+)\s+(?P<role>.+?)\s*$",
+    re.MULTILINE,
+)
+# AireOS "show client summary":
+# MAC Address       AP Name      Slot Status      WLAN  Auth Protocol         Port Wired  Tunnel  Role
+# a4:bb:6d:12:34:56 AP-LOBBY-01  1    Associated  1     Yes  802.11ac(5 GHz)  1    No     No      Local
+_AIREOS_CLIENT_ROW = re.compile(
+    rf"^(?P<mac>{_MAC_COLON})\s+(?P<ap>\S+)\s+(?P<slot>\d+)\s+(?P<status>\S+)\s+(?P<wlan>\d+|N/A)\s+(?P<auth>Yes|No)\s+(?P<rest>.*?)\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+_AIREOS_CLIENT_REST = re.compile(r"^(?P<proto>.+?)\s+(?P<port>\d+)\s+(?P<flags>(?:(?:Yes|No)\s+)+)(?P<role>.*)$", re.IGNORECASE)
+# 9800 "show wlan summary": ID  Profile Name  SSID  Status  Security
+_WLAN_ROW_9800 = re.compile(r"^(?P<id>\d+)\s+(?P<profile>\S+)\s+(?P<ssid>.+?)\s{2,}(?P<status>UP|DOWN)\b", re.MULTILINE)
+# AireOS "show wlan summary": WLAN ID  WLAN Profile Name / SSID  Status  Interface Name
+_WLAN_ROW_AIREOS = re.compile(r"^(?P<id>\d+)\s+(?P<profile>.+?)\s+/\s+(?P<ssid>.+?)\s{2,}(?P<status>Enabled|Disabled)\b", re.MULTILINE)
+_MAC_AND_IP_LINE = re.compile(rf"^(?=.*\b(?P<ip>{_IP})\b)(?=.*(?P<mac>{_MAC})).*$", re.MULTILINE)
+
+
+def parse_wlan_summary(output: str) -> dict[str, str]:
+    """WLAN id -> SSID from either controller's 'show wlan summary'."""
+    wlans = {m.group("id"): m.group("ssid").strip() for m in _WLAN_ROW_AIREOS.finditer(output)}
+    if not wlans:
+        wlans = {m.group("id"): m.group("ssid").strip() for m in _WLAN_ROW_9800.finditer(output)}
+    return wlans
+
+
+def parse_wireless_clients_9800(output: str) -> list[dict[str, str | None]]:
+    rows = []
+    for m in _WLC9800_CLIENT_ROW.finditer(output):
+        rows.append(
+            {
+                "mac": normalize_mac(m.group("mac")),
+                "ap": m.group("ap"),
+                "wlan": m.group("wlan"),
+                "state": m.group("state").strip(),
+                "protocol": m.group("proto"),
+                "auth": m.group("method"),
+                "role": m.group("role").strip(),
+            }
+        )
+    return rows
+
+
+def parse_wireless_clients_aireos(output: str) -> list[dict[str, str | None]]:
+    rows = []
+    for m in _AIREOS_CLIENT_ROW.finditer(output):
+        rest = _AIREOS_CLIENT_REST.match(m.group("rest").strip())
+        rows.append(
+            {
+                "mac": normalize_mac(m.group("mac")),
+                "ap": m.group("ap"),
+                "wlan": None if m.group("wlan").upper() == "N/A" else m.group("wlan"),
+                "state": m.group("status"),
+                "protocol": rest.group("proto").strip() if rest else (m.group("rest").split()[0] if m.group("rest").split() else None),
+                "auth": "Authenticated" if m.group("auth").lower() == "yes" else "Not authenticated",
+                "role": rest.group("role").strip() or None if rest else None,
+            }
+        )
+    return rows
+
+
+def parse_mac_ip_table(output: str) -> dict[str, str]:
+    """MAC -> IP from any table that lists both on one line: the 9800's
+    'show wireless device-tracking database ip', AireOS 'show client summary ip'."""
+    mapping: dict[str, str] = {}
+    for m in _MAC_AND_IP_LINE.finditer(output):
+        mac = normalize_mac(m.group("mac"))
+        if mac and mac not in mapping:
+            mapping[mac] = m.group("ip")
+    return mapping
+
+
 def guess_kind(platform: str | None, capabilities: str | None, name: str | None = None) -> str:
     text = f"{platform or ''} {capabilities or ''} {name or ''}".lower()
     if "phone" in text:
@@ -774,6 +873,7 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
     uplink_ports: dict[str, set[str]] = defaultdict(set)
     address_rows: list[tuple[SnapshotInput, dict]] = []
     seen_ips: set[str] = set()
+    wireless_clients: list[WirelessClient] = []
 
     for item in inputs:
         wanted = INVENTORY_COMMANDS.get(item.device_type, ("show version",))
@@ -829,6 +929,40 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
             if running:
                 for row in parse_interface_addresses(running, item.device_type):
                     address_rows.append((item, row))
+
+            client_rows: list[dict] = []
+            clients_9800 = find_section(item.content, "show wireless client summary")
+            if clients_9800:
+                client_rows = parse_wireless_clients_9800(clients_9800)
+            clients_aireos = find_section(item.content, "show client summary")
+            if clients_aireos:
+                client_rows += parse_wireless_clients_aireos(clients_aireos)
+            if client_rows:
+                wlans = parse_wlan_summary(find_section(item.content, "show wlan summary") or "")
+                controller_ips: dict[str, str] = {}
+                for table in ("show wireless device-tracking database ip", "show client summary ip"):
+                    section = find_section(item.content, table)
+                    if section:
+                        controller_ips.update(parse_mac_ip_table(section))
+                for row in client_rows:
+                    if not row["mac"]:
+                        continue
+                    wireless_clients.append(
+                        WirelessClient(
+                            item.device_id,
+                            item.name,
+                            row["mac"],
+                            oui.manufacturer(row["mac"]),
+                            controller_ips.get(row["mac"]),
+                            row["ap"],
+                            row["wlan"],
+                            wlans.get(row["wlan"] or ""),
+                            row["state"],
+                            row["protocol"],
+                            row["auth"],
+                            row["role"],
+                        )
+                    )
         else:
             facts.commands_missing = list(wanted)
         devices.append(facts)
@@ -909,6 +1043,14 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
         if u.platform:
             models[u.platform] += 1
 
+    # A client's IP comes from the controller when it knows it, else from
+    # any switch's ARP table; either way it counts as an address in use.
+    for client in wireless_clients:
+        client.ip = client.ip or arp_ip_by_mac.get(client.mac)
+        if client.ip:
+            seen_ips.add(client.ip)
+    wireless_clients.sort(key=lambda c: (c.controller_name.lower(), (c.ssid or "").lower(), (c.ap_name or "").lower(), c.mac))
+
     for d in devices:
         seen_ips.add(d.host)
     for ap in access_points:
@@ -920,7 +1062,16 @@ def build_inventory(inputs: list[SnapshotInput], *, now: datetime | None = None)
     subnets = build_subnets(address_rows, seen_ips)
 
     return Inventory(
-        now, devices, hardware, neighbors, access_points, endpoints, unmanaged, dict(sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))), subnets
+        now,
+        devices,
+        hardware,
+        neighbors,
+        access_points,
+        endpoints,
+        unmanaged,
+        dict(sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))),
+        subnets,
+        wireless_clients,
     )
 
 
