@@ -186,3 +186,59 @@ def test_serve_frontend_refuses_a_folder_without_a_build(tmp_path: Path):
     application = FastAPI()
     assert _serve_frontend(str(tmp_path), application) is False
     assert TestClient(application).get("/").status_code == 404
+
+
+# --- no console windows on Windows -------------------------------------------------------
+
+
+def test_child_processes_default_to_no_console_window():
+    from app.desktop import no_console as nc
+
+    assert nc.with_no_window(("cmd /c ver",), {"shell": True}) == {"shell": True, "creationflags": nc.CREATE_NO_WINDOW}
+    # Existing flags are kept and the no-window bit is added to them.
+    assert nc.with_no_window(("ping",), {"creationflags": 0x200})["creationflags"] == 0x200 | nc.CREATE_NO_WINDOW
+    # Asking for a console or a detached process on purpose is respected.
+    for flags in (nc.CREATE_NEW_CONSOLE, nc.DETACHED_PROCESS):
+        assert nc.with_no_window(("x",), {"creationflags": flags}) == {"creationflags": flags}
+    # creationflags passed positionally: leave the call alone rather than passing it twice.
+    positional = tuple(range(nc._CREATIONFLAGS_POSITION + 1))
+    assert nc.with_no_window(positional, {}) == {}
+
+
+def test_no_console_patch_only_applies_on_windows(monkeypatch):
+    import subprocess
+
+    from app.desktop import no_console as nc
+
+    before = subprocess.Popen.__init__
+    monkeypatch.setattr(nc.sys, "platform", "linux")
+    assert nc.install() is False
+    assert subprocess.Popen.__init__ is before
+
+
+def test_no_console_patch_adds_the_flag_to_every_popen(monkeypatch):
+    import subprocess
+
+    from app.desktop import no_console as nc
+
+    seen = {}
+
+    def fake_init(self, *args, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", fake_init)
+    monkeypatch.setattr(nc, "_installed", False)
+    monkeypatch.setattr(nc.sys, "platform", "win32")
+    assert nc.install() is True
+    assert nc.install() is True  # idempotent: wraps once
+
+    # The way platform._syscmd_ver() runs "ver", and a subclass (as asyncio's Windows Popen is).
+    subprocess.Popen("cmd /c ver", shell=True, stdin=subprocess.DEVNULL)
+    assert seen["creationflags"] == nc.CREATE_NO_WINDOW and seen["shell"] is True
+
+    class Child(subprocess.Popen):
+        pass
+
+    seen.clear()
+    Child(["ping", "-n", "1", "10.0.0.1"])
+    assert seen["creationflags"] == nc.CREATE_NO_WINDOW

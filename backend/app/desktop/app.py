@@ -121,6 +121,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     _ensure_std_streams()
+    # Before anything imports uvicorn or Celery: they call platform.system()
+    # on start, which on Windows can run `cmd /c ver` in a visible window.
+    from app.desktop.no_console import install as hide_child_consoles  # noqa: PLC0415
+
+    hide_child_consoles()
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     if args.data_dir:
         os.environ["PACKRAT_DATA_DIR"] = args.data_dir

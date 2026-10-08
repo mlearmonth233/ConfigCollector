@@ -40,6 +40,7 @@ binaries = []
 hiddenimports = [
     "app.desktop",
     "app.desktop.app",
+    "app.desktop.no_console",
     "app.desktop.roles",
     # pystray picks its backend at import time; importing it on a machine
     # without a display fails, so collect_all below may see nothing. Name
