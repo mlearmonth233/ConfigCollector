@@ -48,7 +48,8 @@ def init(path: Path) -> None:
     path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
     pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     print(f"Wrote {path}")
-    print("Public key (paste into PUBLIC_KEY_B64 in backend/app/core/licence.py):")
+    print("Back this file up now: it is the only copy, and keys cannot be made without it.")
+    print("Public key (add it to TRUSTED_PUBLIC_KEYS_B64 in backend/app/core/licence.py; it is safe to share):")
     print(base64.b64encode(pub).decode())
 
 

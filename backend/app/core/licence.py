@@ -22,8 +22,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from app.config import get_settings
 
-# Ed25519 public key (raw, base64). The matching private key never ships.
-PUBLIC_KEY_B64 = "pzjSCSbJd427Lw5N8YaendgWofKZAEoTfmAscXR6iBc="
+# Ed25519 public keys (raw, base64) whose signatures the app accepts. The
+# matching private keys never ship. A key signed by any of them is valid, so
+# a new signing key can be added without invalidating keys already issued.
+TRUSTED_PUBLIC_KEYS_B64: tuple[str, ...] = (
+    # The original signing key (September 2026). Its private half was lost,
+    # so nothing new is signed with it; it stays so keys it signed still work.
+    "pzjSCSbJd427Lw5N8YaendgWofKZAEoTfmAscXR6iBc=",
+)
+# The first trusted key, kept under its old name for anything that reads it.
+PUBLIC_KEY_B64 = TRUSTED_PUBLIC_KEYS_B64[0]
 
 # Features a tier can unlock. Anything not listed here is free on every tier.
 FEATURE_LABELS: dict[str, str] = {
@@ -80,13 +88,27 @@ class LicenceInfo:
         return feature in self.features
 
 
-_public_key: Ed25519PublicKey = Ed25519PublicKey.from_public_bytes(base64.b64decode(PUBLIC_KEY_B64))
+def _load_public_keys(keys_b64) -> tuple[Ed25519PublicKey, ...]:
+    return tuple(Ed25519PublicKey.from_public_bytes(base64.b64decode(k)) for k in keys_b64)
 
 
-def configure_public_key(b64: str) -> None:
-    """Tests (and a vendor rotating keys) swap the verifying key."""
-    global _public_key  # noqa: PLW0603
-    _public_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(b64))
+_public_keys: tuple[Ed25519PublicKey, ...] = _load_public_keys(TRUSTED_PUBLIC_KEYS_B64)
+
+
+def configure_public_key(*keys_b64: str) -> None:
+    """Replace the trusted verifying keys (tests use their own keypair)."""
+    global _public_keys  # noqa: PLW0603
+    _public_keys = _load_public_keys(keys_b64)
+
+
+def _signature_is_trusted(signature: bytes, payload: bytes) -> bool:
+    for public_key in _public_keys:
+        try:
+            public_key.verify(signature, payload)
+        except InvalidSignature:
+            continue
+        return True
+    return False
 
 
 def _b64url_decode(text: str) -> bytes:
@@ -104,10 +126,8 @@ def parse_key(key: str) -> dict:
         signature = _b64url_decode(parts[2])
     except Exception as exc:  # noqa: BLE001
         raise InvalidLicence("The licence key is damaged - copy it again exactly as it was sent") from exc
-    try:
-        _public_key.verify(signature, payload_bytes)
-    except InvalidSignature as exc:
-        raise InvalidLicence("The licence key's signature does not check out - it was altered or was not issued for this product") from exc
+    if not _signature_is_trusted(signature, payload_bytes):
+        raise InvalidLicence("The licence key's signature does not check out - it was altered or was not issued for this product")
     try:
         payload = json.loads(payload_bytes)
     except ValueError as exc:

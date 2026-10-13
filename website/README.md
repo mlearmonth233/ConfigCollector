@@ -122,7 +122,7 @@ Issuing a key, today by hand after the Stripe email arrives:
 
 ```powershell
 # once, on your own machine; keep backend\licensing\private.pem out of git (it is gitignored) and back it up
-python backend\scripts\make_licence.py --init      # prints the public key to paste into app/core/licence.py if you ever rotate
+python backend\scripts\make_licence.py --init      # prints a public key: add it to TRUSTED_PUBLIC_KEYS_B64 in app/core/licence.py and release
 # per customer
 python backend\scripts\make_licence.py --tier colony --customer "Acme Ltd" --expires 2027-09-16
 ```

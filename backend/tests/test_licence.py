@@ -37,10 +37,10 @@ def free_tier(monkeypatch):
     """Tests run as Warren via LICENCE_OVERRIDE_TIER (conftest); this fixture
     removes the override and installs the test keypair."""
     monkeypatch.setattr(get_settings(), "licence_override_tier", "")
-    original = lic._public_key  # noqa: SLF001
+    original = lic._public_keys  # noqa: SLF001
     lic.configure_public_key(_PUBLIC_B64)
     yield
-    lic._public_key = original  # noqa: SLF001
+    lic._public_keys = original  # noqa: SLF001
 
 
 # --- keys -----------------------------------------------------------------------------------
@@ -199,3 +199,20 @@ def test_development_override_is_ignored_outside_development(monkeypatch):
     assert lic.development_override() is None
     monkeypatch.setattr(settings, "environment", "development")
     assert lic.development_override().tier.key == "warren"
+
+
+def test_a_key_signed_by_any_trusted_signing_key_is_accepted(free_tier):
+    second = Ed25519PrivateKey.generate()
+    second_b64 = base64.b64encode(second.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+    stranger = Ed25519PrivateKey.generate()
+
+    lic.configure_public_key(_PUBLIC_B64, second_b64)
+    assert lic.licence_from_key(make_key("colony")).tier.key == "colony"
+    assert lic.licence_from_key(make_key("warren", signer=second)).tier.key == "warren"
+    rejected = lic.licence_from_key(make_key("warren", signer=stranger))
+    assert rejected.tier.key == "nest" and "signature" in (rejected.problem or "")
+
+
+def test_the_shipped_trusted_keys_load():
+    assert lic.TRUSTED_PUBLIC_KEYS_B64 and lic.PUBLIC_KEY_B64 == lic.TRUSTED_PUBLIC_KEYS_B64[0]
+    assert len(lic._load_public_keys(lic.TRUSTED_PUBLIC_KEYS_B64)) == len(lic.TRUSTED_PUBLIC_KEYS_B64)  # noqa: SLF001
