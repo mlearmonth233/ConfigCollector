@@ -24,6 +24,10 @@ export function Credentials() {
   const [totpSecret, setTotpSecret] = useState("");
   const [authTimeoutSeconds, setAuthTimeoutSeconds] = useState("45");
   const [fallbackCredentialId, setFallbackCredentialId] = useState("");
+  // "new": the fallback login is typed into this form and created with it.
+  const [fallbackUsername, setFallbackUsername] = useState("");
+  const [fallbackPassword, setFallbackPassword] = useState("");
+  const [fallbackEnableSecret, setFallbackEnableSecret] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // A fallback can't itself have a fallback (no chains) - matches the
@@ -55,6 +59,9 @@ export function Credentials() {
     setOtpDelimiter(",");
     setAuthTimeoutSeconds("45");
     setFallbackCredentialId("");
+    setFallbackUsername("");
+    setFallbackPassword("");
+    setFallbackEnableSecret("");
     setTotpSecret("");
   }
 
@@ -62,7 +69,23 @@ export function Credentials() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    let createdFallbackId: string | null = null;
     try {
+      let fallbackId = fallbackCredentialId === "new" ? "" : fallbackCredentialId;
+      if (fallbackCredentialId === "new") {
+        // A local / break-glass login: plain username and password, no MFA.
+        const { data: fallback } = await credentialsApi.create({
+          name: `${name} (fallback)`,
+          username: fallbackUsername,
+          password: fallbackPassword,
+          enable_secret: fallbackEnableSecret || undefined,
+          mfa_mode: "none",
+          otp_delimiter: ",",
+          auth_timeout_seconds: 30,
+        });
+        createdFallbackId = fallback.id;
+        fallbackId = fallback.id;
+      }
       await credentialsApi.create({
         name,
         username,
@@ -72,11 +95,13 @@ export function Credentials() {
         otp_delimiter: otpDelimiter || ",",
         totp_secret: mfaMode === "passcode" && totpSecret.trim() ? totpSecret.trim() : undefined,
         auth_timeout_seconds: Number(authTimeoutSeconds) || 45,
-        fallback_credential_id: fallbackCredentialId || undefined,
+        fallback_credential_id: fallbackId || undefined,
       });
       resetForm();
       await refresh();
     } catch (err) {
+      // Don't leave a fallback behind for a credential that was never created.
+      if (createdFallbackId) await credentialsApi.remove(createdFallbackId).catch(() => undefined);
       setError(extractErrorMessage(err));
     } finally {
       setSubmitting(false);
@@ -196,6 +221,7 @@ export function Credentials() {
             Fallback credential (optional)
             <select value={fallbackCredentialId} onChange={(e) => setFallbackCredentialId(e.target.value)}>
               <option value="">— none —</option>
+              <option value="new">Enter a fallback login here…</option>
               {eligibleFallbacks.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -205,9 +231,26 @@ export function Credentials() {
             <span className="field-hint">
               Tried if this credential's login fails outright (e.g. TACACS+/RADIUS is unreachable or the
               account is locked) - typically a device's local/default account, or some other break-glass
-              login. Only credentials with no fallback of their own can be picked (no chains).
+              login. Enter it right here, or pick an existing credential (only ones with no fallback of their own: no chains).
             </span>
           </label>
+          {fallbackCredentialId === "new" && (
+            <>
+              <label>
+                Fallback username
+                <input value={fallbackUsername} onChange={(e) => setFallbackUsername(e.target.value)} required autoComplete="off" />
+              </label>
+              <label>
+                Fallback password
+                <input type="password" value={fallbackPassword} onChange={(e) => setFallbackPassword(e.target.value)} required autoComplete="new-password" />
+              </label>
+              <label>
+                Fallback enable secret (optional)
+                <input type="password" value={fallbackEnableSecret} onChange={(e) => setFallbackEnableSecret(e.target.value)} autoComplete="new-password" />
+                <span className="field-hint">Saved as its own credential, "{name || "this credential"} (fallback)", with no MFA.</span>
+              </label>
+            </>
+          )}
         </div>
         <button type="submit" disabled={submitting}>
           {submitting ? "Adding…" : "Add credential"}

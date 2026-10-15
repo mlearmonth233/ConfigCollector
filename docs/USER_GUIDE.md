@@ -226,7 +226,9 @@ username and password, and optionally:
   logins are often slow; 45 seconds is the default.
 - **Fallback**: another credential to try automatically if this one is
   rejected or cannot enter enable mode. Typical use: a TACACS+ account with
-  a local break-glass account as fallback.
+  a local break-glass account as fallback. Pick an existing credential, or
+  choose *Enter a fallback login here* and type its username, password and
+  enable secret in the same form: it is saved as "<name> (fallback)".
 
 **Default**: mark one credential as the org default. Every device without
 its own credential uses it. This is the normal setup; you rarely need to
