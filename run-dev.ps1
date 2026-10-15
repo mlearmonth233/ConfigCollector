@@ -77,9 +77,13 @@ Ensure-FrontendEnvironment -Path $frontend
 
 if ($Eager) {
     $env:CELERY_TASK_ALWAYS_EAGER = "true"
-    Write-Host "Eager mode: jobs run inside the backend; no worker, beat or Redis."
+    # On a background thread of the backend: starting a job returns at once
+    # and the job page shows logins, push approvals and output live.
+    $env:EAGER_BACKGROUND = "true"
+    Write-Host "Eager mode: jobs run in the background inside the backend; no worker, beat or Redis."
 } else {
     $env:CELERY_TASK_ALWAYS_EAGER = "false"
+    $env:EAGER_BACKGROUND = "false"
     Assert-RedisReachable
 }
 

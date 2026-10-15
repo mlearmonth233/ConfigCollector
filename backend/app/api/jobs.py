@@ -34,6 +34,7 @@ from app.services.job_reaper import force_stop_job
 from app.services.filenames import build_snapshot_filename, build_zip_filename, folder_for_device_type
 from app.services.neighbor_discovery import extract_neighbors, has_neighbor_command, normalize_device_name
 from app.tasks import collect_device_task
+from app.services.dispatch import dispatch
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -292,7 +293,8 @@ async def create_and_dispatch_job(
     # this one stops needing to - a large batch still can't hammer
     # TACACS+/RADIUS or the network with concurrent logins.
     first, *rest = dispatch_specs
-    collect_device_task.apply_async(
+    dispatch(
+        collect_device_task,
         args=[first["item_id"]],
         kwargs={
             "commands_override": first["commands_override"],
@@ -468,7 +470,8 @@ async def retry_job_item(
     job.finished_at = None
     await db.commit()
 
-    collect_device_task.apply_async(
+    dispatch(
+        collect_device_task,
         args=[str(item.id)],
         kwargs={
             "commands_override": commands_override,

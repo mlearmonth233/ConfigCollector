@@ -20,6 +20,7 @@ from app.schemas.dns_check import (
 )
 from app.services.dns_check import MAX_TARGETS
 from app.tasks import run_dns_check_job_task
+from app.services.dispatch import dispatch
 
 router = APIRouter(prefix="/api/dns-check", tags=["dns-check"])
 
@@ -60,7 +61,7 @@ async def create_dns_check_job(
     db.add_all(items)
     await db.commit()
 
-    run_dns_check_job_task.apply_async(args=[str(job.id)])
+    dispatch(run_dns_check_job_task, args=[str(job.id)])
 
     # Dispatching may have run synchronously (CELERY_TASK_ALWAYS_EAGER, used
     # in tests/dev without a broker) via a separate sync session - fetch

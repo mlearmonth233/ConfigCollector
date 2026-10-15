@@ -35,6 +35,7 @@ from app.schemas.snmp_monitor import SnmpMonitorConfigOut, SnmpMonitorConfigUpda
 from app.services import alerting
 from app.services.snmp_poll import SnmpAuth, validate_auth
 from app.tasks import run_snmp_job_task, run_snmp_monitor_cycle
+from app.services.dispatch import dispatch
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
 
@@ -240,7 +241,7 @@ async def create_snmp_job(
     db.add_all([SnmpJobItem(job_id=job.id, device_id=d.id) for d in devices])
     await db.commit()
 
-    run_snmp_job_task.apply_async(args=[str(job.id)])
+    dispatch(run_snmp_job_task, args=[str(job.id)])
     return await fetch_snmp_job_detail(db, job.id, user.org_id)
 
 

@@ -116,11 +116,13 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-CELERY_TASK_ALWAYS_EAGER=true uvicorn app.main:app --reload
+CELERY_TASK_ALWAYS_EAGER=true EAGER_BACKGROUND=true uvicorn app.main:app --reload
 ```
 
-`CELERY_TASK_ALWAYS_EAGER=true` runs collection jobs synchronously in-process
-instead of dispatching to a Celery worker over Redis — handy for local
+`CELERY_TASK_ALWAYS_EAGER=true` runs collection jobs in-process instead of
+dispatching to a Celery worker over Redis; with `EAGER_BACKGROUND=true` they
+run on a background thread, so the job page shows progress live (without it,
+starting a job waits until every device is done) — handy for local
 testing without standing up the full stack. Omit it (and run `celery -A
 app.celery_app worker --loglevel=info` alongside uvicorn, with Redis
 running) to exercise the real async job queue.
@@ -214,9 +216,9 @@ configuration is needed. Install it, make sure the service is running, then
 start `run-backend.ps1` (or `run-dev.ps1`) as usual - it checks Redis is
 reachable up front and fails fast with a clear message if it isn't.
 
-If you don't want to install Memurai, pass `-Eager` to run in the old
-synchronous mode instead (no Redis or worker needed, but "Start collection"
-blocks until every device in the job finishes):
+If you don't want to install Memurai, pass `-Eager`: no Redis or worker is
+needed, and jobs run on a background thread of the backend, so the job page
+still shows each login, push approval and command output live:
 
 ```powershell
 .\backend\run-backend.ps1 -Eager

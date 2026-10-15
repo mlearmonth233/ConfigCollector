@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # Celery / Redis
     redis_url: str = "redis://localhost:6379/0"
     celery_task_always_eager: bool = False
+    # With eager mode, run each job on a background thread of the API
+    # process instead of inside the HTTP request, so starting a collection
+    # returns at once and the job page shows its progress live (logins,
+    # push approvals, command output) - no Redis or worker needed. Off by
+    # default so the test suite stays synchronous.
+    eager_background: bool = False
     # Where the API hands jobs to the worker. Empty means redis_url. The
     # desktop bundle (app/desktop) sets a SQLite-backed queue instead -
     # "sqla+sqlite:///.../queue.db" - so a laptop install needs no Redis.

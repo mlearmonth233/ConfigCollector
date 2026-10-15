@@ -35,9 +35,14 @@ Ensure-Environment
 
 if ($Eager) {
     $env:CELERY_TASK_ALWAYS_EAGER = "true"
-    Write-Host "Eager mode: collection jobs will run synchronously in-process (no worker needed)."
+    # Jobs run on a background thread of the backend, so starting one
+    # returns at once and the job page shows logins, push approvals and
+    # output live.
+    $env:EAGER_BACKGROUND = "true"
+    Write-Host "Eager mode: jobs run in the background inside the backend (no worker or Redis needed)."
 } else {
     $env:CELERY_TASK_ALWAYS_EAGER = "false"
+    $env:EAGER_BACKGROUND = "false"
     Assert-RedisReachable
     Write-Host "Async mode: make sure .\run-worker.ps1 is running too."
 }

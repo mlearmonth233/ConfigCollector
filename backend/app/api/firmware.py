@@ -31,6 +31,7 @@ from app.services.firmware_push import DEFAULT_PUSH_COMMANDS, render_push_comman
 from app.services.job_reaper import force_stop_job
 from app.services.network_interfaces import list_network_interfaces
 from app.tasks import firmware_push_device_task
+from app.services.dispatch import dispatch
 
 router = APIRouter(prefix="/api/firmware", tags=["firmware"])
 
@@ -251,7 +252,8 @@ async def create_firmware_job(
     # only the first device is dispatched here; each one dispatches the
     # next only once it's fully finished.
     first, *rest = dispatch_specs
-    firmware_push_device_task.apply_async(
+    dispatch(
+        firmware_push_device_task,
         args=[first["item_id"], commands_by_device_type, payload.protocol.value, payload.server_host],
         kwargs={"otp": first["otp"], "remaining": rest},
     )
