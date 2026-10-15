@@ -255,6 +255,23 @@ found on the wire behind them is on the [Inventory](#5-inventory) page).
   Hosts default to the hostname itself, so make sure your DNS resolves
   them or edit the host afterwards.
 
+### Importing from an IT OT Sitebook
+
+**Import from IT OT Sitebook** reads a site's Sitebook workbook (.xlsx).
+Its **Devices and Serials** tab gives each device's hostname (column A)
+and management IP (column C). A switch stack is listed one row per member
+with the same IP (`HOST`, `HOST-2`, `HOST-3`), so only the first row for
+each IP is added and the others are shown as its stack members. Rows with
+no IP, or an IP that is not an address ("TBC"), are listed as skipped,
+with the reason.
+
+Every device is shown for review before anything is saved: the type and
+role come from your device naming rules or, failing that, the PID
+(C9300 / Stratix 1783-* as Cisco IOS, FortiGate, C9800, AIR-CT...).
+Location, PID and serial from the Sitebook are shown beside each row.
+Devices already in Packrat (same name or IP) start unticked. Set a site
+for every device at once, or per row, then **Add**.
+
 ### Device types
 
 | Type | Used for | Notes |

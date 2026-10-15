@@ -14,6 +14,7 @@ import type {
   SnmpProfile,
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
+import { SitebookImportModal } from "../components/SitebookImportModal";
 import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
 import { DeviceTypeOptions } from "../components/DeviceTypeOptions";
 import { StartCollectionModal } from "../components/StartCollectionModal";
@@ -97,6 +98,7 @@ export function Devices() {
   const [historyTarget, setHistoryTarget] = useState<Device | null>(null);
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [showSitebook, setShowSitebook] = useState(false);
   const [reachability, setReachability] = useState<Map<string, DeviceReachability>>(new Map());
   const [checkingReachability, setCheckingReachability] = useState(false);
   const [reachabilityError, setReachabilityError] = useState<string | null>(null);
@@ -388,6 +390,9 @@ export function Devices() {
         <div className="page-actions">
           <button className="button-like" onClick={() => setShowBulkAdd(true)}>
             Bulk add from hostnames
+          </button>
+          <button className="button-like" onClick={() => setShowSitebook(true)}>
+            Import from IT OT Sitebook
           </button>
           <button className="link-button" onClick={handleCheckReachability} disabled={checkingReachability}>
             {checkingReachability ? "Checking…" : "Check reachability"}
@@ -692,6 +697,19 @@ export function Devices() {
           onStarted={(job) => {
             setCollectionTarget(null);
             navigate(`/jobs/${job.id}`);
+          }}
+        />
+      )}
+
+      {showSitebook && (
+        <SitebookImportModal
+          deviceTypes={deviceTypes}
+          deviceRoles={deviceRoles}
+          onClose={() => setShowSitebook(false)}
+          onDone={(result) => {
+            setShowSitebook(false);
+            setImportResult(result);
+            void refresh();
           }}
         />
       )}

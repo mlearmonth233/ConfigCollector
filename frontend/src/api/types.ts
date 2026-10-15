@@ -90,6 +90,25 @@ export interface CommandProfile {
   is_custom: boolean;
 }
 
+export interface SitebookDevice {
+  row: number;
+  name: string;
+  host: string;
+  location: string | null;
+  pid: string | null;
+  serial: string | null;
+  stack_members: string[];
+  suggested_device_type: string | null;
+  device_role: string | null;
+  existing_device_id: string | null;
+}
+
+export interface SitebookImport {
+  sheet: string;
+  devices: SitebookDevice[];
+  skipped: { row: number; name: string | null; host: string | null; reason: string }[];
+}
+
 export interface DeviceImportResult {
   created: number;
   errors: string[];

@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,12 +21,16 @@ from app.schemas.device import (
     DeviceOut,
     DeviceReachabilityOut,
     DeviceUpdate,
+    SitebookDeviceOut,
+    SitebookImportOut,
+    SitebookSkippedOut,
 )
 from app.api.custom_device_types import load_catalog
 from app.services.device_types import Catalog
 from app.api.hostname_rules import load_rules
 from app.services.hostname_detection import Rule, detect, device_type_for_role
 from app.services.reachability import check_reachability
+from app.services.sitebook import SitebookError, parse_sitebook, type_from_pid
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -98,6 +102,55 @@ async def detect_device(
         device_role=result.device_role,
         device_role_label=result.device_role_label,
         suggested_device_type=result.suggested_device_type,
+    )
+
+
+MAX_SITEBOOK_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/import/sitebook", response_model=SitebookImportOut)
+async def read_sitebook(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SitebookImportOut:
+    """Reads an IT/OT Sitebook's "Devices and Serials" tab into devices to
+    add: hostname from column A, IP from column C, one device per IP (the
+    other rows with that IP are switch-stack members). Nothing is saved:
+    the rows go to the same review table as bulk add, then POST /api/devices."""
+    content = await file.read(MAX_SITEBOOK_BYTES + 1)
+    if len(content) > MAX_SITEBOOK_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The workbook is larger than 25 MB")
+    try:
+        book = await asyncio.to_thread(parse_sitebook, content)
+    except SitebookError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    rules = await load_rules(db, user.org_id)
+    existing = list(await db.scalars(select(Device).where(Device.org_id == user.org_id)))
+    by_name = {d.name.lower(): d.id for d in existing}
+    by_host = {d.host.lower(): d.id for d in existing}
+    out = []
+    for d in book.devices:
+        detection = detect(d.name, rules)
+        pid_type, pid_role = type_from_pid(d.pid)
+        out.append(
+            SitebookDeviceOut(
+                row=d.row,
+                name=d.name,
+                host=d.host,
+                location=d.location,
+                pid=d.pid,
+                serial=d.serial,
+                stack_members=d.stack_members,
+                suggested_device_type=detection.suggested_device_type or pid_type,
+                device_role=detection.device_role or pid_role,
+                existing_device_id=by_name.get(d.name.lower()) or by_host.get(d.host.lower()),
+            )
+        )
+    return SitebookImportOut(
+        sheet=book.sheet,
+        devices=out,
+        skipped=[SitebookSkippedOut(row=x.row, name=x.name, host=x.host, reason=x.reason) for x in book.skipped],
     )
 
 

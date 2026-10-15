@@ -33,6 +33,7 @@ import type {
   PingMonitorSettings,
   PingOverview,
   Schedule,
+  SitebookImport,
   ScheduleFrequency,
   Snapshot,
   SnapshotDiff,
@@ -112,6 +113,11 @@ export const devicesApi = {
   update: (id: string, data: Partial<Device>) => apiClient.patch<Device>(`/api/devices/${id}`, data),
   remove: (id: string) => apiClient.delete(`/api/devices/${id}`),
   detect: (name: string) => apiClient.get<DeviceDetection>("/api/devices/detect", { params: { name } }),
+  readSitebook: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post<SitebookImport>("/api/devices/import/sitebook", form, { headers: { "Content-Type": "multipart/form-data" } });
+  },
   listSnapshots: (deviceId: string) =>
     apiClient.get<SnapshotSummary[]>(`/api/devices/${deviceId}/snapshots`),
   checkReachability: () => apiClient.get<DeviceReachability[]>("/api/devices/reachability"),

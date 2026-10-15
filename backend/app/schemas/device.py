@@ -107,3 +107,32 @@ class DeviceClearResult(BaseModel):
     # Devices left alone because a collection job is currently in progress
     # against them - same guard as the single-device delete endpoint.
     skipped: int
+
+
+class SitebookDeviceOut(BaseModel):
+    """One device to add from an IT/OT Sitebook, with what Packrat would
+    make of it (the user reviews every row before anything is saved)."""
+
+    row: int
+    name: str
+    host: str
+    location: str | None
+    pid: str | None
+    serial: str | None
+    stack_members: list[str]
+    suggested_device_type: str | None
+    device_role: str | None
+    existing_device_id: UUID | None  # already in Packrat (same name or IP)
+
+
+class SitebookSkippedOut(BaseModel):
+    row: int
+    name: str | None
+    host: str | None
+    reason: str
+
+
+class SitebookImportOut(BaseModel):
+    sheet: str
+    devices: list[SitebookDeviceOut]
+    skipped: list[SitebookSkippedOut]
