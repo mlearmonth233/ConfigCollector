@@ -164,7 +164,7 @@ async def test_lookup_and_partial_snapshots(client: AsyncClient, unique_email):
     dev = await client.post("/api/devices", json={"name": "HQ-WLC01", "host": "10.0.0.5", "device_type": "cisco_wlc_9800"}, headers=headers)
     device_id = dev.json()["id"]
     now = datetime.now(timezone.utc)
-    full = snapshot({"show running-config": "hostname HQ-WLC01\n", "show ap summary": "", "show logging": XE_LOG})
+    full = snapshot({"show running-config": "hostname HQ-WLC01\n", "show ap summary": "Number of APs: 1\n", "show logging": XE_LOG})
     partial = snapshot({"show wireless client mac-address 1111.2222.3333 mobility history": MOBILITY, "show logging | include 1111.2222.3333": XE_LOG.splitlines()[3]})
     await _seed(me["org_id"], me["id"], device_id, full, now - timedelta(hours=2))
     await _seed(me["org_id"], me["id"], device_id, partial, now - timedelta(minutes=5))
@@ -185,3 +185,33 @@ async def test_lookup_and_partial_snapshots(client: AsyncClient, unique_email):
     assert body["commands"]["cisco_wlc_9800"][2] == "show logging | include 1111.2222.3333"
     assert body["commands"]["cisco_wlc"][0] == "show client detail 11:11:22:22:33:33"
     assert (await client.get("/api/wireless-audit/clients/not-a-mac", headers=headers)).status_code == 400
+
+
+
+def test_client_checks_only_on_the_primary_controller():
+    std = WirelessStandard()
+    with_aps = snapshot({"show running-config": "hostname A\n", "show ap summary": "Number of APs: 12\n", "show logging": XE_LOG})
+    no_aps = snapshot({"show running-config": "hostname B\n", "show ap summary": "Number of APs: 0\n", "show logging": XE_LOG})
+    assert wa.wlc_role("A", std, with_aps)[0] == "primary"
+    assert wa.wlc_role("B", std, no_aps) == ("secondary", "no APs joined at its last collection")
+    assert wa.wlc_role("C", std, None)[0] == "primary"  # never collected: collect everything
+    std.wlc_roles = {"A": "secondary", "B": "primary"}
+    assert wa.wlc_role("A", std, with_aps)[0] == "secondary" and wa.wlc_role("B", std, no_aps)[0] == "primary"
+
+    # Collection: a secondary leaves the client commands out.
+    commands = wa.augment_commands(["show running-config", "show ap summary", "show wireless client summary"], "cisco_wlc_9800", None)
+    stripped = wa.strip_client_commands(commands)
+    assert "show wireless client summary" in commands and "show wireless client mac-address {client} detail" in commands
+    assert not any("client" in c for c in stripped) and "show ap summary" in stripped and "show logging" in stripped
+    assert not any("client" in c for c in wa.strip_client_commands(["show client summary", "show client detail {client}", "show client summary ip", "show sysinfo"]))
+
+    # Audit: the secondary's client checks are skipped, the primary's run.
+    inputs = [
+        inv.SnapshotInput("a", "A", "10.0.0.1", "cisco_wlc_9800", None, None, with_aps, datetime.now(timezone.utc), "s1"),
+        inv.SnapshotInput("b", "B", "10.0.0.2", "cisco_wlc_9800", None, None, no_aps, datetime.now(timezone.utc), "s2"),
+    ]
+    report = wa.run_audit(wa.gather(inputs), WirelessStandard(), None)
+    ctl = {c["name"]: c for c in report["controllers"]}
+    assert ctl["B"]["wlc_role"] == "secondary"
+    assert next(ch for ch in ctl["B"]["checks"] if ch["check_id"] == "client.events")["status"] == "skipped"
+    assert {e["controller_name"] for e in report["client_events"]} == {"A"}

@@ -130,6 +130,10 @@ class WirelessStandard(BaseModel):
     r2o_checklists: list[R2OChecklist] = []
     r2o_assignments: dict[str, str] = {}
     r2o_import_history: list[ImportRecord] = []
+    # Device name -> "primary" | "secondary". Wireless client commands and
+    # checks run on primaries only; a controller not listed is a secondary
+    # when its last full collection had no APs joined.
+    wlc_roles: dict[str, str] = {}
     # Hand-written templates, used for a platform with no profile.
     template_9800: str = ""
     template_aireos: str = ""
@@ -228,6 +232,8 @@ class ControllerAuditOut(BaseModel):
     template_profile: str | None = None
     r2o_checklist: str | None = None
     r2o_counts: dict[str, int] = {}
+    wlc_role: str = "primary"
+    wlc_role_reason: str | None = None
 
 
 class GroupAuditOut(BaseModel):

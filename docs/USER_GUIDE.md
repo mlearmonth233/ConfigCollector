@@ -1263,6 +1263,13 @@ warning counting as half.
 
 ### Client history: roams, drops and failures
 
+Client commands and checks run on the **primary** controller only. A
+secondary (N+1 / standby) carries no clients, so its collections leave
+out the client summary, per-client detail and roam history, and its
+client checks show as skipped. The role is automatic (a controller whose
+last full collection had no APs joined is the secondary) or set per
+controller under *Standard › Controllers: role, standard and checklist*.
+
 For every client MAC, the **Clients** tab pulls each log line that names
 it (9800 `show logging`, AireOS `show msglog` and `show traplog`) and
 classifies it as a join, roam, drop (deauthentication, disassociation,

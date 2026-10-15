@@ -96,6 +96,7 @@ export interface WirelessStandard {
   r2o_checklists: R2OChecklist[];
   r2o_assignments: Record<string, string>;
   r2o_import_history: ImportRecord[];
+  wlc_roles: Record<string, string>;
   template_9800: string;
   template_aireos: string;
   template_variables: Record<string, string>;
@@ -157,6 +158,8 @@ export interface ControllerAudit {
   template_profile: string | null;
   r2o_checklist: string | null;
   r2o_counts: Record<string, number>;
+  wlc_role: "primary" | "secondary";
+  wlc_role_reason: string | null;
 }
 
 export interface ApAudit {

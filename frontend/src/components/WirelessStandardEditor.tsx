@@ -390,17 +390,19 @@ export function WirelessStandardEditor({ isAdmin, controllers, onSaved }: { isAd
         )}
       </div>
 
-      {(profileNames.length > 0 || checklistNames.length > 0) && controllers.length > 0 && (
+      {controllers.length > 0 && (
         <div className="card-form">
-          <h2 style={{ marginTop: 0 }}>Which profile applies to which controller</h2>
+          <h2 style={{ marginTop: 0 }}>Controllers: role, standard and checklist</h2>
           <p className="page-subtitle">
-            Automatic: the only profile for the controller's platform, else the FlexConnect one for a C9800-CL or a 9800 whose site tags are all
-            "no local-site", else the local-mode one. Override per controller here.
+            Wireless client commands and checks run on the <strong>primary</strong> controller only. Automatic role: a controller whose last
+            collection had no APs joined is the secondary. Automatic profile: the only one for the controller's platform, else the FlexConnect
+            one for a C9800-CL or a 9800 whose site tags are all "no local-site", else the local-mode one. Override any of them here.
           </p>
           <table className="data-table">
             <thead>
               <tr>
                 <th>Controller</th>
+                <th>Role</th>
                 <th>Configuration standard</th>
                 <th>R2O checklist</th>
               </tr>
@@ -410,6 +412,22 @@ export function WirelessStandardEditor({ isAdmin, controllers, onSaved }: { isAd
                 <tr key={d.id}>
                   <td>
                     {d.name} <span className="table-hint">{d.device_type === "cisco_wlc" ? "AireOS" : "9800"}</span>
+                  </td>
+                  <td>
+                    <select
+                      disabled={ro}
+                      value={current.wlc_roles[d.name] ?? ""}
+                      onChange={(e) => {
+                        const next = { ...current.wlc_roles };
+                        if (e.target.value) next[d.name] = e.target.value;
+                        else delete next[d.name];
+                        set("wlc_roles", next);
+                      }}
+                    >
+                      <option value="">Automatic</option>
+                      <option value="primary">Primary</option>
+                      <option value="secondary">Secondary</option>
+                    </select>
                   </td>
                   <td>
                     <select

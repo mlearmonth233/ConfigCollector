@@ -371,6 +371,8 @@ class _Auditor:
         self.checks: dict[str, _Check] = {}
         self.profile_name: str | None = None
         self.r2o_name: str | None = None
+        self.role = "primary"
+        self.role_reason: str | None = None
         self.r2o_counts: dict[str, int] = {}
 
     def check(self, check_id: str, title: str, category: str) -> _Check:
@@ -487,8 +489,16 @@ def run_audit(
         _check_wlans(a, standard)
         per_ap = _check_aps(a, standard, dns, name_re, name_re_error, subnets, names_seen, ips_seen)
         _check_radios(a, standard)
-        clients_out, health = _check_clients(a, standard)
-        client_event_rows.extend(_check_client_events(a, standard, clients_out, health))
+        role, why = wlc_role(item.name, standard, item.content)
+        a.role, a.role_reason = role, why
+        if role == "secondary":
+            note = f"Secondary controller ({why}): client checks run on the primary"
+            for cid, title in (("client.rf", "Client signal (RSSI / SNR)"), ("client.events", "Client drops, roams and failures")):
+                a.skip(cid, title, "Clients", note)
+            clients_out, health = [], None
+        else:
+            clients_out, health = _check_clients(a, standard)
+            client_event_rows.extend(_check_client_events(a, standard, clients_out, health))
         _check_logs(a, log_rows)
         group_rows.extend(_check_groups(a, standard, wncd_rows))
         r2o_rows.extend(_run_r2o(a, standard, findings))
@@ -497,7 +507,8 @@ def run_audit(
             row["issues"] = ap_issue_counts.get(row["name"], 0)
         ap_rows.extend(per_ap)
         client_rows.extend(clients_out)
-        client_health.append(health)
+        if health is not None:
+            client_health.append(health)
         controllers.append(_controller_out(f, a))
 
     severity_counts = Counter(fd["severity"] for fd in findings)
@@ -555,6 +566,8 @@ def _controller_out(f: ControllerFacts, a: _Auditor) -> dict:
         "template_profile": a.profile_name,
         "r2o_checklist": a.r2o_name,
         "r2o_counts": a.r2o_counts,
+        "wlc_role": a.role,
+        "wlc_role_reason": a.role_reason,
     }
 
 
@@ -1563,3 +1576,60 @@ def augment_commands(commands: list[str], device_type: str, standard: WirelessSt
                 have.add(key)
                 out.append(cmd)
     return out
+
+
+# --- primary / secondary controllers ---------------------------------------------------------------
+
+_CLIENT_COMMANDS = (
+    "show wireless client summary",
+    "show wireless device-tracking database ip",
+    "show wireless stats client delete reasons",
+    "show client summary",
+    "show client summary ip",
+)
+_AP_ROW_COUNT = re.compile(rf"^\S+\s+\d+\s+\S+\s+{inv._MAC}\s", re.MULTILINE)
+
+
+def is_client_command(command: str) -> bool:
+    c = " ".join(command.lower().split())
+    if "{client}" in c or c.startswith(("show wireless client ", "sh wireless client ", "show client ", "sh client ")):
+        return True
+    return any(inv.command_matches(command, canonical) for canonical in _CLIENT_COMMANDS)
+
+
+def joined_ap_count(content: str | None) -> int | None:
+    """APs in a snapshot's 'show ap summary' (None: not collected)."""
+    if not content:
+        return None
+    summary = _exact_section(content, "show ap summary")
+    if summary is None:
+        return None
+    m = re.search(r"Number of APs\s*[.:]*\s*(\d+)", summary)
+    return int(m.group(1)) if m else len(_AP_ROW_COUNT.findall(summary))
+
+
+def wlc_role(name: str, standard: WirelessStandard | None, last_full_content: str | None) -> tuple[str, str]:
+    """('primary' | 'secondary', why). Client commands and checks run on
+    the primary only: a secondary (N+1 / standby) carries no clients."""
+    assigned = ((standard.wlc_roles if standard else {}) or {}).get(name, "").lower()
+    if assigned in ("primary", "secondary"):
+        return assigned, f"set to {assigned} in the wireless standard"
+    aps = joined_ap_count(last_full_content)
+    if aps == 0:
+        return "secondary", "no APs joined at its last collection"
+    return "primary", "APs joined at its last collection" if aps else "not collected yet"
+
+
+def strip_client_commands(commands: list[str]) -> list[str]:
+    return [c for c in commands if not is_client_command(c)]
+
+
+_FULL_CONTENT = re.compile(r"^! ---- (?:sh\w*\s+run\w*(?:-config)?|show running-config|show run-config)\b", re.MULTILINE | re.IGNORECASE)
+
+
+def is_full_collection(commands: list[str]) -> bool:
+    return any(_FULL_COLLECTION.match(c.strip()) for c in commands)
+
+
+def is_full_collection_content(content: str) -> bool:
+    return bool(_FULL_CONTENT.search(content or ""))

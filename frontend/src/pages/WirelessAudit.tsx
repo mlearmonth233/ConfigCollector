@@ -746,7 +746,10 @@ function Overview({ controllers, expanded, toggle }: { controllers: ControllerAu
             <Fragment key={c.device_id}>
               <tr className="audit-clickable" onClick={() => toggle(`ctl:${c.device_id}`)}>
                 <td>
-                  <span className="audit-caret">{open ? "▾" : "▸"}</span> <strong>{c.name}</strong>
+                  <span className="audit-caret">{open ? "▾" : "▸"}</span> <strong>{c.name}</strong>{" "}
+                  <span className="table-hint" title={c.wlc_role_reason ?? undefined}>
+                    {c.wlc_role === "secondary" ? "secondary (no client checks)" : "primary"}
+                  </span>
                   <div className="table-hint">
                     {c.host}
                     {c.site ? ` · ${c.site}` : ""}

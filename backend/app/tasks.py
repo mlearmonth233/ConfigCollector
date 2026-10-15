@@ -185,6 +185,23 @@ def _with_wireless_commands(db, device, commands_override: list[str] | None) -> 
         row = db.query(WirelessStandardRecord).filter(WirelessStandardRecord.org_id == device.org_id).first()
         standard = WirelessStandard.model_validate(json.loads(row.settings)) if row else None
         augmented = wa.augment_commands(base, device.device_type, standard)
+        if wa.is_full_collection(augmented):
+            # Client commands run on the primary controller only.
+            last_full = next(
+                (
+                    snap.content
+                    for snap in db.query(ConfigSnapshot)
+                    .filter(ConfigSnapshot.device_id == device.id)
+                    .order_by(ConfigSnapshot.collected_at.desc())
+                    .limit(15)
+                    if wa.is_full_collection_content(snap.content)
+                ),
+                None,
+            )
+            role, why = wa.wlc_role(device.name, standard, last_full)
+            if role == "secondary":
+                log.info("%s is a secondary controller (%s): wireless client commands left out", device.name, why)
+                augmented = wa.strip_client_commands(augmented)
         return augmented if augmented != base else commands_override
     except Exception:  # noqa: BLE001
         log.exception("Could not add the wireless audit commands for %s; collecting as configured", device.name)
