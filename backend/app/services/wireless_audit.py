@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 
 from app.schemas.wireless_audit import WirelessStandard
 from app.services import inventory as inv
+from app.services import client_events as ce
 from app.services import r2o as r2o_engine
 from app.services import wlc_parsers as wp
 from app.services.config_template import check_template, parse_config
@@ -55,6 +56,7 @@ AUDIT_COMMANDS: dict[str, tuple[str, ...]] = {
         "show logging",
         "show wireless loadbalance tag affinity",
         "show processes cpu platform sorted",
+        "show wireless stats client delete reasons",
     ),
     "cisco_wlc": (
         "show sysinfo",
@@ -109,6 +111,8 @@ class ControllerFacts:
     tags: dict[str, dict[str, dict]] | None = None  # 9800, from the config
     wncd_affinity: list[dict] | None = None
     wncd_cpu: dict[int, int] | None = None
+    client_history: dict[str, ce.ClientHistory] = field(default_factory=dict)
+    delete_reasons: list[dict] = field(default_factory=list)
 
 
 def _section(content: str, *canonicals: str) -> str | None:
@@ -258,6 +262,13 @@ def gather(inputs: list[inv.SnapshotInput], *, ignore_log_patterns: list[str] | 
         f.syslog = wp.parse_syslog(syslog, ignore) if syslog is not None else None
         traplog = inv.find_section(content, "show traplog")
         f.traplog = wp.parse_traplog(traplog, ignore) if traplog is not None else None
+
+        # Client history from the logs and per-client commands; the
+        # controller's own APs and radios are not clients.
+        ap_macs = {ap["mac"] for ap in f.aps if ap["mac"]} | {r["mac"] for r in f.radios if r["mac"]}
+        f.client_history = ce.histories(content, ap_macs)
+        reasons = inv.find_section(content, "show wireless stats client delete reasons")
+        f.delete_reasons = ce.parse_delete_reasons(reasons) if reasons else []
 
         # AP groups / tags / WNCD.
         if platform == "aireos":
@@ -436,6 +447,7 @@ def run_audit(
     group_rows: list[dict] = []
     wncd_rows: list[dict] = []
     r2o_rows: list[dict] = []
+    client_event_rows: list[dict] = []
 
     name_re = None
     name_re_error = None
@@ -476,6 +488,7 @@ def run_audit(
         per_ap = _check_aps(a, standard, dns, name_re, name_re_error, subnets, names_seen, ips_seen)
         _check_radios(a, standard)
         clients_out, health = _check_clients(a, standard)
+        client_event_rows.extend(_check_client_events(a, standard, clients_out, health))
         _check_logs(a, log_rows)
         group_rows.extend(_check_groups(a, standard, wncd_rows))
         r2o_rows.extend(_run_r2o(a, standard, findings))
@@ -496,7 +509,7 @@ def run_audit(
             "controllers_collected": sum(1 for f in facts if f.input.content),
             "access_points": len(ap_rows),
             "aps_with_issues": sum(1 for r in ap_rows if r["issues"]),
-            "clients": len(client_rows),
+            "clients": sum(1 for r in client_rows if r.get("connected", True)),
             "clients_poor": sum(1 for r in client_rows if r["health"] == "poor"),
             "fail": severity_counts.get("fail", 0),
             "warn": severity_counts.get("warn", 0),
@@ -511,6 +524,7 @@ def run_audit(
         "groups": group_rows,
         "wncd": wncd_rows,
         "r2o": r2o_rows,
+        "client_events": client_event_rows,
     }
 
 
@@ -1075,6 +1089,7 @@ def _check_clients(a: _Auditor, s: WirelessStandard) -> tuple[list[dict], dict]:
     }
     if not f.clients:
         a.skip("client.rf", "Client signal (RSSI / SNR)", "Clients", "No wireless clients in the snapshot")
+        health["delete_reasons"] = f.delete_reasons
         return rows, health
     rf = a.check("client.rf", "Client signal (RSSI / SNR)", "Clients")
     st = a.check("client.state", "Clients fully connected (RUN state)", "Clients")
@@ -1168,6 +1183,7 @@ def _check_clients(a: _Auditor, s: WirelessStandard) -> tuple[list[dict], dict]:
         )
     if rf.evaluated == 0:
         rf.skipped, rf.note = True, "Per-client detail (RSSI/SNR) not collected"
+    health["delete_reasons"] = f.delete_reasons
     health["avg_rssi"] = round(sum(rssis) / len(rssis), 1) if rssis else None
     health["avg_snr"] = round(sum(snrs) / len(snrs), 1) if snrs else None
     return rows, health
@@ -1455,3 +1471,95 @@ def r2o_commands(s: WirelessStandard, platform: str) -> list[str]:
                 if cmd not in commands:
                     commands.append(cmd)
     return commands
+
+
+# --- client events (logs, roams, drops) ------------------------------------------------------------
+
+MAX_EVENTS_PER_CLIENT = 200
+
+
+def history_out(f: ControllerFacts, h: ce.ClientHistory, connected: bool, issues: list[str]) -> dict:
+    return {
+        "controller_id": f.input.device_id,
+        "controller_name": f.input.name,
+        "mac": h.mac,
+        "connected": connected,
+        "roams": h.roam_count,
+        "drops": h.count("drop"),
+        "auth_failures": h.count("auth_failure"),
+        "dhcp_failures": h.count("dhcp_failure"),
+        "exclusions": h.count("exclusion"),
+        "roam_history": h.roams,
+        "counters": h.counters,
+        "issues": issues,
+        "events": [
+            {"kind": e.kind, "time": e.time, "source": e.source, "reason": e.reason, "text": e.text}
+            for e in h.events[-MAX_EVENTS_PER_CLIENT:]
+        ],
+    }
+
+
+def _check_client_events(a: _Auditor, s: WirelessStandard, client_rows: list[dict], health: dict) -> list[dict]:
+    """Drops, roams, authentication / DHCP failures and exclusions per
+    client, from the logs and per-client commands. Clients only seen in the
+    logs (gone by the time of the collection) are reported too."""
+    f = a.f
+    if not f.client_history and not f.delete_reasons:
+        a.skip("client.events", "Client drops, roams and failures", "Clients", "No client messages in the collected logs")
+        return []
+    c = a.check("client.events", "Client drops, roams and failures", "Clients")
+    out: list[dict] = []
+    by_mac = {row["mac"]: row for row in client_rows}
+    for mac, h in sorted(f.client_history.items()):
+        c.evaluated += 1
+        found = ce.issues_for(h, roam_warn=s.client_roam_warn, retry_warn_percent=s.client_retry_warn_percent)
+        row = by_mac.get(mac)
+        connected = row is not None
+        for severity, message in found:
+            a.find(c, severity, mac, message + ("" if connected else " (client no longer associated)"))
+        messages = [m for _, m in found]
+        if row is not None:
+            row["roams"], row["drops"], row["events"] = h.roam_count, h.count("drop"), len(h.events)
+            row["issues"] = row["issues"] + messages
+        elif found:
+            client_rows.append(
+                {
+                    "controller_id": f.input.device_id, "controller_name": f.input.name, "mac": mac, "manufacturer": None, "ip": None,
+                    "username": None, "ap_name": None, "ssid": None, "state": "not associated", "protocol": None, "rssi": None, "snr": None,
+                    "health": "unknown", "issues": messages, "roams": h.roam_count, "drops": h.count("drop"), "events": len(h.events), "connected": False,
+                }
+            )
+        if h.events or h.roams or h.counters:
+            out.append(history_out(f, h, connected, messages))
+    if f.delete_reasons:
+        top = ", ".join(f"{r['reason']} ×{r['count']}" for r in f.delete_reasons[:5])
+        a.find(c, "info", None, f"Client delete reasons since the counters were cleared: {top}")
+    return out
+
+
+# --- commands added to a controller's collection ----------------------------------------------------
+
+_FULL_COLLECTION = re.compile(r"^(?:sh\w*\s+run\w*(?:-config)?|show running-config|show run-config)\b", re.IGNORECASE)
+
+
+def augment_commands(commands: list[str], device_type: str, standard: WirelessStandard | None) -> list[str]:
+    """A full collection of a controller (one that includes its running
+    configuration) also runs what the audit reads and every command of the
+    org's R2O checklists for that platform, so neither needs adding to the
+    command list by hand. Anything else (a client investigation, a one-off
+    command) runs exactly as asked."""
+    platform = PLATFORMS.get(device_type)
+    if platform is None or not any(_FULL_COLLECTION.match(c.strip()) for c in commands):
+        return commands
+    out = list(commands)
+    for canonical in AUDIT_COMMANDS[device_type]:
+        if not any(inv.command_matches(c, canonical) for c in out):
+            out.append(canonical)
+    if standard is not None:
+        have = {" ".join(c.lower().split()) for c in out}
+        for cmd in r2o_commands(standard, platform):
+            key = " ".join(cmd.lower().split())
+            if key not in have:
+                have.add(key)
+                out.append(cmd)
+    return out

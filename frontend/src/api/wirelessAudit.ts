@@ -105,6 +105,8 @@ export interface WirelessStandard {
   client_snr_fail: number;
   max_clients_per_ap: number;
   flag_legacy_clients: boolean;
+  client_roam_warn: number;
+  client_retry_warn_percent: number;
   log_ignore_patterns: string[];
 }
 
@@ -201,6 +203,43 @@ export interface ClientAudit {
   snr: number | null;
   health: "good" | "fair" | "poor" | "unknown";
   issues: string[];
+  roams: number;
+  drops: number;
+  events: number;
+  connected: boolean;
+}
+
+export type ClientEventKind = "join" | "roam" | "drop" | "auth_failure" | "dhcp_failure" | "exclusion" | "timeout" | "other";
+
+export interface ClientEvent {
+  kind: ClientEventKind;
+  time: string | null;
+  source: string;
+  reason: string | null;
+  text: string;
+}
+
+export interface ClientHistory {
+  controller_id: string;
+  controller_name: string;
+  mac: string;
+  connected: boolean;
+  roams: number;
+  drops: number;
+  auth_failures: number;
+  dhcp_failures: number;
+  exclusions: number;
+  roam_history: { ap: string; time: string | null; type: string | null }[];
+  counters: Record<string, number>;
+  issues: string[];
+  events: ClientEvent[];
+}
+
+export interface ClientLookup {
+  mac: string;
+  snapshots_searched: number;
+  histories: ClientHistory[];
+  commands: Record<string, string[]>;
 }
 
 export interface ClientHealth {
@@ -219,6 +258,7 @@ export interface ClientHealth {
   not_run: number;
   no_ip: number;
   legacy: number;
+  delete_reasons: { reason: string; count: number }[];
 }
 
 export interface LogGroup {
@@ -284,6 +324,7 @@ export interface WirelessAuditReport {
   groups: GroupAudit[];
   wncd: WncdRow[];
   r2o: R2OResult[];
+  client_events: ClientHistory[];
 }
 
 export interface CommandCoverage {
@@ -325,6 +366,7 @@ export const wirelessAuditApi = {
   importR2O: (file: File) => upload<R2OImport>("/api/wireless-audit/r2o/import", file),
   coverage: () => apiClient.get<CommandCoverage[]>("/api/wireless-audit/commands"),
   addCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/wireless-audit/commands/${deviceType}`),
+  lookupClient: (mac: string, days = 7) => apiClient.get<ClientLookup>(`/api/wireless-audit/clients/${encodeURIComponent(mac)}`, { params: { days } }),
   r2oCoverage: () => apiClient.get<CommandCoverage[]>("/api/wireless-audit/r2o/commands"),
   addR2OCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/wireless-audit/r2o/commands/${deviceType}`),
 };

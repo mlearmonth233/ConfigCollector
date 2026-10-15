@@ -143,6 +143,8 @@ class WirelessStandard(BaseModel):
     client_snr_fail: int = 15
     max_clients_per_ap: int = 50
     flag_legacy_clients: bool = True  # 802.11a/b/g-only clients
+    client_roam_warn: int = 10  # roams in the log / mobility history
+    client_retry_warn_percent: int = 25
 
     # --- logs -----------------------------------------------------------------------------------
     log_ignore_patterns: list[str] = []  # regexes; matching log lines are skipped
@@ -295,6 +297,10 @@ class ClientAuditOut(BaseModel):
     snr: int | None
     health: str  # good | fair | poor | unknown
     issues: list[str]
+    roams: int = 0
+    drops: int = 0
+    events: int = 0
+    connected: bool = True  # False: only seen in the logs (no longer associated)
 
 
 class ClientHealthOut(BaseModel):
@@ -313,6 +319,7 @@ class ClientHealthOut(BaseModel):
     not_run: int
     no_ip: int
     legacy: int
+    delete_reasons: list[dict] = []
 
 
 class LogGroupOut(BaseModel):
@@ -324,6 +331,37 @@ class LogGroupOut(BaseModel):
     count: int
     example: str
     notable: bool
+
+
+class ClientEventOut(BaseModel):
+    kind: str  # join | roam | drop | auth_failure | dhcp_failure | exclusion | timeout | other
+    time: str | None
+    source: str
+    reason: str | None
+    text: str
+
+
+class ClientHistoryOut(BaseModel):
+    controller_id: str
+    controller_name: str
+    mac: str
+    connected: bool
+    roams: int
+    drops: int
+    auth_failures: int
+    dhcp_failures: int
+    exclusions: int
+    roam_history: list[dict]
+    counters: dict[str, int]
+    issues: list[str]
+    events: list[ClientEventOut]
+
+
+class ClientLookupOut(BaseModel):
+    mac: str
+    snapshots_searched: int
+    histories: list[ClientHistoryOut]
+    commands: dict[str, list[str]]  # device_type -> commands to collect for this client
 
 
 class WirelessAuditOut(BaseModel):
@@ -339,6 +377,7 @@ class WirelessAuditOut(BaseModel):
     groups: list[GroupAuditOut] = []
     wncd: list[WncdOut] = []
     r2o: list[R2OResultOut] = []
+    client_events: list[ClientHistoryOut] = []
 
 
 class AuditCommandCoverageOut(BaseModel):

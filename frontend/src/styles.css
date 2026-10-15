@@ -1997,3 +1997,13 @@ a:hover {
 @media (max-width: 640px) {
   .audit-fix { max-width: none; }
 }
+
+.client-history { padding: 8px 4px; }
+.client-history + .client-history { border-top: 1px solid var(--border); margin-top: 8px; }
+.client-history-head { margin-bottom: 4px; }
+.client-roam-path { margin: 6px 0; }
+.client-event { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 650; background: #f1f5f9; color: #475569; }
+.client-event-join { background: #dcfce7; color: #166534; }
+.client-event-roam { background: #dbeafe; color: #1e40af; }
+.client-event-drop, .client-event-auth_failure, .client-event-dhcp_failure, .client-event-exclusion { background: #fee2e2; color: #991b1b; }
+.client-event-timeout { background: #fef3c7; color: #92400e; }

@@ -33,8 +33,8 @@ export function Login() {
         <p className="auth-subtitle">Log in to your organization</p>
         {error && <div className="error-banner">{error}</div>}
         <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          Email or username
+          <input type="text" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         <label>
           Password

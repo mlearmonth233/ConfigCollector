@@ -19,9 +19,13 @@ interface Props {
   // When set, this modal retries one existing job item in place instead of
   // starting a brand new job - `devices` must be exactly that one device.
   retryContext?: RetryContext;
+  // Commands to run instead of each type's defaults (e.g. a client
+  // investigation from the Wireless Audit page), and a job name.
+  presetCommands?: Record<string, string[]>;
+  presetName?: string;
 }
 
-export function StartCollectionModal({ devices, deviceTypes, credentials, onClose, onStarted, retryContext }: Props) {
+export function StartCollectionModal({ devices, deviceTypes, credentials, onClose, onStarted, retryContext, presetCommands, presetName }: Props) {
   const deviceTypeMap = useMemo(() => new Map(deviceTypes.map((t) => [t.key, t])), [deviceTypes]);
   const credentialMap = useMemo(() => new Map(credentials.map((c) => [c.id, c])), [credentials]);
   const orgDefaultCredential = useMemo(() => credentials.find((c) => c.is_default), [credentials]);
@@ -41,7 +45,7 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
   const [commandsByType, setCommandsByType] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     for (const { key, spec } of typesPresent) {
-      initial[key] = spec?.default_commands.join(", ") ?? "";
+      initial[key] = presetCommands?.[key]?.join(", ") ?? spec?.default_commands.join(", ") ?? "";
     }
     return initial;
   });
@@ -70,7 +74,7 @@ export function StartCollectionModal({ devices, deviceTypes, credentials, onClos
   const [otps, setOtps] = useState<Record<string, string>>({});
   // Shown in the job list instead of an id. Prefilled with the local date
   // and time so every job has a meaningful name even if nobody types one.
-  const [name, setName] = useState(() => `Collection ${formatLocalDateTime(new Date())}`);
+  const [name, setName] = useState(() => presetName ?? `Collection ${formatLocalDateTime(new Date())}`);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

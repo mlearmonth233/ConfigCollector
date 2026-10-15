@@ -8,6 +8,7 @@ import type { Credential, Device, DeviceType } from "../api/types";
 import type { AuditFinding, CheckStatus, CommandCoverage, ControllerAudit, R2OResult, R2OStatus, WirelessAuditReport } from "../api/wirelessAudit";
 import { wirelessAuditApi } from "../api/wirelessAudit";
 import { StartCollectionModal } from "../components/StartCollectionModal";
+import { ClientLookupPanel, ClientTimeline } from "../components/WirelessClientHistory";
 import { WirelessStandardEditor } from "../components/WirelessStandardEditor";
 import { useAuth } from "../context/AuthContext";
 import { formatLocalDateTime } from "../utils/formatDate";
@@ -100,6 +101,7 @@ export function WirelessAudit() {
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [collectTarget, setCollectTarget] = useState<Device[] | null>(null);
+  const [collectPreset, setCollectPreset] = useState<{ commands: Record<string, string[]>; name: string } | null>(null);
 
   async function run(dns = withDns) {
     setRunning(true);
@@ -218,6 +220,7 @@ export function WirelessAudit() {
       ),
     [report, controller, clientFilter, q],
   );
+  const historyByClient = useMemo(() => new Map((report?.client_events ?? []).map((h) => [`${h.controller_id}|${h.mac}`, h])), [report]);
   const groupRows = useMemo(
     () => (report?.groups ?? []).filter((g) => (!controller || g.controller_id === controller) && matches(q, g.controller_name, g.name, g.kind, g.models, g.wlans, g.profiles)),
     [report, controller, q],
@@ -245,7 +248,15 @@ export function WirelessAudit() {
           <label className="inline-check" title="Look up every AP name and address in DNS (forward and PTR)">
             <input type="checkbox" checked={withDns} onChange={(e) => setWithDns(e.target.checked)} /> DNS lookups
           </label>
-          <button className="link-button" onClick={() => setCollectTarget(controllers)} disabled={controllers.length === 0} title="Log in to every controller and collect a fresh snapshot">
+          <button
+            className="link-button"
+            onClick={() => {
+              setCollectPreset(null);
+              setCollectTarget(controllers);
+            }}
+            disabled={controllers.length === 0}
+            title="Log in to every controller and collect a fresh snapshot"
+          >
             Collect controllers ({controllers.length})
           </button>
           <button className="link-button" onClick={() => void run()} disabled={running}>
@@ -519,6 +530,7 @@ export function WirelessAudit() {
                     <th>Not in RUN</th>
                     <th>No IP</th>
                     <th>Legacy</th>
+                    <th>Top delete reasons</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -540,10 +552,17 @@ export function WirelessAudit() {
                       <td>{h.not_run}</td>
                       <td>{h.no_ip}</td>
                       <td>{h.legacy}</td>
+                      <td className="table-hint">{(h.delete_reasons ?? []).slice(0, 3).map((r) => `${r.reason} ×${r.count}`).join(" · ") || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <ClientLookupPanel
+                onInvestigate={(mac, commands) => {
+                  setCollectPreset({ commands, name: `Client ${mac}` });
+                  setCollectTarget(controllers);
+                }}
+              />
               <div className="audit-filters" style={{ margin: "14px 0 8px" }}>
                 <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value as typeof clientFilter)} aria-label="Clients">
                   <option value="issues">Clients with issues</option>
@@ -565,15 +584,21 @@ export function WirelessAudit() {
                     <th>RSSI</th>
                     <th>SNR</th>
                     <th>Health</th>
+                    <th title="Roams in the logs / mobility history">Roams</th>
+                    <th title="Drops (deauth, disassociation, delete) in the logs">Drops</th>
                     <th>Issues</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {clientRows.slice(0, limit(clientRows.length)).map((c) => (
-                    <tr key={`${c.controller_id}|${c.mac}`}>
+                  {clientRows.slice(0, limit(clientRows.length)).map((c) => {
+                    const history = historyByClient.get(`${c.controller_id}|${c.mac}`);
+                    const key = `client:${c.controller_id}|${c.mac}`;
+                    return (
+                    <Fragment key={key}>
+                    <tr className={history ? "audit-clickable" : undefined} onClick={history ? () => toggle(key) : undefined}>
                       <td>{c.controller_name}</td>
                       <td>
-                        {c.mac}
+                        {history ? <span className="audit-caret">{expanded.has(key) ? "▾" : "▸"}</span> : null} {c.mac}
                         {c.manufacturer ? <div className="table-hint">{c.manufacturer}</div> : null}
                       </td>
                       <td>
@@ -589,12 +614,23 @@ export function WirelessAudit() {
                       <td>
                         <span className={`audit-health audit-health-${c.health}`}>{c.health}</span>
                       </td>
+                      <td>{c.roams ?? 0}</td>
+                      <td>{c.drops ? <span className="audit-bad">{c.drops}</span> : 0}</td>
                       <td className="table-hint">{c.issues.join(", ") || "—"}</td>
                     </tr>
-                  ))}
+                    {history && expanded.has(key) && (
+                      <tr>
+                        <td colSpan={13} className="audit-detail">
+                          <ClientTimeline history={history} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                   {clientRows.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="empty-state">
+                      <td colSpan={13} className="empty-state">
                         No clients match.
                       </td>
                     </tr>
@@ -674,6 +710,8 @@ export function WirelessAudit() {
           devices={collectTarget}
           deviceTypes={deviceTypes}
           credentials={credentials}
+          presetCommands={collectPreset?.commands}
+          presetName={collectPreset?.name}
           onClose={() => setCollectTarget(null)}
           onStarted={(job) => {
             setCollectTarget(null);

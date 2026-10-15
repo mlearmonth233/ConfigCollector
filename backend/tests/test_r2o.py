@@ -271,3 +271,21 @@ async def test_r2o_api(client: AsyncClient, unique_email):
     assert len(resp.json()["standard"]["r2o_import_history"]) == 1
     resp = await client.post("/api/wireless-audit/r2o/import", files={"file": ("bad.xlsx", b"nope", "application/octet-stream")}, headers=headers)
     assert resp.status_code == 400
+
+
+def test_full_controller_collections_get_audit_and_r2o_commands():
+    sheets = r2o.import_checklist(checklist_bytes())
+    std = WirelessStandard(
+        r2o_checklists=[
+            R2OChecklist(name=s.name, platform=s.platform, kind=s.kind, items=[R2OItemModel(item_id=i.item_id, row=i.row, description=i.description, commands=i.commands) for i in s.items])
+            for s in sheets
+        ]
+    )
+    full = wa.augment_commands(["show run-config", "show sysinfo"], "cisco_wlc", std)
+    assert full[:2] == ["show run-config", "show sysinfo"]
+    assert "show wlan apgroups" in full and "show mgmtuser" in full and full.count("show sysinfo") == 1
+    # A client investigation is left alone, and so is any non-controller.
+    assert wa.augment_commands(["show client detail aa:bb:cc:dd:ee:ff"], "cisco_wlc", std) == ["show client detail aa:bb:cc:dd:ee:ff"]
+    assert wa.augment_commands(["show running-config"], "cisco_ios", std) == ["show running-config"]
+    xe = wa.augment_commands(["show running-config"], "cisco_wlc_9800", None)
+    assert "show wireless stats client delete reasons" in xe and "show ap tag summary" in xe

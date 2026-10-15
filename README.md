@@ -40,7 +40,20 @@ the project's original working name. Only the product name changed.)
   actual SSH sessions. Collection jobs fan out to a Celery worker (backed by
   Redis) so hundreds of devices can be collected in parallel without
   blocking the API.
-- **Frontend**: React + TypeScript (Vite), talking to the backend over a
+- **First admin, and a test install with no limits.** Register in the
+browser, or create an admin from the command line (the login can be a
+plain username). This writes only to your local database:
+
+```bash
+cd backend
+python -m app.create_admin admin 'YourPassword' --org "My Org"
+```
+
+To lift the licence limits (device count, users, paid features) on a
+development or test install, put `LICENCE_OVERRIDE_TIER=warren` in
+`backend/.env`. It is ignored when `ENVIRONMENT=production`.
+
+**Frontend**: React + TypeScript (Vite), talking to the backend over a
   JSON REST API.
 - **Multi-tenancy**: every row is scoped to an `Organization`; users only
   see their own org's devices, credentials, and jobs.

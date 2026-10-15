@@ -1128,8 +1128,11 @@ snapshot of each controller; it does not log in itself.
    the R2O checklist workbook, then fill in the audit settings (AP naming
    pattern, DNS domain, AP subnets, approved models and releases, NTP /
    syslog / DNS servers, required SSIDs, thresholds) and save.
-3. **Coverage** tab: add the audit and R2O commands to each controller
-   type's command list with one click.
+3. Nothing to add by hand: every full collection of a controller (one
+   that includes its running configuration) also runs the commands the
+   audit reads and every command in your R2O checklists. The **Coverage**
+   tab shows what your command lists run themselves, and can add the
+   commands there permanently if you prefer.
 4. **Collect controllers** (top of the page) to log in and collect fresh
    snapshots, then **Run audit**. **Download Excel** gives every tab as a
    sheet.
@@ -1247,4 +1250,32 @@ Checks*; that stays off across re-imports.
 
 Each controller gets a score: the share of its checks that pass, with a
 warning counting as half.
+
+### Client history: roams, drops and failures
+
+For every client MAC, the **Clients** tab pulls each log line that names
+it (9800 `show logging`, AireOS `show msglog` and `show traplog`) and
+classifies it as a join, roam, drop (deauthentication, disassociation,
+delete, with the reason), authentication failure, DHCP / IP-learning
+failure, exclusion or timeout. Per-client detail adds the roam count and
+error counters (data retries, decrypt and MIC failures). Clients that
+have already dropped off are listed too, as *not associated*. Flagged:
+
+- drops (three or more is a failure), with the most common reasons;
+- authentication and DHCP failures, exclusions;
+- roaming more often than the standard allows, and ping-pong roaming
+  between two APs;
+- data retries above the threshold, decrypt and MIC failures.
+
+Click a client for its timeline (filter by event type) and roam path. The
+9800's `show wireless stats client delete reasons` gives the top reasons
+clients were dropped per controller.
+
+**Client lookup** takes any MAC spelling and searches the controllers'
+snapshots of the last 1, 7 or 30 days. **Investigate on the controllers**
+starts a collection of just that client: its detail, its mobility (roam)
+history and the log lines naming it (9800), or its detail, roam history
+and the message and trap logs (AireOS). Run the lookup again when it
+finishes. Such a short collection never replaces the controller's last
+full collection in the audit.
 

@@ -10,7 +10,9 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # An email address, or a plain username created with
+    # `python -m app.create_admin` (e.g. "admin").
+    email: str = Field(min_length=1, max_length=255)
     password: str
 
 

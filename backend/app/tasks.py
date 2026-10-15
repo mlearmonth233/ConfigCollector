@@ -163,6 +163,31 @@ def _resolve_spec(device: Device) -> DeviceTypeSpec:
     return spec
 
 
+def _with_wireless_commands(db, device, commands_override: list[str] | None) -> list[str] | None:
+    """For a wireless controller, add what the Wireless Audit and the org's
+    R2O checklists read (services/wireless_audit.augment_commands). Never
+    allowed to stop a collection: on any problem the list is left as is."""
+    from app.services import wireless_audit as wa  # noqa: PLC0415 - keep task start-up light
+
+    if device.device_type not in wa.PLATFORMS:
+        return commands_override
+    try:
+        import json  # noqa: PLC0415
+
+        from app.models.wireless_audit import WirelessStandardRecord  # noqa: PLC0415
+        from app.schemas.wireless_audit import WirelessStandard  # noqa: PLC0415
+        from app.services.device_types import resolve_commands  # noqa: PLC0415
+
+        base = commands_override if commands_override is not None else resolve_commands(device.device_type, device.custom_commands)
+        row = db.query(WirelessStandardRecord).filter(WirelessStandardRecord.org_id == device.org_id).first()
+        standard = WirelessStandard.model_validate(json.loads(row.settings)) if row else None
+        augmented = wa.augment_commands(base, device.device_type, standard)
+        return augmented if augmented != base else commands_override
+    except Exception:  # noqa: BLE001
+        log.exception("Could not add the wireless audit commands for %s; collecting as configured", device.name)
+        return commands_override
+
+
 def _collect_one_device(
     db,
     item: CollectionJobItem,
@@ -180,6 +205,7 @@ def _collect_one_device(
 
     device = item.device
     credential = _resolve_credential(db, device)
+    commands_override = _with_wireless_commands(db, device, commands_override)
 
     if credential is None:
         log.warning("Collection of %s (%s) skipped: device has no credential and the org has no default", device.name, device.host)

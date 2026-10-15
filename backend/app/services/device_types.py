@@ -198,6 +198,8 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     # how hard each one is working.
     "show wireless loadbalance tag affinity",
     "show processes cpu platform sorted | i wncd",
+    # Why clients were deleted (dropped), since the counters were cleared.
+    "show wireless stats client delete reasons",
 )
 
 # Nexus (NX-OS). Paging is disabled by the driver. The running config plus

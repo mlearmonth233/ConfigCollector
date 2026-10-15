@@ -8,7 +8,7 @@ import asyncio
 import ipaddress
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -22,11 +22,13 @@ from app.database import get_db
 from app.models.command_profile import CommandProfile
 from app.models.device import Device
 from app.models.organization import Organization
+from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.models.wireless_audit import WirelessStandardRecord
 from app.schemas.command_profile import CommandProfileOut
 from app.schemas.wireless_audit import (
     AuditCommandCoverageOut,
+    ClientLookupOut,
     ImportRecord,
     R2OChecklist,
     R2OImportOut,
@@ -40,6 +42,8 @@ from app.schemas.wireless_audit import (
 )
 from app.services import dns_check
 from app.services import wireless_audit as wa
+from app.services import client_events as ce
+from app.services import inventory as inv
 from app.services import r2o as r2o_engine
 from app.services.standard_workbook import import_workbook
 from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list
@@ -303,9 +307,32 @@ async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
     return results
 
 
+# A snapshot is a full collection when it has the controller's
+# configuration in it; a client investigation (a few commands for one MAC)
+# is not, and must not stand in for the controller's state.
+_FULL_MARKERS = re.compile(r"^! ---- (?:sh\w*\s+run\w*(?:-config)?|show running-config|show run-config)\b", re.MULTILINE | re.IGNORECASE)
+
+
+async def _audit_inputs(db: AsyncSession, org_id) -> list[inv.SnapshotInput]:
+    """Every device's latest snapshot (as the inventory uses), except that a
+    controller uses its latest *full* collection."""
+    inputs = await _inputs(db, org_id)
+    for i, item in enumerate(inputs):
+        if item.device_type not in wa.PLATFORMS or (item.content and _FULL_MARKERS.search(item.content)):
+            continue
+        recent = await db.scalars(
+            select(ConfigSnapshot).where(ConfigSnapshot.device_id == item.device_id).order_by(ConfigSnapshot.collected_at.desc()).limit(15)
+        )
+        for snap in recent:
+            if _FULL_MARKERS.search(snap.content):
+                inputs[i] = inv.SnapshotInput(item.device_id, item.name, item.host, item.device_type, item.site, item.role, snap.content, snap.collected_at, str(snap.id))
+                break
+    return inputs
+
+
 async def _run(db: AsyncSession, org_id, with_dns: bool) -> dict:
     standard, _ = await _load_standard(db, org_id)
-    inputs = await _inputs(db, org_id)
+    inputs = await _audit_inputs(db, org_id)
     facts = await asyncio.to_thread(wa.gather, inputs, ignore_log_patterns=standard.log_ignore_patterns)
     dns = None
     if with_dns:
@@ -340,6 +367,83 @@ async def export_wireless_audit(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def client_commands(mac: str) -> dict[str, list[str]]:
+    """What to collect to investigate one client, per controller type."""
+    dotted = inv.normalize_mac(mac) or mac
+    digits = dotted.replace(".", "")
+    colon = ":".join(digits[i : i + 2] for i in range(0, 12, 2))
+    return {
+        "cisco_wlc_9800": [
+            f"show wireless client mac-address {dotted} detail",
+            f"show wireless client mac-address {dotted} mobility history",
+            f"show logging | include {dotted}",
+            "show wireless stats client delete reasons",
+        ],
+        "cisco_wlc": [
+            f"show client detail {colon}",
+            f"show client roam-history {colon}",
+            "show msglog",
+            "show traplog",
+        ],
+    }
+
+
+@router.get("/clients/{mac}", response_model=ClientLookupOut)
+async def lookup_client(
+    mac: str,
+    days: int = Query(7, ge=1, le=90, description="How far back to search the controllers' snapshots"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ClientLookupOut:
+    """Everything the controllers' recent snapshots say about one client
+    MAC (any spelling): log messages classified as joins, roams, drops and
+    failures, its roam history and counters, merged across snapshots."""
+    key = inv.normalize_mac(mac)
+    if key is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{mac}' is not a MAC address")
+    controllers = list(await db.scalars(select(Device).where(Device.org_id == user.org_id, Device.device_type.in_(list(wa.PLATFORMS)))))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    searched = 0
+    histories = []
+    for device in controllers:
+        snaps = list(
+            await db.scalars(
+                select(ConfigSnapshot)
+                .where(ConfigSnapshot.device_id == device.id, ConfigSnapshot.collected_at >= since)
+                .order_by(ConfigSnapshot.collected_at.desc())
+                .limit(30)
+            )
+        )
+        searched += len(snaps)
+        merged: ce.ClientHistory | None = None
+        seen_lines: set[str] = set()
+        connected = False
+        for index, snap in enumerate(snaps):
+            if key not in (inv.normalize_mac(m.group(0)) for m in ce._MAC_RE.finditer(snap.content)):
+                continue
+            h = (await asyncio.to_thread(ce.histories, snap.content)).get(key)
+            if h is None:
+                continue
+            if merged is None:
+                merged = ce.ClientHistory(key)
+            for e in h.events:
+                if e.text not in seen_lines:
+                    seen_lines.add(e.text)
+                    merged.events.append(e)
+            merged.roams = merged.roams or h.roams
+            merged.counters = merged.counters or h.counters
+            if index == 0:
+                connected = bool(h.counters) or key in (inv.normalize_mac(m.group(0)) for m in ce._MAC_RE.finditer(inv.find_section(snap.content, "show wireless client summary") or inv.find_section(snap.content, "show client summary") or ""))
+        if merged is None:
+            continue
+        merged.events.sort(key=lambda e: e.time or "")
+        standard, _ = await _load_standard(db, user.org_id)
+        issues = [m for _, m in ce.issues_for(merged, roam_warn=standard.client_roam_warn, retry_warn_percent=standard.client_retry_warn_percent)]
+        facts = wa.ControllerFacts(input=inv.SnapshotInput(str(device.id), device.name, device.host, device.device_type, device.site, None, None), platform=wa.PLATFORMS[device.device_type])
+        histories.append(wa.history_out(facts, merged, connected, issues))
+    return ClientLookupOut(mac=key, snapshots_searched=searched, histories=histories, commands=client_commands(key))
 
 
 @router.get("/commands", response_model=list[AuditCommandCoverageOut])

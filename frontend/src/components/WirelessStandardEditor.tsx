@@ -33,6 +33,8 @@ const LISTS: { key: ListKey; label: string; hint: string }[] = [
 const NUMBERS: { key: NumberKey; label: string }[] = [
   { key: "min_ap_uplink_mbps", label: "Minimum AP uplink (Mbps)" },
   { key: "max_clients_per_ap", label: "Max clients per AP" },
+  { key: "client_roam_warn", label: "Client roams before a warning" },
+  { key: "client_retry_warn_percent", label: "Client data retries warning (%)" },
   { key: "client_rssi_warn", label: "Client RSSI warning (dBm)" },
   { key: "client_rssi_fail", label: "Client RSSI failure (dBm)" },
   { key: "client_snr_warn", label: "Client SNR warning (dB)" },
