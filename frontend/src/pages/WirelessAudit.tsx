@@ -110,7 +110,12 @@ export function WirelessAudit() {
       const { data } = await wirelessAuditApi.run(dns);
       setReport(data);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const timedOut = (err as { code?: string })?.code === "ECONNABORTED";
+      setError(
+        timedOut
+          ? "The audit did not finish within 3 minutes. The backend is probably busy: check its window for a collection still running, or untick DNS lookups and run again."
+          : extractErrorMessage(err),
+      );
     } finally {
       setRunning(false);
     }
@@ -135,7 +140,7 @@ export function WirelessAudit() {
         setDeviceTypes(t.data);
         setCredentials(c.data);
       })
-      .catch(() => undefined);
+      .catch((err) => setError(`Could not load the devices: ${extractErrorMessage(err)}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

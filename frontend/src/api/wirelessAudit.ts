@@ -361,7 +361,8 @@ function upload<T>(url: string, file: File) {
 }
 
 export const wirelessAuditApi = {
-  run: (dns: boolean) => apiClient.get<WirelessAuditReport>("/api/wireless-audit", { params: { dns } }),
+  // Bounded so a stalled backend shows an error instead of spinning forever.
+  run: (dns: boolean) => apiClient.get<WirelessAuditReport>("/api/wireless-audit", { params: { dns }, timeout: 180000 }),
   exportXlsx: (dns: boolean) => apiClient.get<Blob>("/api/wireless-audit/export.xlsx", { params: { dns }, responseType: "blob" }),
   getStandard: () => apiClient.get<WirelessStandardResponse>("/api/wireless-audit/standard"),
   saveStandard: (standard: WirelessStandard) => apiClient.put<WirelessStandardResponse>("/api/wireless-audit/standard", standard),

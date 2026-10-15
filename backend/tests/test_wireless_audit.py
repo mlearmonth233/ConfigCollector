@@ -829,13 +829,19 @@ async def test_api_standard_audit_export_and_coverage(client: AsyncClient, uniqu
 @pytest.mark.asyncio
 async def test_resolve_bounds_lookups(monkeypatch):
     async def forward(name):
-        return (True, ["10.0.0.1"]) if name == "ok" else (False, [])
+        return ["10.0.0.1"] if name == "ok" else []
 
     async def reverse(ip):
-        return (True, "host.example") if ip == "10.0.0.1" else (False, None)
+        return "host.example" if ip == "10.0.0.1" else None
 
-    monkeypatch.setattr(wa_api.dns_check, "_forward_lookup", forward)
-    monkeypatch.setattr(wa_api.dns_check, "_reverse_lookup", reverse)
+    monkeypatch.setattr(wa_api, "_forward_lookup", forward)
+    monkeypatch.setattr(wa_api, "_reverse_lookup", reverse)
     result = await wa_api.resolve({"ok", "missing"}, {"10.0.0.1", "10.0.0.2"})
     assert result.forward == {"ok": ["10.0.0.1"], "missing": []}
     assert result.reverse == {"10.0.0.1": "host.example", "10.0.0.2": None}
+
+
+@pytest.mark.asyncio
+async def test_real_lookups_use_their_own_pool():
+    assert await wa_api._forward_lookup("localhost")
+    assert await wa_api._forward_lookup("does-not-exist.invalid") == []

@@ -8,6 +8,8 @@ import asyncio
 import ipaddress
 import json
 import re
+import socket
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -40,7 +42,6 @@ from app.schemas.wireless_audit import (
     WirelessStandardOut,
     WorkbookImportOut,
 )
-from app.services import dns_check
 from app.services import wireless_audit as wa
 from app.services import client_events as ce
 from app.services import inventory as inv
@@ -280,6 +281,30 @@ async def add_r2o_commands(device_type: str, admin: User = Depends(require_admin
     return CommandProfileOut(device_type=device_type, label=spec.label, category=spec.category, commands=commands, is_custom=override is not None)
 
 
+# Lookups block a thread each (and a timed-out one keeps it until the
+# resolver gives up), so they get their own pool: hundreds of AP names with
+# no DNS record must not starve the threads the rest of the API runs on.
+_DNS_POOL = ThreadPoolExecutor(max_workers=DNS_CONCURRENCY, thread_name_prefix="audit-dns")
+
+
+async def _forward_lookup(name: str) -> list[str]:
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.run_in_executor(_DNS_POOL, socket.getaddrinfo, name, None)
+    except OSError:
+        return []
+    return list(dict.fromkeys(info[4][0] for info in infos))
+
+
+async def _reverse_lookup(ip: str) -> str | None:
+    loop = asyncio.get_running_loop()
+    try:
+        hostname, _ = await loop.run_in_executor(_DNS_POOL, socket.getnameinfo, (ip, 0), socket.NI_NAMEREQD)
+    except OSError:
+        return None
+    return hostname
+
+
 async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
     """Forward lookups for `names` and PTR lookups for `ips`, bounded in
     concurrency and time so a site full of unregistered APs cannot hang
@@ -290,18 +315,16 @@ async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
     async def forward(name: str) -> None:
         async with semaphore:
             try:
-                ok, addresses = await asyncio.wait_for(dns_check._forward_lookup(name), DNS_TIMEOUT_SECONDS)
+                results.forward[name] = await asyncio.wait_for(_forward_lookup(name), DNS_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
-                ok, addresses = False, []
-            results.forward[name] = addresses if ok else []
+                results.forward[name] = []
 
     async def reverse(ip: str) -> None:
         async with semaphore:
             try:
-                ok, hostname = await asyncio.wait_for(dns_check._reverse_lookup(ip), DNS_TIMEOUT_SECONDS)
+                results.reverse[ip] = await asyncio.wait_for(_reverse_lookup(ip), DNS_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
-                ok, hostname = False, None
-            results.reverse[ip] = hostname if ok else None
+                results.reverse[ip] = None
 
     await asyncio.gather(*(forward(n) for n in names), *(reverse(i) for i in ips))
     return results

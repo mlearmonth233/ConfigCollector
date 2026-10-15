@@ -77,9 +77,10 @@ class Settings(BaseSettings):
     # With eager mode, run each job on a background thread of the API
     # process instead of inside the HTTP request, so starting a collection
     # returns at once and the job page shows its progress live (logins,
-    # push approvals, command output) - no Redis or worker needed. Off by
-    # default so the test suite stays synchronous.
-    eager_background: bool = False
+    # push approvals, command output) - no Redis or worker needed. On by
+    # default: a job run inside the request would stall every other request
+    # until it finished. The test suite turns it off to stay synchronous.
+    eager_background: bool = True
     # Where the API hands jobs to the worker. Empty means redis_url. The
     # desktop bundle (app/desktop) sets a SQLite-backed queue instead -
     # "sqla+sqlite:///.../queue.db" - so a laptop install needs no Redis.

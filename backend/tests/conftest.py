@@ -9,6 +9,8 @@ _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_db_path}"
 os.environ["CELERY_TASK_ALWAYS_EAGER"] = "true"
+# Jobs run inside the request in tests, so results can be asserted at once.
+os.environ["EAGER_BACKGROUND"] = "false"
 # Log files for the test run go to a throwaway directory, never ./logs.
 _log_dir = tempfile.mkdtemp(prefix="packrat-test-logs-")
 os.environ["LOG_DIR"] = _log_dir
