@@ -6,9 +6,10 @@ from httpx import AsyncClient
 
 from app.create_admin import create_admin, main
 
-pytestmark = pytest.mark.asyncio
 
 
+
+@pytest.mark.asyncio
 async def test_create_and_reset_admin(client: AsyncClient):
     assert "Created admin" in await create_admin("cli-admin", "first-Passw0rd", "CLI Org")
     resp = await client.post("/api/auth/login", json={"email": "cli-admin", "password": "first-Passw0rd"})
@@ -21,6 +22,19 @@ async def test_create_and_reset_admin(client: AsyncClient):
     assert (await client.post("/api/auth/login", json={"email": "cli-admin", "password": "second-Passw0rd"})).status_code == 200
 
 
+@pytest.mark.asyncio
 async def test_short_password_rejected():
     with pytest.raises(SystemExit):
         main(["someone", "short"])
+
+
+def test_relative_sqlite_path_is_anchored_to_the_backend_folder(monkeypatch, tmp_path):
+    import os
+
+    from app.config import BACKEND_DIR, Settings
+
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(database_url="sqlite+aiosqlite:///./configcollector.db")
+    assert settings.database_url == "sqlite+aiosqlite:///" + os.path.join(BACKEND_DIR, "configcollector.db")
+    assert Settings(database_url="sqlite:///:memory:").database_url == "sqlite:///:memory:"
+    assert Settings(database_url="postgresql+asyncpg://u:p@db/x").database_url == "postgresql+asyncpg://u:p@db/x"

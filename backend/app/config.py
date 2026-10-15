@@ -1,7 +1,15 @@
 import logging
+import os
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/ - a relative SQLite path and the .env file are read from here,
+# whatever folder the API, worker or a command-line tool was started from
+# (otherwise starting it from elsewhere silently opens a new, empty
+# database and ignores the .env).
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # The two secrets that ship with placeholder values. They are fine for a
 # throwaway dev database and nothing else: anyone who can read this file
@@ -12,7 +20,8 @@ INSECURE_ENCRYPTION_KEY = "8w1r6Bt3z5r4h9m2fJmYtq6h0b1c9F8y3nQeR2sT4uI="
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # backend/.env, then a .env in the current folder (which wins).
+    model_config = SettingsConfigDict(env_file=(os.path.join(BACKEND_DIR, ".env"), ".env"), env_file_encoding="utf-8", extra="ignore")
 
     # App
     app_name: str = "Packrat"
@@ -21,6 +30,16 @@ class Settings(BaseSettings):
     # Database - defaults to a local sqlite file so the app runs with zero setup.
     # docker-compose points this at Postgres for a production-like stack.
     database_url: str = "sqlite+aiosqlite:///./configcollector.db"
+
+    @model_validator(mode="after")
+    def _anchor_sqlite_path(self):
+        for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
+            if self.database_url.startswith(prefix):
+                path = self.database_url[len(prefix):]
+                if path and path != ":memory:" and not os.path.isabs(path):
+                    self.database_url = prefix + os.path.normpath(os.path.join(BACKEND_DIR, path))
+                break
+        return self
 
     # Auth
     jwt_secret_key: str = INSECURE_JWT_SECRET

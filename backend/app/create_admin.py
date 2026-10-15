@@ -18,6 +18,7 @@ import sys
 from sqlalchemy import select
 
 import app.models  # noqa: F401 - every mapper registered
+from app.config import get_settings
 from app.core.security import hash_password
 from app.database import async_session_factory, init_db
 from app.models.organization import Organization
@@ -50,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(args.password) < 8:
         parser.error("the password must be at least 8 characters")
     print(asyncio.run(create_admin(args.login.strip(), args.password, args.org)))
+    print(f"Database: {get_settings().database_url}")
     return 0
 
 
