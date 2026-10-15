@@ -144,6 +144,15 @@ _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
     # ("{client}" is filled in at collection time): key management, so the
     # inventory can tell which clients are on 802.11r Fast Transition.
     "show client detail {client}",
+    # Wireless Audit (services/wireless_audit.py): the configuration as
+    # "config ..." commands for golden-template checks, management-plane
+    # services (telnet/HTTP), NTP sync, CPU, and the message/trap logs.
+    "show run-config commands",
+    "show network summary",
+    "show time",
+    "show cpu",
+    "show msglog",
+    "show traplog",
 )
 
 # Catalyst 9800 WLC (cisco_xe driver, IOS-XE). Distinct AP-inventory-style
@@ -154,7 +163,7 @@ _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
 # use_timing_read), not pattern-based ones.
 _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     "term len 0",
-    "sh ap config general | i MAC Address|IP Address|AP Model|IOS Version|AP Serial Number|Cisco AP Name",
+    "sh ap config general | i MAC Address|IP Address|AP Model|IOS Version|AP Serial Number|Cisco AP Name|Primary Cisco Controller Name|Secondary Cisco Controller Name|AP Mode",
     "show inventory",
     "show vers",
     "sh cdp nei",
@@ -174,6 +183,21 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     # ("{client}" is filled in at collection time): key management, so the
     # inventory can tell which clients are on 802.11r Fast Transition.
     "show wireless client mac-address {client} detail",
+    # Wireless Audit (services/wireless_audit.py): AP tags, radio state per
+    # band, HA, NTP sync, CPU and the log buffer. "6ghz" errors harmlessly
+    # on releases or APs without a 6 GHz radio.
+    "show ap tag summary",
+    "show ap dot11 24ghz summary",
+    "show ap dot11 5ghz summary",
+    "show ap dot11 6ghz summary",
+    "show redundancy",
+    "show ntp associations",
+    "show processes cpu sorted | i CPU utilization",
+    "show logging",
+    # WNCD: which wireless control process each site tag is pinned to, and
+    # how hard each one is working.
+    "show wireless loadbalance tag affinity",
+    "show processes cpu platform sorted | i wncd",
 )
 
 # Nexus (NX-OS). Paging is disabled by the driver. The running config plus

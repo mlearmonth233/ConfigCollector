@@ -300,6 +300,7 @@ def _attempt_collection(
         on_output=on_output,
         should_cancel=should_cancel,
         spec=spec,
+        device_name=device.name,
     )
 
 

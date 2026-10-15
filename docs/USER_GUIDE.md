@@ -25,6 +25,7 @@ every page of the app in the order you will meet them.
 16. [Settings](#16-settings)
 17. [Troubleshooting](#17-troubleshooting)
 18. [Security notes](#18-security-notes)
+19. [Wireless Audit and Return to Operations](#19-wireless-audit-and-return-to-operations)
 
 ---
 
@@ -1091,3 +1092,142 @@ timezone marker.
   it at an interface facing an untrusted network.
 - Every API call is scoped to the caller's organization. Set a strong
   `JWT_SECRET_KEY` before exposing the API beyond localhost.
+
+---
+
+## 19. Wireless Audit and Return to Operations
+
+**Wireless Audit** page. Checks every Catalyst 9800 and AireOS controller
+(5520, 3504, 8540) against your wireless standard and your
+Return-to-Operations (R2O) hand-over checklist, and tells you what is wrong
+and how to fix it. Like the Inventory, it reads the latest collected
+snapshot of each controller; it does not log in itself.
+
+### Getting started
+
+1. Add the controllers on **Devices** with type *Cisco Catalyst 9800 WLC*
+   or *Cisco AireOS WLC*.
+2. **Standard** tab (admin): import the configuration-standard workbook and
+   the R2O checklist workbook, then fill in the audit settings (AP naming
+   pattern, DNS domain, AP subnets, approved models and releases, NTP /
+   syslog / DNS servers, required SSIDs, thresholds) and save.
+3. **Coverage** tab: add the audit and R2O commands to each controller
+   type's command list with one click.
+4. **Collect controllers** (top of the page) to log in and collect fresh
+   snapshots, then **Run audit**. **Download Excel** gives every tab as a
+   sheet.
+
+### The configuration-standard workbook
+
+One sheet per controller build (for example *Flex vWLC 9800 IOS-XE*,
+*WLC 9800 IOS-XE*, *WLC AireOS*): commands in column A, variables such
+as `<<hostname>>` in column B, notes in column C. Each sheet becomes a
+**template profile** that a controller's running configuration (9800
+`show running-config`, AireOS `show run-config commands`) is checked
+against:
+
+- `<<variable>>`, `<VARIABLE>`, `XXXXXXX`, `x.x.x.x` become wildcards.
+  Secrets are stored encrypted on the device, so only the line's presence
+  is checked, never the value.
+- Indentation is rebuilt where the sheet has none ("shutdown" typed flush
+  left under a WLAN). A block configured in two places is merged.
+- Headings, notes, worked examples, exec-only steps (`crypto key generate`,
+  `transfer`, `save config`, `y`) and procedural steps (`shutdown` before
+  editing, `config wlan disable 1`) are dropped. Each profile lists every
+  dropped line and why.
+- Lines whose notes say they are conditional ("if needed", "only for
+  sites where it is used", "do not configure if ...") and regional
+  alternatives (NALA / EU / Asia Pacific / China blocks) become
+  **optional**: warnings, not failures.
+- `config snmp community delete public` becomes "must not be configured".
+
+A profile is chosen per controller automatically: the only profile for
+its platform, else the FlexConnect one for a C9800-CL (or a 9800 whose
+site tags are all `no local-site`), else the local-mode one. Override it
+per controller under *Which profile applies to which controller*. Profiles
+stay editable. **When the standard changes, import the new workbook**:
+sheets of the same name are replaced and the import history is kept.
+
+Template syntax, if you edit by hand: one requirement per line;
+indentation nests under the line above; `absent:` must not be configured;
+`optional:` warning only; `re:` a regular expression; `{{name}}` any value
+(or the template variable of that name); `{{*}}` anything. A parent with
+a wildcard (`wlan {{*}}`) applies its children to every matching block.
+
+### The Return-to-Operations checklist
+
+One sheet per controller build, one row per check, with the columns
+*Description*, *What and how to get the relevant data* (the commands),
+*Expected value*, *Validation Criteria for Pass/Fail*, *Pre or Post
+Cutover* and *Mandatory or Gold Config*. Nothing about a particular check
+is built in. Each row's criteria are read for the statements checklists
+are written in:
+
+| Criteria wording | Checked as |
+|---|---|
+| `Telnet must be "Disable"`, `v1 and v2c must be "Disable"` | that field's value |
+| `Channel Update Interval..... "12 Hours"`, `Product Version..... 8.10.196.0` | that field's value |
+| `"no ip http server" and "ip http secure-server" must be in output` | lines present |
+| `Words "public" and "private" not found`, `must not contain "telnet"` | text absent |
+| `Order must be "local" then "tacacs"` | order |
+| `Only those 2 destination IP should be configured` | exactly the IPs in *Expected value* |
+| `Only those 3 accounts (A, B and C)` | exactly those names |
+| `must match depending on region: NA: a \| EU: b` | any one of them |
+| `Must match the first 8 characters of device name` | the site code |
+| `Result must be as per expected value` | every *Expected value* line |
+| `PASS if there is no output` / `FAIL if there is an output of:` | empty / lines absent |
+| `Fail: No data returned` | the command returns data |
+
+Rows about access points (uplink speed, radios up, nothing in
+`default-group`, AP tags) use the audit's own AP checks. A row with nothing
+checkable is listed as **manual** with the collected output beside it,
+and the AP count and serial numbers are shown for you to compare with the
+CMDB. A standalone controller passes the HA row as **n/a** when the
+checklist says to skip it. Mandatory rows fail, Gold rows warn. Values
+taken from an example output or a per-region template only warn.
+
+`XXXXXXX` or `<<SITECODE>>` in a command is collected as the **site
+code**, the first 8 characters of the device name. `<APNAME>` is run once
+for every AP the controller lists. Every failure shows **how to fix it**:
+the expectation that failed, any command the row names, a known fix for
+the topic, and the lines of your configuration standard that set the same
+thing. Filter by PRE/POST cutover; switch off a row under *Standard ›
+Checks*; that stays off across re-imports.
+
+### What else is checked
+
+- **Controller**: snapshot age, software release, SSO hot standby, NTP /
+  syslog / DNS servers configured, NTP sync, CPU, and that its address and
+  name agree in DNS.
+- **Security**: telnet, plain HTTP, default SNMP communities; on a 9800
+  also `enable password`, `service password-encryption` and
+  `aaa new-model`.
+- **WLANs**: required SSIDs present and enabled, open WLANs (unless
+  allowed), WPA1/TKIP.
+- **AP naming and DNS**: name pattern and case, factory-default names,
+  duplicates; forward DNS gives the AP's IP and the PTR gives back its name
+  (untick *DNS lookups* to skip).
+- **Access points**: AP subnets, duplicate IPs, approved models,
+  consistent AP software, registered state, country code, uplink speed and
+  duplex, 9800 tags (no default, not misconfigured), primary controller
+  primed, clients per AP.
+- **AP groups & tags**: AireOS AP groups and 9800 site, policy and RF
+  tags, with their APs, models, WLANs and profiles. Checks the naming
+  pattern, APs left in `default-group` / default tags, 802.11ac Wave 2 and
+  802.11ax APs mixed in one group, unused groups, and FlexConnect site tags
+  over the AP limit.
+- **WNCD** (9800): APs per WNCD instance from each site tag's pinning,
+  imbalance between instances, and WNCD CPU.
+- **Radios**: radios enabled but down, disabled radios, and 2.4 GHz
+  channels outside the plan.
+- **Clients**: RSSI and SNR against the thresholds, clients not in RUN
+  state (with a hint: DHCP, authentication or web auth), no IP or a
+  169.254 address, and legacy 802.11a/b/g clients. Plus a health summary
+  per controller (bands, averages).
+- **Logs**: 9800 `show logging` and AireOS `show msglog` grouped by
+  message, with severity 0-3 and notable messages (AP disjoins, radar,
+  crashes) flagged, and the AireOS trap log summarised.
+
+Each controller gets a score: the share of its checks that pass, with a
+warning counting as half.
+

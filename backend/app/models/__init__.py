@@ -15,6 +15,7 @@ from app.models.alerting import AlertSettings
 from app.models.ping_monitor import PingMonitorConfig, PingSample, PingStatus
 from app.models.snmp_monitor import SnmpAlert, SnmpMonitorConfig, SnmpMonitorState
 from app.models.user import User
+from app.models.wireless_audit import WirelessStandardRecord
 
 # Every mapper must be imported before any of them is used - Organization's
 # relationships name FirmwareImage/DnsCheckJob/etc. as strings that are
@@ -49,4 +50,5 @@ __all__ = [
     "SnmpMonitorConfig",
     "SnmpMonitorState",
     "SnmpAlert",
+    "WirelessStandardRecord",
 ]

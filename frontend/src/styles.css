@@ -1910,3 +1910,90 @@ a:hover {
 @media (max-width: 640px) {
   .back-to-top { right: 14px; bottom: 14px; }
 }
+
+
+/* ---------- wireless audit ---------- */
+
+.audit-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.audit-pass { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.audit-fail { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.audit-warn { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.audit-info, .audit-manual { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+.audit-skipped, .audit-no_data, .audit-na { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+.audit-ok { color: var(--success); font-weight: 650; }
+.audit-bad { color: var(--danger); font-weight: 650; }
+.audit-warn:not(.audit-badge) { color: var(--warning); font-weight: 650; background: none; border: 0; }
+
+.audit-score { font-weight: 750; font-size: 15px; }
+.audit-score-good { color: var(--success); }
+.audit-score-fair { color: var(--warning); }
+.audit-score-poor { color: var(--danger); }
+
+.audit-health { text-transform: capitalize; font-weight: 650; }
+.audit-health-good { color: var(--success); }
+.audit-health-fair { color: var(--warning); }
+.audit-health-poor { color: var(--danger); }
+.audit-health-unknown { color: var(--text-muted); }
+
+.audit-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.audit-filters select { width: auto; }
+
+.audit-clickable { cursor: pointer; }
+.audit-caret { color: var(--text-muted); display: inline-block; width: 12px; }
+.audit-detail { background: var(--surface-muted); }
+.audit-subtable { margin: 4px 0; box-shadow: none; }
+
+.audit-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.audit-list { margin: 0; padding-left: 16px; }
+.audit-list li { margin: 2px 0; }
+
+.audit-fix,
+.audit-output {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-deep);
+  color: var(--text-on-dark);
+  border-radius: 8px;
+  padding: 8px 10px;
+  max-width: 520px;
+}
+.audit-output { max-width: none; max-height: 420px; overflow: auto; }
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  margin-right: 14px;
+  white-space: nowrap;
+}
+.inline-check input { width: auto; margin: 0; }
+.audit-checks { display: flex; flex-wrap: wrap; gap: 8px 4px; }
+
+@media (max-width: 640px) {
+  .audit-fix { max-width: none; }
+}

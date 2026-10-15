@@ -184,6 +184,7 @@ def collect_device_config(
     on_output: Callable[[str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     spec: DeviceTypeSpec | None = None,
+    device_name: str | None = None,
 ) -> str:
     """Connect, authenticate, and run the configured show/config command(s).
 
@@ -298,6 +299,7 @@ def collect_device_config(
             # hardware, well past a 60s timeout.
             if use_timing_read:
                 output = conn.send_command_timing(command, last_read=2, read_timeout=300)
+                output = _answer_continue_prompts(conn, output)
             else:
                 output = conn.send_command(command, read_timeout=300)
             outputs.append(output)
@@ -305,6 +307,24 @@ def collect_device_config(
             log.debug("%s:%s '%s' returned %d chars", host, port, command, len(output))
 
         for command in commands:
+            # "{site}": the site code, the first 8 characters of the device
+            # name (Return-to-Operations checklists name per-site profiles
+            # and tags after it).
+            if SITE_PLACEHOLDER in command:
+                command = command.replace(SITE_PLACEHOLDER, (device_name or "").strip()[:8])
+            if AP_PLACEHOLDER in command:
+                # Once per access point listed by an earlier "show ap summary".
+                aps = ap_names_from_outputs(outputs)
+                if not aps:
+                    outputs.append(f"! ---- {command} ----")
+                    outputs.append("(no access points listed earlier in this collection, nothing to expand)")
+                    continue
+                if len(aps) > MAX_AP_EXPANSION:
+                    _emit(f"\n{len(aps)} APs listed; running '{command}' for the first {MAX_AP_EXPANSION} only.\n")
+                    aps = aps[:MAX_AP_EXPANSION]
+                for ap in aps:
+                    run_one(command.replace(AP_PLACEHOLDER, ap))
+                continue
             if CLIENT_PLACEHOLDER not in command:
                 run_one(command)
                 continue
@@ -328,6 +348,34 @@ def collect_device_config(
         return "\n".join(outputs)
 
 
+# AireOS pauses some long outputs ("show run-config", "show run-config
+# commands", "show msglog" on older releases) with "Press Enter to
+# continue..." even with paging disabled, and pages tables with "Would you
+# like to display the next N entries? (y/n)". A timing read returns as
+# soon as the channel goes quiet at that prompt, so without an answer the
+# rest of the output would be swallowed by the next command's read.
+_CONTINUE_PROMPTS = (
+    (re.compile(r"Press Enter to continue\.*\s*$", re.IGNORECASE), "\n"),
+    (re.compile(r"display the next \d+ entries\?\s*\(y/n\)\s*$", re.IGNORECASE), "y\n"),
+    (re.compile(r"--More--(?: or \(q\)uit)?\s*$", re.IGNORECASE), " "),
+)
+_MAX_CONTINUES = 500
+
+
+def _answer_continue_prompts(conn, output: str) -> str:
+    for _ in range(_MAX_CONTINUES):
+        for pattern, answer in _CONTINUE_PROMPTS:
+            m = pattern.search(output)
+            if m:
+                output = output[: m.start()] + conn.send_command_timing(
+                    answer, last_read=2, read_timeout=300, strip_prompt=False, strip_command=False, normalize=False
+                )
+                break
+        else:
+            return output
+    return output
+
+
 # A command in a device's list may carry this placeholder; at collection
 # time it is run once per wireless client MAC listed by an earlier command
 # in the same session ("show wireless client summary" on a 9800, "show
@@ -341,6 +389,29 @@ CLIENT_PLACEHOLDER = "{client}"
 MAX_CLIENT_EXPANSION = 1000
 
 _CLIENT_SOURCE_COMMANDS = ("show wireless client summary", "show client summary")
+SITE_PLACEHOLDER = "{site}"
+AP_PLACEHOLDER = "{ap}"
+MAX_AP_EXPANSION = 500
+_AP_ROW = re.compile(r"(?im)^(\S+)\s+\d+\s+\S+\s+(?:(?:[0-9a-f]{4}\.){2}[0-9a-f]{4}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\b")
+
+
+def ap_names_from_outputs(outputs: list[str]) -> list[str]:
+    """AP names, in order, from the 'show ap summary' sections collected so
+    far (with or without an '| inc' filter)."""
+    from app.services.inventory import command_matches  # noqa: PLC0415
+
+    names: list[str] = []
+    wanted = False
+    for chunk in outputs:
+        marker = _SECTION_MARKER.match(chunk)
+        if marker:
+            wanted = command_matches(marker.group("command"), "show ap summary")
+            continue
+        if wanted:
+            for m in _AP_ROW.finditer(chunk):
+                if m.group(1) not in names:
+                    names.append(m.group(1))
+    return names
 _SECTION_MARKER = re.compile(r"^! ---- (?P<command>.+?) ----$")
 _MAC_AT_LINE_START = re.compile(r"(?im)^\s*((?:[0-9a-f]{4}\.){2}[0-9a-f]{4}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\b")
 

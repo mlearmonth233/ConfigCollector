@@ -25,6 +25,7 @@ import { Inventory } from "./pages/Inventory";
 import { Settings } from "./pages/Settings";
 import { Snmp } from "./pages/Snmp";
 import { SnmpJobDetail } from "./pages/SnmpJobDetail";
+import { WirelessAudit } from "./pages/WirelessAudit";
 
 export function App() {
   return (
@@ -63,6 +64,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Inventory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wireless-audit"
+          element={
+            <ProtectedRoute>
+              <WirelessAudit />
             </ProtectedRoute>
           }
         />

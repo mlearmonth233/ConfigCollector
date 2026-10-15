@@ -22,6 +22,9 @@ export function NavBar() {
         <NavLink to="/inventory" className={({ isActive }) => (isActive ? "active" : "")}>
           Inventory
         </NavLink>
+        <NavLink to="/wireless-audit" className={({ isActive }) => (isActive ? "active" : "")}>
+          Wireless Audit
+        </NavLink>
         <NavLink to="/credentials" className={({ isActive }) => (isActive ? "active" : "")}>
           Credentials
         </NavLink>

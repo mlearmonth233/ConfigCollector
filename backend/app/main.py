@@ -38,6 +38,7 @@ from app.api import (  # noqa: E402
     snmp,
     terminal,
     users,
+    wireless_audit,
 )
 from app.config import get_settings  # noqa: E402
 from app.core.request_logging import install_request_logging  # noqa: E402
@@ -118,6 +119,7 @@ app.include_router(firmware.router)
 app.include_router(dns_check.router)
 app.include_router(snmp.router)
 app.include_router(terminal.router)
+app.include_router(wireless_audit.router)
 
 
 @app.get("/health")

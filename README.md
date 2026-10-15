@@ -14,7 +14,9 @@ Monitor page, alerts you by email, Microsoft Teams or Slack when a device
 drops, a link or access point goes down, or a backup finds a changed
 config, builds a hardware inventory (models, serials, modules, CDP/LLDP
 neighbours, access points, endpoint MACs) from the collected configs with
-an Excel export, pushes firmware images onto device storage, bulk-checks DNS and
+an Excel export, audits 9800 and AireOS wireless controllers against your
+configuration standard and Return-to-Operations checklist (with how to fix each
+finding), pushes firmware images onto device storage, bulk-checks DNS and
 ping, and opens a browser terminal to any device - over SSH, or out of band
 through its console server when the device's network is down.
 
