@@ -30,11 +30,13 @@ from app.models.snmp_monitor import SnmpAlert, SnmpAlertKind, SnmpMonitorConfig,
 from app.services.collector import (
     AuthenticationError,
     CollectionCancelled,
+    DeviceUnreachableError,
     CollectionError,
     EnableModeError,
     collect_device_config,
 )
 from app.services.device_types import DeviceTypeSpec, build_catalog, parse_command_list
+from app.services.dispatch import dispatch
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
@@ -80,7 +82,8 @@ def collect_device_task(
             return
         dispatched_next = True
         next_device, *rest = remaining
-        collect_device_task.apply_async(
+        dispatch(
+            collect_device_task,
             args=[next_device["item_id"]],
             kwargs={
                 "commands_override": next_device["commands_override"],
@@ -224,7 +227,8 @@ def _collect_one_device(
                 used_fallback = False
             except (AuthenticationError, EnableModeError) as primary_exc:
                 fallback = credential.fallback_credential
-                if fallback is None:
+                # A device nobody can reach won't answer the fallback either.
+                if fallback is None or isinstance(primary_exc, DeviceUnreachableError):
                     raise
                 # Reset to AUTHENTICATING for the fallback attempt. For a
                 # plain AuthenticationError the callback can't have flipped
@@ -498,7 +502,8 @@ def firmware_push_device_task(
         if not remaining:
             return
         next_item, *rest = remaining
-        firmware_push_device_task.apply_async(
+        dispatch(
+            firmware_push_device_task,
             args=[next_item["item_id"], commands_by_device_type, protocol, server_host],
             kwargs={"otp": next_item["otp"], "remaining": rest},
         )
@@ -921,7 +926,8 @@ def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
             )
 
         first, *rest = dispatch_specs
-        collect_device_task.apply_async(
+        dispatch(
+            collect_device_task,
             args=[first["item_id"]],
             kwargs={
                 "commands_override": first["commands_override"],

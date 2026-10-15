@@ -17,5 +17,7 @@ def _to_sync_url(url: str) -> str:
     return url.replace("+asyncpg", "").replace("+aiosqlite", "")
 
 
-sync_engine = create_engine(_to_sync_url(settings.database_url))
+_sync_url = _to_sync_url(settings.database_url)
+# See app/database.py: concurrent writers wait for SQLite's lock.
+sync_engine = create_engine(_sync_url, connect_args={"timeout": 30, "check_same_thread": False} if _sync_url.startswith("sqlite") else {})
 SyncSessionLocal = sessionmaker(bind=sync_engine, expire_on_commit=False)

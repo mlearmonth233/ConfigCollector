@@ -10,7 +10,9 @@ from app.config import get_settings
 
 settings = get_settings()
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+# SQLite: background jobs (eager mode) write from several threads at once;
+# wait for a lock rather than failing with "database is locked".
+connect_args = {"check_same_thread": False, "timeout": 30} if settings.database_url.startswith("sqlite") else {}
 
 engine = create_async_engine(settings.database_url, connect_args=connect_args)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)

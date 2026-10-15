@@ -555,7 +555,17 @@ async def test_job_requires_otp_for_fallback_passcode_credential(client: AsyncCl
     assert resp.status_code == 201, resp.text
 
 
-async def test_job_falls_back_and_reports_both_failures(client: AsyncClient, unique_email):
+async def test_job_falls_back_and_reports_both_failures(client: AsyncClient, unique_email, monkeypatch):
+    # Both logins are rejected by the device (a credentials problem, so
+    # the fallback is tried; an unreachable device is not - see below).
+    from netmiko.exceptions import NetmikoAuthenticationException
+
+    from app.services import collector as collector_module
+
+    def reject(**kwargs):
+        raise NetmikoAuthenticationException("Authentication to device failed.")
+
+    monkeypatch.setattr(collector_module, "ConnectHandler", reject)
     token = await _register(client, unique_email)
     fallback = await client.post(
         "/api/credentials",
@@ -577,8 +587,6 @@ async def test_job_falls_back_and_reports_both_failures(client: AsyncClient, uni
     device = await client.post(
         "/api/devices",
         headers=_auth(token),
-        # TEST-NET-1: guaranteed unroutable, so both the primary and
-        # fallback login attempts deterministically fail.
         json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios", "credential_id": primary_id},
     )
     device_id = device.json()["id"]
@@ -625,3 +633,22 @@ async def test_job_live_output_narrates_commands_on_success(client: AsyncClient,
     item = detail.json()["items"][0]
     assert item["live_output"].startswith("Connecting to 192.0.2.1:22 as admin...")
     assert "Authenticated." not in item["live_output"]
+
+
+@pytest.mark.asyncio
+async def test_unreachable_device_does_not_try_the_fallback(client: AsyncClient, unique_email):
+    token = await _register(client, unique_email)
+    fallback = await client.post("/api/credentials", headers=_auth(token), json={"name": "local-admin", "username": "admin", "password": "localpass"})
+    primary = await client.post(
+        "/api/credentials",
+        headers=_auth(token),
+        json={"name": "tacacs-primary", "username": "netops", "password": "cisco123", "fallback_credential_id": fallback.json()["id"], "auth_timeout_seconds": 5},
+    )
+    # TEST-NET-1: nothing answers there.
+    device = await client.post("/api/devices", headers=_auth(token), json={"name": "sw1", "host": "192.0.2.1", "device_type": "cisco_ios", "credential_id": primary.json()["id"]})
+    job = await client.post("/api/jobs", headers=_auth(token), json={"device_ids": [device.json()["id"]]})
+    item = (await client.get(f"/api/jobs/{job.json()['id']}", headers=_auth(token))).json()["items"][0]
+    assert item["status"] == "failed"
+    assert item["error_message"].startswith("Unreachable:")
+    assert item["live_output"].count("Connecting to 192.0.2.1:22") == 1
+    assert "Trying fallback" not in item["live_output"]

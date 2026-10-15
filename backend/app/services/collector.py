@@ -149,6 +149,15 @@ class CommandExecutionError(CollectionError):
     against the device (e.g. a command timed out or was rejected)."""
 
 
+class DeviceUnreachableError(AuthenticationError):
+    """Nothing answered on the SSH port (TCP connect refused or timed out):
+    a network problem - VPN, firewall, wrong IP, device down - not a
+    credentials one, so trying a fallback credential cannot help."""
+
+
+_UNREACHABLE = re.compile(r"TCP connection to device failed|Connection to device timed-out|timed out|Connection refused|No route to host|Network is unreachable|getaddrinfo failed|Name or service not known", re.IGNORECASE)
+
+
 class EnableModeError(CommandExecutionError):
     """Login succeeded, but entering privileged/enable mode failed - most
     often a wrong (or missing) enable secret, or a device/device_type
@@ -552,6 +561,12 @@ def open_device_session(
             "supplied for this run."
         ) from exc
     except NetmikoTimeoutException as exc:
+        if _UNREACHABLE.search(str(exc)) and not re.search(r"(?i)cipher|kex|key exchange|negotiat|banner", str(exc)):
+            raise DeviceUnreachableError(
+                f"Unreachable: no SSH connection to {host}:{port} ({str(exc).strip().splitlines()[0]}) - the device is "
+                "unreachable from this machine. Check that it can reach the device (VPN, firewall, the IP address, SSH enabled on the device) - this is not a "
+                "credentials problem, so the fallback credential is not tried."
+            ) from exc
         # Netmiko labels this exception class "Timeout", but it actually
         # wraps *any* low-level SSH failure that isn't a straightforward
         # credential rejection - a real connect timeout, but also things
