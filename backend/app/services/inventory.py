@@ -28,6 +28,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 
 from app.services import oui
 from app.services.neighbor_discovery import normalize_device_name
@@ -124,9 +125,17 @@ def _is_placeholder(word: str) -> bool:
 def sections(snapshot: str) -> list[tuple[str, str]]:
     """[(command as typed, output)] in snapshot order. A snapshot with no
     markers (a custom type that ran one command) is one unnamed section."""
-    found = [(m.group("command").strip(), m.group("output")) for m in _COMMAND_BLOCK.finditer(snapshot)]
+    return list(_sections(snapshot))
+
+
+@lru_cache(maxsize=32)
+def _sections(snapshot: str) -> tuple[tuple[str, str], ...]:
+    # Cached: the inventory and the Wireless Audit look up dozens of
+    # sections per snapshot, and a controller's snapshot with per-client
+    # detail can run to megabytes - splitting it once, not per lookup.
+    found = tuple((m.group("command").strip(), m.group("output")) for m in _COMMAND_BLOCK.finditer(snapshot))
     if not found and snapshot.strip():
-        return [("", snapshot)]
+        return (("", snapshot),)
     return found
 
 

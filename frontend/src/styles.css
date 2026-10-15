@@ -2007,3 +2007,7 @@ a:hover {
 .client-event-roam { background: #dbeafe; color: #1e40af; }
 .client-event-drop, .client-event-auth_failure, .client-event-dhcp_failure, .client-event-exclusion { background: #fee2e2; color: #991b1b; }
 .client-event-timeout { background: #fef3c7; color: #92400e; }
+
+.audit-progress { margin: 8px 0 14px; }
+.audit-progress-head { margin-bottom: 6px; }
+.audit-progress-log { max-height: 260px; overflow: auto; }

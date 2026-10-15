@@ -795,7 +795,7 @@ async def test_api_standard_audit_export_and_coverage(client: AsyncClient, uniqu
     async def fake_inputs(db, org_id):
         return inputs()
 
-    async def fake_resolve(names, ips):
+    async def fake_resolve(names, ips, on_done=None):
         return DNS
 
     monkeypatch.setattr(wa_api, "_inputs", fake_inputs)
@@ -807,6 +807,11 @@ async def test_api_standard_audit_export_and_coverage(client: AsyncClient, uniqu
     assert body["dns_checked"] is True
     assert {c["name"] for c in body["controllers"]} == {"HQ-WLC01", "BR-WLC01", "NEW-WLC"}
     assert any(f["check_id"] == "ap.dns_forward" for f in body["findings"])
+
+    progress = (await client.get("/api/wireless-audit/progress", headers=headers)).json()
+    assert progress["running"] is False and progress["stage"] == "Done"
+    lines = "\n".join(progress["lines"])
+    assert "Parsing HQ-WLC01" in lines and "Looking up" in lines and "Checking BR-WLC01" in lines and "Checks done" in lines
 
     resp = await client.get("/api/wireless-audit/export.xlsx?dns=false", headers=headers)
     assert resp.status_code == 200
@@ -845,3 +850,28 @@ async def test_resolve_bounds_lookups(monkeypatch):
 async def test_real_lookups_use_their_own_pool():
     assert await wa_api._forward_lookup("localhost")
     assert await wa_api._forward_lookup("does-not-exist.invalid") == []
+
+
+
+@pytest.mark.asyncio
+async def test_dns_budget_marks_slow_lookups_unchecked(monkeypatch):
+    import asyncio
+
+    async def slow(name):
+        await asyncio.sleep(10)
+        return ["10.0.0.1"]
+
+    async def fast(ip):
+        return "host.example"
+
+    monkeypatch.setattr(wa_api, "_forward_lookup", slow)
+    monkeypatch.setattr(wa_api, "_reverse_lookup", fast)
+    monkeypatch.setattr(wa_api, "DNS_BUDGET_SECONDS", 0.2)
+    monkeypatch.setattr(wa_api, "DNS_TIMEOUT_SECONDS", 30)
+    result = await wa_api.resolve({"ap1.corp"}, {"10.0.0.1"})
+    assert result.unchecked == {"ap1.corp"} and result.reverse == {"10.0.0.1": "host.example"}
+    # An unchecked AP is neither passed nor failed.
+    dns = wa.DnsResults(forward={}, reverse={}, unchecked={"BR1-B01-F02-AP011.corp.example", "10.40.0.11"})
+    report = wa.run_audit(wa.gather(inputs()), STANDARD, dns, now=NOW)
+    row = next(a for a in report["access_points"] if a["name"] == "BR1-B01-F02-AP011")
+    assert row["dns_ok"] is None and row["ptr_ok"] is None

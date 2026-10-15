@@ -7,8 +7,10 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import re
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -51,9 +53,13 @@ from app.services.device_types import DEVICE_TYPE_REGISTRY, parse_command_list
 from app.services.wireless_audit_export import build_audit_workbook
 
 router = APIRouter(prefix="/api/wireless-audit", tags=["wireless-audit"])
+log = logging.getLogger(__name__)
 
 DNS_CONCURRENCY = 32
 DNS_TIMEOUT_SECONDS = 4.0
+# The whole DNS step: what is not looked up by then is reported "not
+# checked" rather than holding the audit up.
+DNS_BUDGET_SECONDS = 60.0
 MAX_WORKBOOK_BYTES = 25 * 1024 * 1024
 MAX_IMPORT_HISTORY = 25
 
@@ -305,12 +311,19 @@ async def _reverse_lookup(ip: str) -> str | None:
     return hostname
 
 
-async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
+async def resolve(names: set[str], ips: set[str], on_done=None) -> wa.DnsResults:
     """Forward lookups for `names` and PTR lookups for `ips`, bounded in
     concurrency and time so a site full of unregistered APs cannot hang
     the request."""
     semaphore = asyncio.Semaphore(DNS_CONCURRENCY)
     results = wa.DnsResults()
+    done = 0
+
+    def tick() -> None:
+        nonlocal done
+        done += 1
+        if on_done is not None:
+            on_done(done)
 
     async def forward(name: str) -> None:
         async with semaphore:
@@ -318,6 +331,7 @@ async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
                 results.forward[name] = await asyncio.wait_for(_forward_lookup(name), DNS_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 results.forward[name] = []
+            tick()
 
     async def reverse(ip: str) -> None:
         async with semaphore:
@@ -325,8 +339,15 @@ async def resolve(names: set[str], ips: set[str]) -> wa.DnsResults:
                 results.reverse[ip] = await asyncio.wait_for(_reverse_lookup(ip), DNS_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
                 results.reverse[ip] = None
+            tick()
 
-    await asyncio.gather(*(forward(n) for n in names), *(reverse(i) for i in ips))
+    tasks = {asyncio.ensure_future(forward(n)): n for n in names}
+    tasks.update({asyncio.ensure_future(reverse(i)): i for i in ips})
+    if tasks:
+        _done, pending = await asyncio.wait(tasks, timeout=DNS_BUDGET_SECONDS)
+        for task in pending:
+            task.cancel()
+            results.unchecked.add(tasks[task])
     return results
 
 
@@ -353,15 +374,77 @@ async def _audit_inputs(db: AsyncSession, org_id) -> list[inv.SnapshotInput]:
     return inputs
 
 
+# What each organization's audit is doing right now, for the page to show
+# while it runs (GET /progress). In memory: an audit is one request.
+_PROGRESS: dict[str, dict] = {}
+_PROGRESS_LINES = 200
+
+
+class _Progress:
+    def __init__(self, org_id):
+        self.key = str(org_id)
+        self.state = {"running": True, "stage": "Starting", "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "error": None, "lines": []}
+        _PROGRESS[self.key] = self.state
+
+    def __call__(self, message: str, stage: str | None = None) -> None:
+        if stage:
+            self.state["stage"] = stage
+        self.state["lines"] = (self.state["lines"] + [f"{datetime.now().strftime('%H:%M:%S')}  {message}"])[-_PROGRESS_LINES:]
+        log.info("Wireless audit: %s", message)
+
+    def finish(self, error: str | None = None) -> None:
+        self.state.update(running=False, finished_at=datetime.now(timezone.utc).isoformat(), error=error, stage="Failed" if error else "Done")
+
+
 async def _run(db: AsyncSession, org_id, with_dns: bool) -> dict:
-    standard, _ = await _load_standard(db, org_id)
-    inputs = await _audit_inputs(db, org_id)
-    facts = await asyncio.to_thread(wa.gather, inputs, ignore_log_patterns=standard.log_ignore_patterns)
-    dns = None
-    if with_dns:
-        names, ips = wa.dns_targets(facts, standard)
-        dns = await resolve(names, ips)
-    return await asyncio.to_thread(lambda: wa.run_audit(facts, standard, dns, now=datetime.now(timezone.utc)))
+    progress = _Progress(org_id)
+    try:
+        started = time.monotonic()
+        progress("Loading the standard and the latest snapshots", stage="Loading snapshots")
+        standard, _ = await _load_standard(db, org_id)
+        inputs = await _audit_inputs(db, org_id)
+        controllers = [i for i in inputs if i.device_type in wa.PLATFORMS]
+        progress(f"{len(inputs)} device(s), {len(controllers)} wireless controller(s), {sum(len(i.content or '') for i in inputs) // 1_000_000} MB of snapshots ({time.monotonic() - started:.1f}s)")
+        progress("Parsing the controllers' snapshots", stage="Parsing snapshots")
+        t = time.monotonic()
+        facts = await asyncio.to_thread(wa.gather, inputs, ignore_log_patterns=standard.log_ignore_patterns, progress=progress)
+        progress(f"Parsed in {time.monotonic() - t:.1f}s: {sum(len(f.aps) for f in facts)} APs, {sum(len(f.clients) for f in facts)} clients")
+        dns = None
+        if with_dns:
+            names, ips = wa.dns_targets(facts, standard)
+            total = len(names) + len(ips)
+            progress(f"Looking up {len(names)} names and {len(ips)} addresses in DNS", stage=f"DNS lookups (0/{total})")
+            t = time.monotonic()
+
+            def counted(done: int) -> None:
+                progress.state["stage"] = f"DNS lookups ({done}/{total})"
+
+            dns = await resolve(names, ips, on_done=counted)
+            missing = sum(1 for k, v in dns.forward.items() if not v and k not in dns.unchecked)
+            progress(
+                f"DNS done in {time.monotonic() - t:.1f}s: {missing} name(s) with no record"
+                + (f"; {len(dns.unchecked)} not looked up within {DNS_BUDGET_SECONDS:.0f}s (shown as not checked - this machine's DNS is slow)" if dns.unchecked else "")
+            )
+        else:
+            progress("DNS lookups skipped (unticked)")
+        progress("Running the checks", stage="Running checks")
+        t = time.monotonic()
+        report = await asyncio.to_thread(lambda: wa.run_audit(facts, standard, dns, now=datetime.now(timezone.utc), progress=progress))
+        s = report["summary"]
+        progress(f"Checks done in {time.monotonic() - t:.1f}s: {s['fail']} failure(s), {s['warn']} warning(s), {len(report.get('r2o', []))} R2O check(s). Total {time.monotonic() - started:.1f}s")
+        progress.finish()
+        return report
+    except Exception as exc:
+        log.exception("Wireless audit failed")
+        progress(f"Failed: {exc}")
+        progress.finish(str(exc))
+        raise
+
+
+@router.get("/progress")
+async def audit_progress(user: User = Depends(get_current_user)) -> dict:
+    """What this organization's audit is doing (or last did): stage and log lines."""
+    return _PROGRESS.get(str(user.org_id)) or {"running": False, "stage": None, "started_at": None, "finished_at": None, "error": None, "lines": []}
 
 
 @router.get("", response_model=WirelessAuditOut)

@@ -5,7 +5,7 @@ import { extractErrorMessage } from "../api/client";
 import { saveBlobResponse } from "../api/download";
 import { credentialsApi, deviceTypesApi, devicesApi } from "../api/resources";
 import type { Credential, Device, DeviceType } from "../api/types";
-import type { AuditFinding, CheckStatus, CommandCoverage, ControllerAudit, R2OResult, R2OStatus, WirelessAuditReport } from "../api/wirelessAudit";
+import type { AuditFinding, AuditProgress, CheckStatus, CommandCoverage, ControllerAudit, R2OResult, R2OStatus, WirelessAuditReport } from "../api/wirelessAudit";
 import { wirelessAuditApi } from "../api/wirelessAudit";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { ClientLookupPanel, ClientTimeline } from "../components/WirelessClientHistory";
@@ -101,11 +101,21 @@ export function WirelessAudit() {
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [collectTarget, setCollectTarget] = useState<Device[] | null>(null);
+  const [progress, setProgress] = useState<AuditProgress | null>(null);
+  const [showLog, setShowLog] = useState(false);
   const [collectPreset, setCollectPreset] = useState<{ commands: Record<string, string[]>; name: string } | null>(null);
 
   async function run(dns = withDns) {
     setRunning(true);
     setError(null);
+    setProgress(null);
+    // What the backend is doing, every second, while the audit runs.
+    const poll = setInterval(() => {
+      wirelessAuditApi
+        .progress()
+        .then((r) => setProgress(r.data))
+        .catch(() => undefined);
+    }, 1000);
     try {
       const { data } = await wirelessAuditApi.run(dns);
       setReport(data);
@@ -113,10 +123,15 @@ export function WirelessAudit() {
       const timedOut = (err as { code?: string })?.code === "ECONNABORTED";
       setError(
         timedOut
-          ? "The audit did not finish within 3 minutes. The backend is probably busy: check its window for a collection still running, or untick DNS lookups and run again."
+          ? "The audit did not finish within 10 minutes. The log below shows the step it was on."
           : extractErrorMessage(err),
       );
     } finally {
+      clearInterval(poll);
+      wirelessAuditApi
+        .progress()
+        .then((r) => setProgress(r.data))
+        .catch(() => undefined);
       setRunning(false);
     }
   }
@@ -274,8 +289,61 @@ export function WirelessAudit() {
       </div>
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="info-banner">{notice}</div>}
+      {(running || (progress && (showLog || error))) && (
+        <div className="audit-progress">
+          <div className="audit-progress-head">
+            <strong>{running ? "Audit running" : progress?.error ? "Audit failed" : "Last audit"}</strong>
+            {progress?.stage ? <span> · {progress.stage}</span> : running ? <span> · starting…</span> : null}
+            {progress?.started_at && (
+              <span className="table-hint"> · started {new Date(progress.started_at).toLocaleTimeString()}</span>
+            )}
+          </div>
+          <pre className="audit-output audit-progress-log">{(progress?.lines ?? []).join("\n") || "Waiting for the backend…"}</pre>
+        </div>
+      )}
+      {!running && progress && !error && (
+        <button className="link-button" style={{ padding: 0, marginBottom: 8 }} onClick={() => setShowLog(!showLog)}>
+          {showLog ? "Hide the audit log" : "Show the audit log"}
+        </button>
+      )}
 
-      {!report && !error && <p>Running the audit…</p>}
+      <div className="page-header-row" style={{ marginTop: 10 }}>
+        <div className="terminal-tabs" role="tablist" style={{ margin: 0 }}>
+          {TABS.map((t) => (
+            <button key={t.key} role="tab" aria-selected={tab === t.key} className={`terminal-tab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
+              <span className="terminal-tab-name">
+                {t.label}
+                {t.key === "findings" && s ? ` (${s.fail + s.warn})` : ""}
+                {t.key === "r2o" && r2oIssues ? ` (${r2oIssues})` : ""}
+                {t.key === "coverage" && missingCoverage ? ` (${missingCoverage})` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+        {report && !["standard", "coverage", "overview"].includes(tab) && (
+          <div className="audit-filters">
+            <select value={controller} onChange={(e) => setController(e.target.value)} aria-label="Controller">
+              <option value="">All controllers</option>
+              {report.controllers.map((c) => (
+                <option key={c.device_id} value={c.device_id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ width: 220 }} />
+          </div>
+        )}
+      </div>
+
+      {!report && !["standard", "coverage"].includes(tab) && (
+        <p className="page-subtitle">
+          {error
+            ? "No audit results yet."
+            : running
+              ? "Running the audit… The Standard and Coverage tabs above work meanwhile, so you can import the workbooks now."
+              : "No audit results yet."}
+        </p>
+      )}
 
       {report && s && (
         <>
@@ -294,34 +362,6 @@ export function WirelessAudit() {
               Catalyst 9800 WLC" or "Cisco AireOS WLC").
             </div>
           )}
-
-          <div className="page-header-row" style={{ marginTop: 10 }}>
-            <div className="terminal-tabs" role="tablist" style={{ margin: 0 }}>
-              {TABS.map((t) => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} className={`terminal-tab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
-                  <span className="terminal-tab-name">
-                    {t.label}
-                    {t.key === "findings" ? ` (${s.fail + s.warn})` : ""}
-                    {t.key === "r2o" && r2oIssues ? ` (${r2oIssues})` : ""}
-                    {t.key === "coverage" && missingCoverage ? ` (${missingCoverage})` : ""}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {!["standard", "coverage", "overview"].includes(tab) && (
-              <div className="audit-filters">
-                <select value={controller} onChange={(e) => setController(e.target.value)} aria-label="Controller">
-                  <option value="">All controllers</option>
-                  {report.controllers.map((c) => (
-                    <option key={c.device_id} value={c.device_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ width: 220 }} />
-              </div>
-            )}
-          </div>
 
           {tab === "overview" && <Overview controllers={report.controllers} expanded={expanded} toggle={toggle} />}
 
@@ -693,11 +733,10 @@ export function WirelessAudit() {
             </p>
           )}
 
-          {tab === "coverage" && (
-            <CoverageTab coverage={coverage} r2oCoverage={r2oCoverage} isAdmin={isAdmin} adding={adding} onAdd={handleAdd} />
-          )}
         </>
       )}
+
+      {tab === "coverage" && <CoverageTab coverage={coverage} r2oCoverage={r2oCoverage} isAdmin={isAdmin} adding={adding} onAdd={handleAdd} />}
 
       {tab === "standard" && (
         <WirelessStandardEditor

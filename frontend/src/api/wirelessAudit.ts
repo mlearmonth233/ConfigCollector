@@ -354,6 +354,15 @@ export interface R2OImport {
   replaced: string[];
 }
 
+export interface AuditProgress {
+  running: boolean;
+  stage: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  lines: string[];
+}
+
 function upload<T>(url: string, file: File) {
   const form = new FormData();
   form.append("file", file);
@@ -362,8 +371,9 @@ function upload<T>(url: string, file: File) {
 
 export const wirelessAuditApi = {
   // Bounded so a stalled backend shows an error instead of spinning forever.
-  run: (dns: boolean) => apiClient.get<WirelessAuditReport>("/api/wireless-audit", { params: { dns }, timeout: 180000 }),
+  run: (dns: boolean) => apiClient.get<WirelessAuditReport>("/api/wireless-audit", { params: { dns }, timeout: 600000 }),
   exportXlsx: (dns: boolean) => apiClient.get<Blob>("/api/wireless-audit/export.xlsx", { params: { dns }, responseType: "blob" }),
+  progress: () => apiClient.get<AuditProgress>("/api/wireless-audit/progress"),
   getStandard: () => apiClient.get<WirelessStandardResponse>("/api/wireless-audit/standard"),
   saveStandard: (standard: WirelessStandard) => apiClient.put<WirelessStandardResponse>("/api/wireless-audit/standard", standard),
   importStandard: (file: File) => upload<WorkbookImport>("/api/wireless-audit/standard/import", file),

@@ -146,9 +146,12 @@ def _client_health(content: str) -> dict[str, dict]:
     return result
 
 
-def gather(inputs: list[inv.SnapshotInput], *, ignore_log_patterns: list[str] | None = None) -> list[ControllerFacts]:
+def gather(inputs: list[inv.SnapshotInput], *, ignore_log_patterns: list[str] | None = None, progress=None) -> list[ControllerFacts]:
     """Parses every controller's latest snapshot. `inputs` is every device
-    (switch ARP tables fill in client IPs the controller did not report)."""
+    (switch ARP tables fill in client IPs the controller did not report).
+    `progress(message)`, if given, is told what is happening."""
+    say = progress or (lambda _m: None)
+    say(f"Building the inventory from {len(inputs)} device snapshot(s)")
     built = inv.build_inventory(inputs)
     device_facts = {d.device_id: d for d in built.devices}
     ignore = []
@@ -164,6 +167,7 @@ def gather(inputs: list[inv.SnapshotInput], *, ignore_log_patterns: list[str] | 
             continue
         f = ControllerFacts(input=item, platform=platform)
         facts.append(f)
+        say(f"Parsing {item.name}" + ("" if item.content else " (never collected)") + (f" - {len(item.content) // 1000} kB snapshot" if item.content else ""))
         dev = device_facts.get(item.device_id)
         if dev:
             f.model = dev.model
@@ -297,6 +301,8 @@ class DnsResults:
     forward: dict[str, list[str]] = field(default_factory=dict)
     # ip -> PTR name (None = no PTR record)
     reverse: dict[str, str | None] = field(default_factory=dict)
+    # Names / addresses not looked up in the time allowed: not judged.
+    unchecked: set[str] = field(default_factory=set)
 
 
 def ap_fqdn(name: str, domain: str) -> str:
@@ -438,6 +444,7 @@ def run_audit(
     dns: DnsResults | None,
     *,
     now: datetime | None = None,
+    progress=None,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     findings: list[dict] = []
@@ -474,7 +481,9 @@ def run_audit(
             if ap["ip"]:
                 ips_seen[ap["ip"]].append(ap["name"])
 
+    say = progress or (lambda _m: None)
     for f in facts:
+        say(f"Checking {f.input.name}")
         a = _Auditor(f, findings)
         item = f.input
         if not item.content:
@@ -964,6 +973,9 @@ def _check_aps(
         if dns is not None and s.check_dns:
             fqdn = ap_fqdn(name, s.dns_domain)
             row["fqdn"] = fqdn
+        if dns is not None and s.check_dns and (fqdn in dns.unchecked or (ip and ip in dns.unchecked)):
+            pass  # not looked up in time: neither pass nor fail
+        elif dns is not None and s.check_dns:
             resolved = dns.forward.get(fqdn, [])
             row["dns_ips"] = resolved
             fwd.evaluated += 1
