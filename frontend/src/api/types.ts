@@ -101,6 +101,8 @@ export interface SitebookDevice {
   suggested_device_type: string | null;
   device_role: string | null;
   existing_device_id: string | null;
+  ot: boolean;
+  private_ip: boolean;
 }
 
 export interface SitebookImport {

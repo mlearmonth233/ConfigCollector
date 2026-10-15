@@ -123,6 +123,8 @@ class SitebookDeviceOut(BaseModel):
     suggested_device_type: str | None
     device_role: str | None
     existing_device_id: UUID | None  # already in Packrat (same name or IP)
+    ot: bool = False  # industrial switch by PID (Stratix 1783-*, Cisco IE)
+    private_ip: bool = False  # RFC 1918 / CGNAT address
 
 
 class SitebookSkippedOut(BaseModel):

@@ -30,7 +30,7 @@ from app.services.device_types import Catalog
 from app.api.hostname_rules import load_rules
 from app.services.hostname_detection import Rule, detect, device_type_for_role
 from app.services.reachability import check_reachability
-from app.services.sitebook import SitebookError, parse_sitebook, type_from_pid
+from app.services.sitebook import SitebookError, is_ot, is_private_ip, parse_sitebook, type_from_pid
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -145,6 +145,8 @@ async def read_sitebook(
                 suggested_device_type=detection.suggested_device_type or pid_type,
                 device_role=detection.device_role or pid_role,
                 existing_device_id=by_name.get(d.name.lower()) or by_host.get(d.host.lower()),
+                ot=is_ot(d.pid),
+                private_ip=is_private_ip(d.host),
             )
         )
     return SitebookImportOut(

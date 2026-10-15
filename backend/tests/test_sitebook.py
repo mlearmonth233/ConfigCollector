@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from openpyxl import Workbook
 
-from app.services.sitebook import SitebookError, parse_sitebook, type_from_pid
+from app.services.sitebook import SitebookError, is_ot, is_private_ip, parse_sitebook, type_from_pid
 
 HEADER = ["Host", "Location", "IP", "PID", "SN", "Mac Address", "Asset Tag", "Site Provided Location (To be used in ALL documentation going forward)", "Rack El Picture available"]
 ROWS = [
@@ -90,8 +90,16 @@ async def test_sitebook_api(client: AsyncClient, unique_email):
     assert devices["SITEA01SWA001"]["existing_device_id"] is None
     assert devices["SITEA01WLC001"]["suggested_device_type"] == "cisco_wlc_9800"
     assert devices["SITEA-OT-LINE1-SW01-U"]["suggested_device_type"] == "cisco_ios"
+    assert devices["SITEA-OT-LINE1-SW01-U"]["ot"] is True and devices["SITEA-OT-LINE1-SW01-U"]["private_ip"] is True
+    assert devices["SITEA01SWA001"]["ot"] is False
     # Nothing was saved by reading it.
     assert len((await client.get("/api/devices", headers=headers)).json()) == 1
 
     resp = await client.post("/api/devices/import/sitebook", files={"file": ("x.xlsx", b"nope", "application/octet-stream")}, headers=headers)
     assert resp.status_code == 400
+
+
+def test_private_ip_and_ot():
+    assert is_private_ip("10.3.100.12") and is_private_ip("172.20.1.1") and is_private_ip("192.168.0.5") and is_private_ip("100.64.1.1")
+    assert not is_private_ip("137.180.52.87") and not is_private_ip("172.32.0.1") and not is_private_ip("wlc01.corp")
+    assert is_ot("1783-BMS10CGA") and is_ot("IE-3400-8T2S") and not is_ot("C9300-48U") and not is_ot(None)

@@ -272,6 +272,14 @@ Location, PID and serial from the Sitebook are shown beside each row.
 Devices already in Packrat (same name or IP) start unticked. Set a site
 for every device at once, or per row, then **Add**.
 
+OT devices (Rockwell Stratix 1783-*, Cisco IE) on private addresses
+(10.x, 172.16-31.x, 192.168.x, 100.64-127.x) are marked *OT · private IP*.
+When their logs are collected some other way, **untick OT devices with
+private IPs** leaves them out of the import. Already imported? **Remove
+private-IP devices** on the Devices page lists every device on a private
+address, all ticked except wireless controllers; untick any to keep, then
+remove the rest. Their collected snapshots are kept.
+
 ### Device types
 
 | Type | Used for | Notes |

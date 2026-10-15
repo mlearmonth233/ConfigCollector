@@ -15,6 +15,7 @@ import type {
 } from "../api/types";
 import { BulkAddDevicesModal } from "../components/BulkAddDevicesModal";
 import { SitebookImportModal } from "../components/SitebookImportModal";
+import { RemovePrivateDevicesModal, isPrivateIp } from "../components/RemovePrivateDevicesModal";
 import { DeviceHistoryModal } from "../components/DeviceHistoryModal";
 import { DeviceTypeOptions } from "../components/DeviceTypeOptions";
 import { StartCollectionModal } from "../components/StartCollectionModal";
@@ -99,6 +100,8 @@ export function Devices() {
   const [importResult, setImportResult] = useState<DeviceImportResult | null>(null);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showSitebook, setShowSitebook] = useState(false);
+  const [showRemovePrivate, setShowRemovePrivate] = useState(false);
+  const [removedNotice, setRemovedNotice] = useState<string | null>(null);
   const [reachability, setReachability] = useState<Map<string, DeviceReachability>>(new Map());
   const [checkingReachability, setCheckingReachability] = useState(false);
   const [reachabilityError, setReachabilityError] = useState<string | null>(null);
@@ -394,6 +397,14 @@ export function Devices() {
           <button className="button-like" onClick={() => setShowSitebook(true)}>
             Import from IT OT Sitebook
           </button>
+          <button
+            className="link-button danger"
+            onClick={() => setShowRemovePrivate(true)}
+            disabled={!devices.some((d) => isPrivateIp(d.host))}
+            title="Remove OT devices on private IP addresses (their logs are collected elsewhere)"
+          >
+            Remove private-IP devices
+          </button>
           <button className="link-button" onClick={handleCheckReachability} disabled={checkingReachability}>
             {checkingReachability ? "Checking…" : "Check reachability"}
           </button>
@@ -423,6 +434,7 @@ export function Devices() {
           reachable some other way. Hover a mark for the detail.
         </p>
       )}
+      {removedNotice && <div className="info-banner">{removedNotice}</div>}
       {importResult && (
         <div className="info-banner">
           Imported {importResult.created} device(s).
@@ -709,6 +721,18 @@ export function Devices() {
           onDone={(result) => {
             setShowSitebook(false);
             setImportResult(result);
+            void refresh();
+          }}
+        />
+      )}
+
+      {showRemovePrivate && (
+        <RemovePrivateDevicesModal
+          devices={devices}
+          onClose={() => setShowRemovePrivate(false)}
+          onDone={(removed, errors) => {
+            setShowRemovePrivate(false);
+            setRemovedNotice(`Removed ${removed} device(s) with private IP addresses.${errors.length ? ` Not removed: ${errors.join("; ")}` : ""}`);
             void refresh();
           }}
         />

@@ -19,6 +19,8 @@ interface Row {
   serial: string | null;
   stack_members: string[];
   exists: boolean;
+  ot: boolean;
+  private_ip: boolean;
 }
 
 interface Props {
@@ -62,6 +64,8 @@ export function SitebookImportModal({ deviceTypes, deviceRoles, onClose, onDone 
           serial: d.serial,
           stack_members: d.stack_members,
           exists: !!d.existing_device_id,
+          ot: d.ot,
+          private_ip: d.private_ip,
         })),
       );
     } catch (err) {
@@ -76,6 +80,7 @@ export function SitebookImportModal({ deviceTypes, deviceRoles, onClose, onDone 
   }
 
   const chosen = rows.filter((r) => r.include);
+  const otPrivate = rows.filter((r) => r.ot && r.private_ip);
   const missingType = chosen.filter((r) => !r.device_type).length;
 
   async function handleSubmit() {
@@ -133,6 +138,20 @@ export function SitebookImportModal({ deviceTypes, deviceRoles, onClose, onDone 
                 {book.skipped.length ? `, ${book.skipped.length} row(s) skipped` : ""}. Devices already in Packrat (same name or IP) are
                 unticked.
               </p>
+              {otPrivate.length > 0 && (
+                <div className="info-banner">
+                  {otPrivate.length} OT device(s) (Stratix / industrial switches) are on private addresses. If their logs are collected some
+                  other way, leave them out:{" "}
+                  <button
+                    type="button"
+                    className="link-button"
+                    style={{ padding: 0, fontSize: "inherit" }}
+                    onClick={() => setRows((prev) => prev.map((r) => (r.ot && r.private_ip ? { ...r, include: false } : r)))}
+                  >
+                    untick OT devices with private IPs
+                  </button>
+                </div>
+              )}
               <label style={{ maxWidth: 360 }}>
                 Site for every device (optional)
                 <input value={siteForAll} onChange={(e) => setSiteForAll(e.target.value)} placeholder="e.g. Andover" />
@@ -165,6 +184,9 @@ export function SitebookImportModal({ deviceTypes, deviceRoles, onClose, onDone 
                       <td>
                         <input value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
                         {r.exists && <div className="table-hint">already in Packrat</div>}
+                        {(r.ot || r.private_ip) && (
+                          <div className="table-hint">{[r.ot ? "OT" : null, r.private_ip ? "private IP" : null].filter(Boolean).join(" · ")}</div>
+                        )}
                       </td>
                       <td>
                         <input value={r.host} onChange={(e) => update(i, { host: e.target.value })} style={{ width: 130 }} />

@@ -157,3 +157,22 @@ def type_from_pid(pid: str | None) -> tuple[str | None, str | None]:
         if pattern.search(pid.strip()):
             return device_type, role
     return None, None
+
+
+# RFC 1918 space (plus 100.64.0.0/10 carrier-grade NAT): OT networks behind
+# a cell/area firewall that Packrat usually cannot reach directly.
+_PRIVATE_NETS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"))
+# Industrial / OT switch families: Rockwell Stratix (1783-*), Cisco IE.
+_OT_PID = re.compile(r"^(?:1783-|IE-?\d|IE\d|CGS-|IR\d)", re.IGNORECASE)
+
+
+def is_private_ip(host: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(host.strip())
+    except ValueError:
+        return False
+    return any(addr in net for net in _PRIVATE_NETS)
+
+
+def is_ot(pid: str | None) -> bool:
+    return bool(pid and _OT_PID.match(pid.strip()))
