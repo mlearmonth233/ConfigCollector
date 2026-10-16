@@ -199,7 +199,7 @@ def test_client_checks_only_on_the_primary_controller():
     assert wa.wlc_role("A", std, with_aps)[0] == "secondary" and wa.wlc_role("B", std, no_aps)[0] == "primary"
 
     # Collection: a secondary leaves the client commands out.
-    commands = wa.augment_commands(["show running-config", "show ap summary", "show wireless client summary"], "cisco_wlc_9800", None)
+    commands = wa.audit_collection_commands(["show running-config", "show ap summary", "show wireless client summary"], "cisco_wlc_9800", None)
     stripped = wa.strip_client_commands(commands)
     assert "show wireless client summary" in commands and "show wireless client mac-address {client} detail" in commands
     assert not any("client" in c for c in stripped) and "show ap summary" in stripped and "show logging" in stripped

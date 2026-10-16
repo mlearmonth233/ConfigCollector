@@ -66,7 +66,6 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show ap summary",
         "show running-config",
         "show wireless client summary",
-        "show wireless client mac-address {client} detail",
     ),
     "cisco_wlc": (
         "show sysinfo",
@@ -75,7 +74,6 @@ INVENTORY_COMMANDS: dict[str, tuple[str, ...]] = {
         "show ap summary",
         "show running-config",
         "show client summary",
-        "show client detail {client}",
     ),
     "fortinet": (
         "get system status",

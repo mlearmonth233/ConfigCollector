@@ -819,16 +819,16 @@ async def test_api_standard_audit_export_and_coverage(client: AsyncClient, uniqu
     assert wb.sheetnames == ["Summary", "Checks", "Findings", "Access points", "Clients", "Client health", "AP groups & tags", "WNCD", "Logs"]
     assert wb["Access points"].max_row == 6  # header + 5 APs
 
-    resp = await client.get("/api/wireless-audit/commands", headers=headers)
+    resp = await client.get("/api/wireless-audit/collection-commands", headers=headers)
     assert resp.status_code == 200
     by_type = {c["device_type"]: c for c in resp.json()}
-    # The built-in command sets already collect everything the audit reads.
-    assert by_type["cisco_wlc_9800"]["missing"] == []
-    assert by_type["cisco_wlc"]["missing"] == []
-    resp = await client.post("/api/wireless-audit/commands/cisco_wlc", headers=headers)
-    assert resp.status_code == 200
-    resp = await client.post("/api/wireless-audit/commands/cisco_ios", headers=headers)
-    assert resp.status_code == 404
+    # Everyday collections stay lean; the audit's collection adds the rest.
+    xe = by_type["cisco_wlc_9800"]
+    assert "show wireless client mac-address {client} detail" not in xe["base"]
+    assert "show wireless client mac-address {client} detail" in xe["audit_added"] and "show ap tag summary" in xe["commands"]
+    assert xe["commands"][: len(xe["base"])] == xe["base"]
+    assert "show client detail {client}" in by_type["cisco_wlc"]["audit_added"]
+    assert "show running-config" not in by_type["cisco_wlc"]["audit_added"]  # "show run-config" covers it
 
 
 @pytest.mark.asyncio

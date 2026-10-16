@@ -5,7 +5,7 @@ import { extractErrorMessage } from "../api/client";
 import { saveBlobResponse } from "../api/download";
 import { credentialsApi, deviceTypesApi, devicesApi } from "../api/resources";
 import type { Credential, Device, DeviceType } from "../api/types";
-import type { AuditFinding, AuditProgress, CheckStatus, CommandCoverage, ControllerAudit, R2OResult, R2OStatus, WirelessAuditReport } from "../api/wirelessAudit";
+import type { AuditFinding, AuditProgress, AuditCollectionCommands, CheckStatus, ControllerAudit, R2OResult, R2OStatus, WirelessAuditReport } from "../api/wirelessAudit";
 import { wirelessAuditApi } from "../api/wirelessAudit";
 import { StartCollectionModal } from "../components/StartCollectionModal";
 import { ClientLookupPanel, ClientTimeline } from "../components/WirelessClientHistory";
@@ -25,7 +25,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "clients", label: "Clients" },
   { key: "logs", label: "Logs" },
   { key: "standard", label: "Standard" },
-  { key: "coverage", label: "Coverage" },
+  { key: "coverage", label: "Commands" },
 ];
 
 const WLC_TYPES = new Set(["cisco_wlc", "cisco_wlc_9800"]);
@@ -94,9 +94,7 @@ export function WirelessAudit() {
   const [apFilter, setApFilter] = useState<"" | "issues">("");
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [coverage, setCoverage] = useState<CommandCoverage[]>([]);
-  const [r2oCoverage, setR2oCoverage] = useState<CommandCoverage[]>([]);
-  const [adding, setAdding] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<AuditCollectionCommands[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -138,9 +136,8 @@ export function WirelessAudit() {
 
   async function loadCoverage() {
     try {
-      const [a, b] = await Promise.all([wirelessAuditApi.coverage(), wirelessAuditApi.r2oCoverage()]);
-      setCoverage(a.data);
-      setR2oCoverage(b.data);
+      const { data } = await wirelessAuditApi.collectionCommands();
+      setCoverage(data);
     } catch (err) {
       setError(extractErrorMessage(err));
     }
@@ -173,17 +170,22 @@ export function WirelessAudit() {
     }
   }
 
-  async function handleAdd(deviceType: string, r2o: boolean) {
-    setAdding(`${r2o ? "r2o" : "audit"}:${deviceType}`);
+  /** The audit's own collection: each controller type's command list plus
+   * what the audit and the R2O checklists read (incl. per-client detail).
+   * Everyday collections stay lean. */
+  async function collectForAudit() {
+    setError(null);
     setNotice(null);
     try {
-      const { data } = r2o ? await wirelessAuditApi.addR2OCommands(deviceType) : await wirelessAuditApi.addCommands(deviceType);
-      setNotice(`${data.label} now collects ${data.commands.length} commands. Collect the controllers again, then re-run the audit.`);
-      await loadCoverage();
+      const { data } = await wirelessAuditApi.collectionCommands();
+      setCoverage(data);
+      setCollectPreset({
+        commands: Object.fromEntries(data.map((c) => [c.device_type, c.commands])),
+        name: `Wireless audit ${formatLocalDateTime(new Date())}`,
+      });
+      setCollectTarget(controllers);
     } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setAdding(null);
+      setError(`Could not load the audit commands: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -245,7 +247,6 @@ export function WirelessAudit() {
     () => (report?.groups ?? []).filter((g) => (!controller || g.controller_id === controller) && matches(q, g.controller_name, g.name, g.kind, g.models, g.wlans, g.profiles)),
     [report, controller, q],
   );
-  const missingCoverage = coverage.filter((c) => c.device_count > 0 && c.missing.length > 0).length + r2oCoverage.filter((c) => c.device_count > 0 && c.missing.length > 0).length;
 
   const s = report?.summary;
   const r2oIssues = (report?.r2o ?? []).filter((r) => r.status === "fail").length;
@@ -270,12 +271,9 @@ export function WirelessAudit() {
           </label>
           <button
             className="link-button"
-            onClick={() => {
-              setCollectPreset(null);
-              setCollectTarget(controllers);
-            }}
+            onClick={() => void collectForAudit()}
             disabled={controllers.length === 0}
-            title="Log in to every controller and collect a fresh snapshot"
+            title="Log in to every controller and collect what the audit and R2O checks read, incl. per-client detail (slower than an everyday collection)"
           >
             Collect controllers ({controllers.length})
           </button>
@@ -315,7 +313,6 @@ export function WirelessAudit() {
                 {t.label}
                 {t.key === "findings" && s ? ` (${s.fail + s.warn})` : ""}
                 {t.key === "r2o" && r2oIssues ? ` (${r2oIssues})` : ""}
-                {t.key === "coverage" && missingCoverage ? ` (${missingCoverage})` : ""}
               </span>
             </button>
           ))}
@@ -340,7 +337,7 @@ export function WirelessAudit() {
           {error
             ? "No audit results yet."
             : running
-              ? "Running the audit… The Standard and Coverage tabs above work meanwhile, so you can import the workbooks now."
+              ? "Running the audit… The Standard and Commands tabs above work meanwhile, so you can import the workbooks now."
               : "No audit results yet."}
         </p>
       )}
@@ -386,7 +383,7 @@ export function WirelessAudit() {
                 <span className="table-hint">{r2oRows.length} check(s)</span>
               </div>
               {(report.r2o ?? []).length === 0 ? (
-                <div className="info-banner">No Return-to-Operations checklist yet: import the R2O workbook under the Standard tab, add its commands on the Coverage tab, then collect the controllers.</div>
+                <div className="info-banner">No Return-to-Operations checklist yet: import the R2O workbook under the Standard tab, then use "Collect controllers" above (it runs the checklist's commands).</div>
               ) : (
                 <R2OTable rows={r2oRows.slice(0, limit(r2oRows.length))} expanded={expanded} toggle={toggle} />
               )}
@@ -736,7 +733,7 @@ export function WirelessAudit() {
         </>
       )}
 
-      {tab === "coverage" && <CoverageTab coverage={coverage} r2oCoverage={r2oCoverage} isAdmin={isAdmin} adding={adding} onAdd={handleAdd} />}
+      {tab === "coverage" && <CoverageTab coverage={coverage} />}
 
       {tab === "standard" && (
         <WirelessStandardEditor
@@ -867,7 +864,7 @@ function Overview({ controllers, expanded, toggle }: { controllers: ControllerAu
                       </tbody>
                     </table>
                     {c.missing_commands.length > 0 && (
-                      <p className="table-hint">Not collected (add on the Coverage tab): {c.missing_commands.join(", ")}</p>
+                      <p className="table-hint">Not in this snapshot (use "Collect controllers" on this page): {c.missing_commands.join(", ")}</p>
                     )}
                   </td>
                 </tr>
@@ -993,66 +990,47 @@ function FindingsTable({ rows }: { rows: AuditFinding[] }) {
   );
 }
 
-function CoverageTab({
-  coverage,
-  r2oCoverage,
-  isAdmin,
-  adding,
-  onAdd,
-}: {
-  coverage: CommandCoverage[];
-  r2oCoverage: CommandCoverage[];
-  isAdmin: boolean;
-  adding: string | null;
-  onAdd: (deviceType: string, r2o: boolean) => void;
-}) {
-  const section = (title: string, rows: CommandCoverage[], r2o: boolean) => (
-    <>
-      <h2 style={{ marginTop: 18 }}>{title}</h2>
-      {rows.length === 0 ? (
-        <p className="table-hint">{r2o ? "Import the R2O checklist under Standard first." : "No controller types."}</p>
+function CoverageTab({ coverage }: { coverage: AuditCollectionCommands[] }) {
+  return (
+    <div>
+      <p className="page-subtitle" style={{ marginTop: 10 }}>
+        Everyday collections (Collections page, schedules) run only each controller type's command list. <em>Collect controllers</em>{" "}
+        on this page runs that list plus what the audit and the Return-to-Operations checks read - AP tags, radios, HA, NTP, CPU, logs,
+        WNCD and the per-client detail, which runs once for every associated client and is the slow part. Secondary controllers skip the
+        client commands. "{"{site}"}" runs with the first 8 characters of the device name, "{"{ap}"}" once for every AP.
+      </p>
+      {coverage.length === 0 ? (
+        <p className="table-hint">Loading…</p>
       ) : (
         <table className="data-table">
           <thead>
             <tr>
               <th>Device type</th>
               <th>Devices</th>
-              <th>Missing commands</th>
-              <th></th>
+              <th>Command list</th>
+              <th>Added by the audit</th>
+              <th>Added for R2O</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((c) => (
+            {coverage.map((c) => (
               <tr key={c.device_type}>
                 <td>
                   {c.label}
                   {c.is_custom_profile ? <div className="table-hint">custom command list</div> : null}
                 </td>
                 <td>{c.device_count}</td>
-                <td className="audit-mono">{c.missing.length ? c.missing.join(", ") : <span className="audit-ok">everything collected</span>}</td>
-                <td>
-                  {c.missing.length > 0 && isAdmin && (
-                    <button disabled={adding === `${r2o ? "r2o" : "audit"}:${c.device_type}`} onClick={() => onAdd(c.device_type, r2o)}>
-                      {adding === `${r2o ? "r2o" : "audit"}:${c.device_type}` ? "Adding…" : `Add ${c.missing.length}`}
-                    </button>
-                  )}
+                <td>{c.base.length} commands</td>
+                <td className="audit-mono">{c.audit_added.length ? c.audit_added.join(", ") : <span className="audit-ok">none needed</span>}</td>
+                <td className="audit-mono">
+                  {c.r2o_added.length ? c.r2o_added.join(", ") : <span className="table-hint">none (import the R2O checklist under Standard)</span>}
+                  {c.skipped.length > 0 && <div className="table-hint">Cannot run (comma in the command): {c.skipped.join(", ")}</div>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-    </>
-  );
-  return (
-    <div>
-      <p className="page-subtitle" style={{ marginTop: 10 }}>
-        The audit and the Return-to-Operations checks read the output of specific commands. Adding them changes this organization's
-        command list for that controller type (Commands page); they are collected on the next collection. "{"{site}"}" runs with the first 8
-        characters of the device name, "{"{ap}"}" once for every AP.
-      </p>
-      {section("Wireless Audit commands", coverage, false)}
-      {section("Return to Operations commands", r2oCoverage, true)}
     </div>
   );
 }

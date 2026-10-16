@@ -34,8 +34,8 @@ from app.services.config_template import check_template, parse_config
 
 PLATFORMS: dict[str, str] = {"cisco_wlc_9800": "9800", "cisco_wlc": "aireos"}
 
-# Canonical commands the audit reads, per controller type - what the
-# Coverage tab offers to add to a command list that lacks them.
+# Canonical commands the audit reads, per controller type (a Wireless
+# Audit collection adds any the command list lacks).
 AUDIT_COMMANDS: dict[str, tuple[str, ...]] = {
     "cisco_wlc_9800": (
         "show version",
@@ -596,7 +596,7 @@ def _check_controller(a: _Auditor, s: WirelessStandard, dns: DnsResults | None, 
     c = a.check("data.commands", "Audit commands collected", "Controller")
     c.evaluated = len(AUDIT_COMMANDS[f.input.device_type])
     if f.missing_commands:
-        a.find(c, "info", None, "Some checks have no data because these commands are not in the collection: " + ", ".join(f.missing_commands) + ". Add them from the Coverage tab, then collect again.")
+        a.find(c, "info", None, "Some checks have no data because these commands are not in the collection: " + ", ".join(f.missing_commands) + ". Collect the controllers from the Wireless Audit page (it adds them), then run the audit again.")
 
     approved = s.approved_9800_versions if f.platform == "9800" else s.approved_aireos_versions
     if approved:
@@ -1567,27 +1567,87 @@ def _check_client_events(a: _Auditor, s: WirelessStandard, client_rows: list[dic
 _FULL_COLLECTION = re.compile(r"^(?:sh\w*\s+run\w*(?:-config)?|show running-config|show run-config)\b", re.IGNORECASE)
 
 
-def augment_commands(commands: list[str], device_type: str, standard: WirelessStandard | None) -> list[str]:
-    """A full collection of a controller (one that includes its running
-    configuration) also runs what the audit reads and every command of the
-    org's R2O checklists for that platform, so neither needs adding to the
-    command list by hand. Anything else (a client investigation, a one-off
-    command) runs exactly as asked."""
+# What a Wireless Audit collection runs on top of the controller's normal
+# command list: the audit-only reads (tags, radios, HA, NTP, CPU, logs,
+# WNCD) and the per-client detail ({client} - one command per associated
+# client, the slow part). Kept out of everyday collections.
+AUDIT_COLLECTION_EXTRAS: dict[str, tuple[str, ...]] = {
+    "cisco_wlc_9800": (
+        "show version",
+        "show ap tag summary",
+        "show ap dot11 24ghz summary",
+        "show ap dot11 5ghz summary",
+        # Errors harmlessly on releases or APs without a 6 GHz radio.
+        "show ap dot11 6ghz summary",
+        "show redundancy",
+        "show ntp associations",
+        "show processes cpu sorted | i CPU utilization",
+        "show logging",
+        "show wireless loadbalance tag affinity",
+        "show processes cpu platform sorted | i wncd",
+        "show wireless stats client delete reasons",
+        "show wireless client mac-address {client} detail",
+    ),
+    "cisco_wlc": (
+        "show run-config commands",
+        "show network summary",
+        "show time",
+        "show cpu",
+        "show msglog",
+        "show traplog",
+        "show client detail {client}",
+    ),
+}
+
+
+def _norm(command: str) -> str:
+    return " ".join(command.lower().split())
+
+
+def audit_collection_commands(base: list[str], device_type: str, standard: WirelessStandard | None) -> list[str]:
+    """The commands the Wireless Audit page collects from a controller: its
+    normal list (base), then whatever the audit reads that the list lacks,
+    then every command of the org's R2O checklists for its platform."""
     platform = PLATFORMS.get(device_type)
-    if platform is None or not any(_FULL_COLLECTION.match(c.strip()) for c in commands):
-        return commands
-    out = list(commands)
+    if platform is None:
+        return list(base)
+    out = list(base)
+    have = {_norm(c) for c in out}
+
+    def add(cmd: str) -> None:
+        key = _norm(cmd)
+        if key not in have:
+            have.add(key)
+            out.append(cmd)
+
+    for cmd in AUDIT_COLLECTION_EXTRAS[device_type]:
+        canonical = cmd.split("|")[0].strip()
+        if not any(inv.command_matches(c, canonical) for c in out):
+            add(cmd)
     for canonical in AUDIT_COMMANDS[device_type]:
         if not any(inv.command_matches(c, canonical) for c in out):
-            out.append(canonical)
+            add(canonical)
     if standard is not None:
-        have = {" ".join(c.lower().split()) for c in out}
         for cmd in r2o_commands(standard, platform):
-            key = " ".join(cmd.lower().split())
-            if key not in have:
-                have.add(key)
-                out.append(cmd)
+            add(cmd)
     return out
+
+
+_AUDIT_MARKERS: dict[str, tuple[str, ...]] = {
+    "cisco_wlc_9800": ("show ap tag summary", "show wireless loadbalance tag affinity"),
+    "cisco_wlc": ("show run-config commands", "show network summary"),
+}
+
+
+def is_audit_collection_content(content: str, device_type: str) -> bool:
+    """A snapshot from a Wireless Audit collection (it has the audit-only
+    sections) rather than an everyday one."""
+    if not content:
+        return False
+    for marker in _AUDIT_MARKERS.get(device_type, ()):
+        if re.search(rf"^! ---- {re.escape(marker)}\b", content, re.MULTILINE | re.IGNORECASE):
+            return True
+    return False
 
 
 # --- primary / secondary controllers ---------------------------------------------------------------

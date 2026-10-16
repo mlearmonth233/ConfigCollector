@@ -167,9 +167,11 @@ def _resolve_spec(device: Device) -> DeviceTypeSpec:
 
 
 def _with_wireless_commands(db, device, commands_override: list[str] | None) -> list[str] | None:
-    """For a wireless controller, add what the Wireless Audit and the org's
-    R2O checklists read (services/wireless_audit.augment_commands). Never
-    allowed to stop a collection: on any problem the list is left as is."""
+    """For a full collection of a secondary wireless controller, leave out
+    the client commands: clients and their checks are the primary's. The
+    audit and R2O commands are not added here - the Wireless Audit page
+    asks for them in its own collection. Never allowed to stop a
+    collection: on any problem the list is left as is."""
     from app.services import wireless_audit as wa  # noqa: PLC0415 - keep task start-up light
 
     if device.device_type not in wa.PLATFORMS:
@@ -184,7 +186,7 @@ def _with_wireless_commands(db, device, commands_override: list[str] | None) -> 
         base = commands_override if commands_override is not None else resolve_commands(device.device_type, device.custom_commands)
         row = db.query(WirelessStandardRecord).filter(WirelessStandardRecord.org_id == device.org_id).first()
         standard = WirelessStandard.model_validate(json.loads(row.settings)) if row else None
-        augmented = wa.augment_commands(base, device.device_type, standard)
+        augmented = list(base)
         if wa.is_full_collection(augmented):
             # Client commands run on the primary controller only.
             last_full = next(
@@ -204,7 +206,7 @@ def _with_wireless_commands(db, device, commands_override: list[str] | None) -> 
                 augmented = wa.strip_client_commands(augmented)
         return augmented if augmented != base else commands_override
     except Exception:  # noqa: BLE001
-        log.exception("Could not add the wireless audit commands for %s; collecting as configured", device.name)
+        log.exception("Could not check the wireless controller role of %s; collecting as configured", device.name)
         return commands_override
 
 

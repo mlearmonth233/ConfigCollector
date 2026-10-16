@@ -1,5 +1,4 @@
 import { apiClient } from "./client";
-import type { CommandProfile } from "./types";
 
 export type Severity = "fail" | "warn" | "info";
 export type CheckStatus = "pass" | "warn" | "fail" | "info" | "skipped";
@@ -330,13 +329,17 @@ export interface WirelessAuditReport {
   client_events: ClientHistory[];
 }
 
-export interface CommandCoverage {
+/** What the Wireless Audit page's collection runs on one controller type. */
+export interface AuditCollectionCommands {
   device_type: string;
   label: string;
   device_count: number;
-  audit_commands: string[];
-  missing: string[];
   is_custom_profile: boolean;
+  commands: string[];
+  base: string[];
+  audit_added: string[];
+  r2o_added: string[];
+  skipped: string[];
 }
 
 export interface WorkbookImport {
@@ -378,9 +381,6 @@ export const wirelessAuditApi = {
   saveStandard: (standard: WirelessStandard) => apiClient.put<WirelessStandardResponse>("/api/wireless-audit/standard", standard),
   importStandard: (file: File) => upload<WorkbookImport>("/api/wireless-audit/standard/import", file),
   importR2O: (file: File) => upload<R2OImport>("/api/wireless-audit/r2o/import", file),
-  coverage: () => apiClient.get<CommandCoverage[]>("/api/wireless-audit/commands"),
-  addCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/wireless-audit/commands/${deviceType}`),
+  collectionCommands: () => apiClient.get<AuditCollectionCommands[]>("/api/wireless-audit/collection-commands"),
   lookupClient: (mac: string, days = 7) => apiClient.get<ClientLookup>(`/api/wireless-audit/clients/${encodeURIComponent(mac)}`, { params: { days } }),
-  r2oCoverage: () => apiClient.get<CommandCoverage[]>("/api/wireless-audit/r2o/commands"),
-  addR2OCommands: (deviceType: string) => apiClient.post<CommandProfile>(`/api/wireless-audit/r2o/commands/${deviceType}`),
 };

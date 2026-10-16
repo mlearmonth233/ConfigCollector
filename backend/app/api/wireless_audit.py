@@ -21,17 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.command_profiles import get_org_command_overrides
 from app.api.deps import get_current_user, require_admin
-from app.api.inventory import _covered, _inputs
+from app.api.inventory import _inputs
 from app.database import get_db
-from app.models.command_profile import CommandProfile
 from app.models.device import Device
 from app.models.organization import Organization
 from app.models.snapshot import ConfigSnapshot
 from app.models.user import User
 from app.models.wireless_audit import WirelessStandardRecord
-from app.schemas.command_profile import CommandProfileOut
 from app.schemas.wireless_audit import (
-    AuditCommandCoverageOut,
+    AuditCollectionCommandsOut,
     ClientLookupOut,
     ImportRecord,
     R2OChecklist,
@@ -231,62 +229,6 @@ async def import_r2o_checklist(
     return R2OImportOut(filename=filename, sha256=sha, checklists=checklists, replaced=replaced)
 
 
-def _norm_cmd(command: str) -> str:
-    return " ".join(command.lower().split())
-
-
-@router.get("/r2o/commands", response_model=list[AuditCommandCoverageOut])
-async def r2o_command_coverage(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[AuditCommandCoverageOut]:
-    """For each controller type: the R2O checklist commands its command
-    list does not run yet (matched exactly - the checks read their own
-    command's output)."""
-    standard, _ = await _load_standard(db, user.org_id)
-    overrides = await get_org_command_overrides(db, user.org_id)
-    counts = dict(
-        (await db.execute(select(Device.device_type, func.count()).where(Device.org_id == user.org_id).group_by(Device.device_type))).all()
-    )
-    out = []
-    for key, platform in wa.PLATFORMS.items():
-        wanted = wa.r2o_commands(standard, platform)
-        if not wanted:
-            continue
-        spec = DEVICE_TYPE_REGISTRY[key]
-        override = overrides.get(key)
-        commands = {_norm_cmd(c) for c in (parse_command_list(override.commands) if override else spec.default_commands)}
-        out.append(
-            AuditCommandCoverageOut(
-                device_type=key, label=spec.label, device_count=int(counts.get(key, 0)), audit_commands=wanted,
-                missing=[c for c in wanted if _norm_cmd(c) not in commands], is_custom_profile=override is not None,
-            )
-        )
-    return out
-
-
-@router.post("/r2o/commands/{device_type}", response_model=CommandProfileOut)
-async def add_r2o_commands(device_type: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> CommandProfileOut:
-    platform = wa.PLATFORMS.get(device_type)
-    spec = DEVICE_TYPE_REGISTRY.get(device_type)
-    if platform is None or spec is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="R2O checks only apply to wireless controllers")
-    standard, _ = await _load_standard(db, admin.org_id)
-    # Command lists are stored comma-separated, so a command with a comma in it cannot be added.
-    wanted = [c for c in wa.r2o_commands(standard, platform) if "," not in c]
-    override = await db.scalar(select(CommandProfile).where(CommandProfile.org_id == admin.org_id, CommandProfile.device_type == device_type))
-    commands = parse_command_list(override.commands) if override else list(spec.default_commands)
-    have = {_norm_cmd(c) for c in commands}
-    # After everything else: "{ap}" commands need the AP list, "{client}" ones the clients.
-    additions = [c for c in wanted if _norm_cmd(c) not in have]
-    if additions:
-        commands = commands + additions
-        if override is None:
-            override = CommandProfile(org_id=admin.org_id, device_type=device_type, commands=", ".join(commands))
-            db.add(override)
-        else:
-            override.commands = ", ".join(commands)
-        await db.commit()
-    return CommandProfileOut(device_type=device_type, label=spec.label, category=spec.category, commands=commands, is_custom=override is not None)
-
-
 # Lookups block a thread each (and a timed-out one keeps it until the
 # resolver gives up), so they get their own pool: hundreds of AP names with
 # no DNS record must not starve the threads the rest of the API runs on.
@@ -359,18 +301,24 @@ _FULL_MARKERS = re.compile(r"^! ---- (?:sh\w*\s+run\w*(?:-config)?|show running-
 
 async def _audit_inputs(db: AsyncSession, org_id) -> list[inv.SnapshotInput]:
     """Every device's latest snapshot (as the inventory uses), except that a
-    controller uses its latest *full* collection."""
+    controller uses its latest Wireless Audit collection - or, without one,
+    its latest *full* collection."""
     inputs = await _inputs(db, org_id)
     for i, item in enumerate(inputs):
-        if item.device_type not in wa.PLATFORMS or (item.content and _FULL_MARKERS.search(item.content)):
+        if item.device_type not in wa.PLATFORMS or wa.is_audit_collection_content(item.content or "", item.device_type):
             continue
         recent = await db.scalars(
-            select(ConfigSnapshot).where(ConfigSnapshot.device_id == item.device_id).order_by(ConfigSnapshot.collected_at.desc()).limit(15)
+            select(ConfigSnapshot).where(ConfigSnapshot.device_id == item.device_id).order_by(ConfigSnapshot.collected_at.desc()).limit(30)
         )
+        full = None
         for snap in recent:
-            if _FULL_MARKERS.search(snap.content):
-                inputs[i] = inv.SnapshotInput(item.device_id, item.name, item.host, item.device_type, item.site, item.role, snap.content, snap.collected_at, str(snap.id))
+            if wa.is_audit_collection_content(snap.content, item.device_type):
+                full = snap
                 break
+            if full is None and _FULL_MARKERS.search(snap.content):
+                full = snap
+        if full is not None and str(full.id) != item.snapshot_id:
+            inputs[i] = inv.SnapshotInput(item.device_id, item.name, item.host, item.device_type, item.site, item.role, full.content, full.collected_at, str(full.id))
     return inputs
 
 
@@ -552,50 +500,37 @@ async def lookup_client(
     return ClientLookupOut(mac=key, snapshots_searched=searched, histories=histories, commands=client_commands(key))
 
 
-@router.get("/commands", response_model=list[AuditCommandCoverageOut])
-async def audit_command_coverage(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[AuditCommandCoverageOut]:
-    """For each controller type: the audit commands its command list does
-    not run yet."""
+@router.get("/collection-commands", response_model=list[AuditCollectionCommandsOut])
+async def audit_collection_commands(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[AuditCollectionCommandsOut]:
+    """For each controller type, what the Wireless Audit page's collection
+    runs: the org's command list for the type, plus what the audit and the
+    R2O checklists read. Everyday collections run the command list alone."""
+    standard, _ = await _load_standard(db, user.org_id)
     overrides = await get_org_command_overrides(db, user.org_id)
     counts = dict(
         (await db.execute(select(Device.device_type, func.count()).where(Device.org_id == user.org_id).group_by(Device.device_type))).all()
     )
     out = []
-    for key, wanted in wa.AUDIT_COMMANDS.items():
+    for key, platform in wa.PLATFORMS.items():
         spec = DEVICE_TYPE_REGISTRY[key]
         override = overrides.get(key)
-        commands = parse_command_list(override.commands) if override else list(spec.default_commands)
+        base = parse_command_list(override.commands) if override else list(spec.default_commands)
+        audit_only = wa.audit_collection_commands(base, key, None)
+        everything = wa.audit_collection_commands(base, key, standard)
+        r2o_added = everything[len(audit_only):]
+        # The collection form keeps commands comma-separated.
+        skipped = [c for c in r2o_added if "," in c]
         out.append(
-            AuditCommandCoverageOut(
+            AuditCollectionCommandsOut(
                 device_type=key,
                 label=spec.label,
                 device_count=int(counts.get(key, 0)),
-                audit_commands=list(wanted),
-                missing=[c for c in wanted if not _covered(commands, c)],
                 is_custom_profile=override is not None,
+                commands=[c for c in everything if "," not in c],
+                base=base,
+                audit_added=audit_only[len(base):],
+                r2o_added=[c for c in r2o_added if "," not in c],
+                skipped=skipped,
             )
         )
     return out
-
-
-@router.post("/commands/{device_type}", response_model=CommandProfileOut)
-async def add_audit_commands(device_type: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> CommandProfileOut:
-    """Appends the missing audit commands to the org's command list for
-    this controller type. A per-client "{client}" command must come after
-    the client summary it expands from, so additions go at the end."""
-    wanted = wa.AUDIT_COMMANDS.get(device_type)
-    spec = DEVICE_TYPE_REGISTRY.get(device_type)
-    if wanted is None or spec is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No audit commands are defined for this device type")
-    override = await db.scalar(select(CommandProfile).where(CommandProfile.org_id == admin.org_id, CommandProfile.device_type == device_type))
-    commands = parse_command_list(override.commands) if override else list(spec.default_commands)
-    additions = [c for c in wanted if not _covered(commands, c)]
-    if additions:
-        commands = commands + additions
-        if override is None:
-            override = CommandProfile(org_id=admin.org_id, device_type=device_type, commands=", ".join(commands))
-            db.add(override)
-        else:
-            override.commands = ", ".join(commands)
-        await db.commit()
-    return CommandProfileOut(device_type=device_type, label=spec.label, category=spec.category, commands=commands, is_custom=override is not None)

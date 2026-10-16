@@ -544,7 +544,7 @@ def evaluate(item: R2OItem, content: str, device_name: str, ap_names: list[str],
         return R2OResult(item, status, details, output[:MAX_OUTPUT_SNIPPET], run, fix if status in ("fail", "warn") else [])
 
     if not outputs:
-        return R2OResult(item, "no_data", [f"Not collected: {', '.join(missing) or ', '.join(item.commands)}. Add the R2O commands to this controller's command list (Coverage tab), then collect again."], "", run, [])
+        return R2OResult(item, "no_data", [f"Not collected: {', '.join(missing) or ', '.join(item.commands)}. Collect the controllers from the Wireless Audit page (it adds the R2O commands), then run the audit again."], "", run, [])
 
     exps = expectations(item)
     if not exps:

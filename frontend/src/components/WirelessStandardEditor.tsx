@@ -161,7 +161,7 @@ export function WirelessStandardEditor({ isAdmin, controllers, onSaved }: { isAd
         setNotice(
           `${result.filename}: ${result.checklists.map((c) => `${c.name} (${c.items.length} checks)`).join("; ")}.` +
             (result.replaced.length ? ` Replaced the previous ${result.replaced.join(", ")}.` : "") +
-            " Add the checklist's commands on the Coverage tab, then collect the controllers.",
+            " Then collect the controllers from this page: that collection runs the checklist's commands.",
         );
       }
       onSaved();

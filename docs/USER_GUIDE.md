@@ -355,7 +355,7 @@ runs:
 | show running-config (show run-config on AireOS, show full-configuration on FortiGate) | interface IP addresses and masks, descriptions, VLANs and VRFs, which become the list of subnets |
 | show ap summary (or show ap config general) | access points on a wireless controller: name, model, MAC, IP, serial |
 | show wireless client summary (9800) / show client summary (AireOS), with show wlan summary and the controller's client IP table | every associated wireless client: MAC, maker, IP, access point, SSID, radio, state, auth, role |
-| show wireless client mac-address {client} detail (9800) / show client detail {client} (AireOS) | each client's key management (FT-802.1x, FT-PSK, PSK, SAE...), so the inventory can say whether it is on 802.11r Fast Transition. `{client}` is filled in at collection time with every MAC from the client summary |
+| show wireless client mac-address {client} detail (9800) / show client detail {client} (AireOS) | each client's key management (FT-802.1x, FT-PSK, PSK, SAE...), so the inventory can say whether it is on 802.11r Fast Transition. `{client}` is filled in at collection time with every MAC from the client summary. Run only by the Wireless Audit page's collection |
 | get system status / get system arp | FortiGate model, serial, hostname and ARP |
 | about | APC PDU model, serial and MAC |
 
@@ -384,11 +384,12 @@ components, access points, and **unmanaged** devices. The tabs:
   management (FT-802.1x, FT-PSK, FT-SAE) or "No" with what it used instead.
   That needs the per-client detail command (`show wireless client
   mac-address {client} detail` on a 9800, `show client detail {client}` on
-  AireOS), which the built-in command lists run once for every client in
-  the summary; until a controller has been collected with it, the column
-  shows "unknown" plus what the WLAN itself offers (enabled, adaptive or
-  disabled, read from the running config). Each client is one more command
-  on the controller, so a busy site's collection takes a few minutes longer.
+  AireOS), run once for every client in the summary. Each client is one
+  more command on the controller, so everyday collections leave it out:
+  only **Collect controllers** on the Wireless Audit page runs it. Until a
+  controller has been collected that way, the column shows "unknown" plus
+  what the WLAN itself offers (enabled, adaptive or disabled, read from
+  the running config).
 - **Subnets**: every IP subnet in use on the site. Each interface address
   in a collected running config (an SVI, a routed port, a sub-interface, a
   FortiGate or controller interface) defines a subnet, shown with its
@@ -1138,14 +1139,16 @@ snapshot of each controller; it does not log in itself.
    the R2O checklist workbook, then fill in the audit settings (AP naming
    pattern, DNS domain, AP subnets, approved models and releases, NTP /
    syslog / DNS servers, required SSIDs, thresholds) and save.
-3. Nothing to add by hand: every full collection of a controller (one
-   that includes its running configuration) also runs the commands the
-   audit reads and every command in your R2O checklists. The **Coverage**
-   tab shows what your command lists run themselves, and can add the
-   commands there permanently if you prefer.
-4. **Collect controllers** (top of the page) to log in and collect fresh
-   snapshots, then **Run audit**. **Download Excel** gives every tab as a
-   sheet.
+3. **Collect controllers** (top of the page) logs in and collects what
+   the audit needs: each controller type's normal command list plus the
+   audit's own commands (AP tags, radios, HA, NTP, CPU, logs, WNCD), the
+   per-client detail and every command in your R2O checklists. Everyday
+   collections (Collections page, schedules) run only the normal command
+   list, so they stay quick. The **Commands** tab shows exactly what the
+   audit's collection adds per controller type.
+4. Then **Run audit**. It uses each controller's latest audit collection
+   (or, without one, its latest full collection; checks with no data say
+   so). **Download Excel** gives every tab as a sheet.
 
 ### The configuration-standard workbook
 
@@ -1264,7 +1267,7 @@ warning counting as half.
 ### Client history: roams, drops and failures
 
 Client commands and checks run on the **primary** controller only. A
-secondary (N+1 / standby) carries no clients, so its collections leave
+secondary (N+1 / standby) carries no clients, so its audit collections leave
 out the client summary, per-client detail and roam history, and its
 client checks show as skipped. The role is automatic (a controller whose
 last full collection had no APs joined is the secondary) or set per

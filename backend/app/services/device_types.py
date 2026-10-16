@@ -140,19 +140,11 @@ _CISCO_AIREOS_WLC_COMMANDS: tuple[str, ...] = (
     # state, then the same list keyed by IP address (8.x).
     "show client summary",
     "show client summary ip",
-    # Per-client detail, run once for every MAC in the summary above
-    # ("{client}" is filled in at collection time): key management, so the
-    # inventory can tell which clients are on 802.11r Fast Transition.
-    "show client detail {client}",
-    # Wireless Audit (services/wireless_audit.py): the configuration as
-    # "config ..." commands for golden-template checks, management-plane
-    # services (telnet/HTTP), NTP sync, CPU, and the message/trap logs.
-    "show run-config commands",
-    "show network summary",
-    "show time",
-    "show cpu",
-    "show msglog",
-    "show traplog",
+    # Per-client detail, the audit commands (AP tags, radios, HA, NTP, CPU,
+    # logs, WNCD) and the R2O checklist commands are not collected here: the
+    # Wireless Audit page runs them in its own collection
+    # (services/wireless_audit.audit_collection_commands), so an everyday
+    # collection stays quick.
 )
 
 # Catalyst 9800 WLC (cisco_xe driver, IOS-XE). Distinct AP-inventory-style
@@ -179,27 +171,8 @@ _CISCO_WLC_9800_COMMANDS: tuple[str, ...] = (
     # method; the device-tracking database gives each client's IP address.
     "show wireless client summary",
     "show wireless device-tracking database ip",
-    # Per-client detail, run once for every MAC in the summary above
-    # ("{client}" is filled in at collection time): key management, so the
-    # inventory can tell which clients are on 802.11r Fast Transition.
-    "show wireless client mac-address {client} detail",
-    # Wireless Audit (services/wireless_audit.py): AP tags, radio state per
-    # band, HA, NTP sync, CPU and the log buffer. "6ghz" errors harmlessly
-    # on releases or APs without a 6 GHz radio.
-    "show ap tag summary",
-    "show ap dot11 24ghz summary",
-    "show ap dot11 5ghz summary",
-    "show ap dot11 6ghz summary",
-    "show redundancy",
-    "show ntp associations",
-    "show processes cpu sorted | i CPU utilization",
-    "show logging",
-    # WNCD: which wireless control process each site tag is pinned to, and
-    # how hard each one is working.
-    "show wireless loadbalance tag affinity",
-    "show processes cpu platform sorted | i wncd",
-    # Why clients were deleted (dropped), since the counters were cleared.
-    "show wireless stats client delete reasons",
+    # Per-client detail and the Wireless Audit / R2O commands run only in
+    # the Wireless Audit page's own collection (see the AireOS note above).
 )
 
 # Nexus (NX-OS). Paging is disabled by the driver. The running config plus

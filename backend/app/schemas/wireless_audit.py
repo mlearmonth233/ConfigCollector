@@ -386,13 +386,20 @@ class WirelessAuditOut(BaseModel):
     client_events: list[ClientHistoryOut] = []
 
 
-class AuditCommandCoverageOut(BaseModel):
+class AuditCollectionCommandsOut(BaseModel):
+    """What a Wireless Audit collection runs on one controller type: its
+    normal command list, then the audit and R2O additions."""
+
     device_type: str
     label: str
     device_count: int
-    audit_commands: list[str]
-    missing: list[str]
     is_custom_profile: bool
+    commands: list[str]
+    base: list[str]
+    audit_added: list[str]
+    r2o_added: list[str]
+    # R2O commands that cannot be run (a comma splits a command list).
+    skipped: list[str]
 
 
 WorkbookImportOut.model_rebuild()
