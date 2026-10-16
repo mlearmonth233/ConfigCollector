@@ -30,6 +30,7 @@ from app.api import (  # noqa: E402
     inventory,
     jobs,
     licence,
+    log_archive,
     logs,
     organizations,
     ping,
@@ -72,6 +73,12 @@ async def lifespan(app: FastAPI):
             await asyncio.to_thread(reap_orphaned_jobs, "the application was restarted")
         except Exception:
             log.exception("Start-up job cleanup failed")
+    try:
+        from app.services import log_archive  # noqa: PLC0415
+
+        await asyncio.to_thread(log_archive.purge_expired)
+    except Exception:
+        log.exception("Log history clean-up failed")
     log.info("API ready")
     yield
     log.info("API shutting down")
@@ -111,6 +118,7 @@ app.include_router(inventory.router)
 app.include_router(jobs.router)
 app.include_router(licence.router)
 app.include_router(logs.router)
+app.include_router(log_archive.router)
 app.include_router(snapshots.router)
 app.include_router(schedules.router)
 app.include_router(organizations.router)

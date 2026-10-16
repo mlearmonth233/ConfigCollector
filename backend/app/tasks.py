@@ -36,6 +36,7 @@ from app.services.collector import (
     collect_device_config,
 )
 from app.services.device_types import DeviceTypeSpec, build_catalog, parse_command_list
+from app.services import log_archive
 from app.services.dispatch import dispatch
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
@@ -128,6 +129,8 @@ def collect_device_task(
             item.finished_at = datetime.now(timezone.utc)
             db.commit()
 
+        _archive_collection(db, item)
+
         # No-op if authentication already triggered it above - this only
         # does anything when this device never got past authenticating (no
         # credential assigned, auth failed with no/failed fallback, or the
@@ -208,6 +211,61 @@ def _with_wireless_commands(db, device, commands_override: list[str] | None) -> 
     except Exception:  # noqa: BLE001
         log.exception("Could not check the wireless controller role of %s; collecting as configured", device.name)
         return commands_override
+
+
+def _archive_collection(db, item: CollectionJobItem) -> None:
+    """Every device's collection, whatever its outcome, also goes to the
+    Log history (services/log_archive.py)."""
+    try:
+        if item.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            return
+        job, device = item.job, item.device
+        snapshot = db.query(ConfigSnapshot).filter(ConfigSnapshot.job_item_id == item.id).first()
+        text = log_archive.device_run_text(
+            title="collection",
+            job_name=job.name if job else None,
+            job_id=item.job_id,
+            device_name=device.name if device else "(deleted device)",
+            host=device.host if device else "-",
+            device_type=device.device_type if device else "-",
+            status=item.status.value,
+            started_at=item.started_at,
+            finished_at=item.finished_at,
+            error=item.error_message,
+            extra=[("Fallback", "used")] if item.used_fallback_credential else None,
+            transcript=item.live_output,
+            content=snapshot.content if snapshot else None,
+        )
+        log_archive.save(job.org_id, "collection", device.name if device else "device", text, item.finished_at)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("Could not write the log history file for job item %s", item.id)
+
+
+def _archive_firmware_push(db, item: FirmwareUpgradeJobItem) -> None:
+    try:
+        if item.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            return
+        job, device = item.job, item.device
+        image = job.firmware_image if job else None
+        text = log_archive.device_run_text(
+            title="file push",
+            job_name=f"push {image.original_filename}" if image else "file push",
+            job_id=item.job_id,
+            device_name=device.name if device else "(deleted device)",
+            host=device.host if device else "-",
+            device_type=device.device_type if device else "-",
+            status=item.status.value,
+            started_at=item.started_at,
+            finished_at=item.finished_at,
+            error=item.error_message,
+            extra=[("Protocol", job.protocol.value)] if job else None,
+            transcript=item.live_output,
+        )
+        log_archive.save(job.org_id, "firmware", device.name if device else "device", text, item.finished_at)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("Could not write the log history file for file push item %s", item.id)
 
 
 def _collect_one_device(
@@ -551,6 +609,8 @@ def firmware_push_device_task(
             item.error_message = f"Unexpected error during file push: {exc}"
             item.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        _archive_firmware_push(db, item)
 
         dispatch_next()
         _finalize_firmware_job_if_done(db, item.job_id)
@@ -965,7 +1025,8 @@ def _run_one_schedule(db, schedule: Schedule, now: datetime) -> None:
 
 @celery_app.task(name="app.tasks.purge_expired_snapshots")
 def purge_expired_snapshots() -> None:
-    """Invoked periodically by Celery beat - deletes a device's collected
+    """Invoked periodically by Celery beat (hourly) - also removes Log
+    history files past LOG_ARCHIVE_RETENTION_DAYS. Deletes a device's collected
     config snapshots older than its org's snapshot_retention_days (see
     Organization.snapshot_retention_days), for every org that has opted
     into a retention limit. An org with no limit set (the default) is
@@ -994,6 +1055,10 @@ def purge_expired_snapshots() -> None:
         db.commit()
     finally:
         db.close()
+    try:
+        log_archive.purge_expired()
+    except Exception:  # noqa: BLE001
+        log.exception("Log history clean-up failed")
 
 
 def _snmp_auth_from_profile(profile: SnmpProfile) -> SnmpAuth:

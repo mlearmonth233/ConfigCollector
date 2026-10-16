@@ -9,6 +9,8 @@ backend/firmware_images/
 # Application log files (see backend/app/core/logging_config.py)
 logs/
 backend/logs/
+# Log history files (backend/app/services/log_archive.py)
+log_archive/
 
 # Node / frontend
 node_modules/

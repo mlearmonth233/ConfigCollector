@@ -92,6 +92,7 @@ def prepare_environment(data: Path) -> dict[str, str]:
         "CELERY_TASK_ALWAYS_EAGER": "false",
         "CELERY_BEAT_SCHEDULE_FILE": str(data / "celerybeat-schedule"),
         "LOG_DIR": str(data / "logs"),
+        "LOG_ARCHIVE_DIR": str(data / "log_archive"),
         "FIRMWARE_STORAGE_DIR": str(data / "firmware_images"),
         "PACKRAT_HOST": "127.0.0.1",
         "PACKRAT_DATA_DIR": str(data),

@@ -169,6 +169,11 @@ all of them as a zip from **Settings → Troubleshooting**; set
 and `LOG_LEVEL=DEBUG` for verbose output. With Docker Compose the files land
 in `./logs` on the host.
 
+Every collection, file push and Wireless Audit run is also saved as a text
+file under `backend/log_archive/<org>/<date>/` (`LOG_ARCHIVE_DIR` to move it),
+readable from the **Log history** page; files older than
+`LOG_ARCHIVE_RETENTION_DAYS` (default 30, 0 = keep) are removed automatically.
+
 **Frontend**:
 
 ```bash

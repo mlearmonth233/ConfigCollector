@@ -14,6 +14,7 @@ os.environ["EAGER_BACKGROUND"] = "false"
 # Log files for the test run go to a throwaway directory, never ./logs.
 _log_dir = tempfile.mkdtemp(prefix="packrat-test-logs-")
 os.environ["LOG_DIR"] = _log_dir
+os.environ["LOG_ARCHIVE_DIR"] = tempfile.mkdtemp(prefix="packrat-test-archive-")
 # Tests exercise every feature, so they run as the top tier; tests/test_licence.py
 # switches this off to check what the free tier refuses.
 os.environ.setdefault("LICENCE_OVERRIDE_TIER", "warren")

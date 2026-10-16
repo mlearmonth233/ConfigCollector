@@ -26,6 +26,7 @@ def clean_env(monkeypatch):
         "DATABASE_URL",
         "CELERY_BROKER_URL",
         "LOG_DIR",
+        "LOG_ARCHIVE_DIR",
         "ENVIRONMENT",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -62,6 +63,7 @@ def test_prepare_environment_generates_secrets_once_and_derives_paths(tmp_path: 
     assert values["CELERY_BROKER_URL"] == f"sqla+sqlite:///{(data / 'queue.db').resolve().as_posix()}"
     assert values["CELERY_TASK_ALWAYS_EAGER"] == "false"
     assert values["LOG_DIR"] == str(data / "logs")
+    assert values["LOG_ARCHIVE_DIR"] == str(data / "log_archive")
     assert values["PACKRAT_PORT"] == str(paths.DEFAULT_PORT)
     assert "FRONTEND_DIST_DIR" not in values
     assert os.environ["JWT_SECRET_KEY"] == values["JWT_SECRET_KEY"]

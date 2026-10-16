@@ -44,6 +44,7 @@ from app.schemas.wireless_audit import (
 )
 from app.services import wireless_audit as wa
 from app.services import client_events as ce
+from app.services import log_archive
 from app.services import inventory as inv
 from app.services import r2o as r2o_engine
 from app.services.standard_workbook import import_workbook
@@ -331,17 +332,40 @@ _PROGRESS_LINES = 200
 class _Progress:
     def __init__(self, org_id):
         self.key = str(org_id)
+        self.org_id = org_id
+        self.all: list[str] = []  # every line, for the Log history file
         self.state = {"running": True, "stage": "Starting", "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "error": None, "lines": []}
         _PROGRESS[self.key] = self.state
 
     def __call__(self, message: str, stage: str | None = None) -> None:
         if stage:
             self.state["stage"] = stage
-        self.state["lines"] = (self.state["lines"] + [f"{datetime.now().strftime('%H:%M:%S')}  {message}"])[-_PROGRESS_LINES:]
+        line = f"{datetime.now().strftime('%H:%M:%S')}  {message}"
+        self.all.append(line)
+        self.state["lines"] = (self.state["lines"] + [line])[-_PROGRESS_LINES:]
         log.info("Wireless audit: %s", message)
 
-    def finish(self, error: str | None = None) -> None:
+    def finish(self, error: str | None = None, details: str = "") -> None:
         self.state.update(running=False, finished_at=datetime.now(timezone.utc).isoformat(), error=error, stage="Failed" if error else "Done")
+        text = f"Packrat Wireless Audit\nStarted:   {self.state['started_at']}\nFinished:  {self.state['finished_at']}\nStatus:    {'failed: ' + error if error else 'done'}\n"
+        text += "\n===== Audit log =====\n" + "\n".join(self.all) + "\n" + details
+        log_archive.save(self.org_id, "audit", "wireless-audit", text)
+
+
+def _findings_text(report: dict) -> str:
+    """The failures and warnings, one per line, for the Log history file."""
+    rows = [f for f in report.get("findings", []) if f.get("severity") in ("fail", "warn")]
+    out = [f"\n===== Findings ({len(rows)} failures and warnings) ====="]
+    for f in rows:
+        subject = f" [{f['subject']}]" if f.get("subject") else ""
+        out.append(f"{f['severity'].upper():5} {f['controller_name']}{subject}: {f['message']}")
+    r2o = [r for r in report.get("r2o", []) if r.get("status") == "fail"]
+    if r2o:
+        out.append(f"\n===== R2O failures ({len(r2o)}) =====")
+        for r in r2o:
+            out.append(f"FAIL  {r['controller_name']} {r['item_id']}: {r['description']}")
+            out.extend(f"      fix: {fix}" for fix in r.get("fix", []))
+    return "\n".join(out) + "\n"
 
 
 async def _run(db: AsyncSession, org_id, with_dns: bool) -> dict:
@@ -380,7 +404,7 @@ async def _run(db: AsyncSession, org_id, with_dns: bool) -> dict:
         report = await asyncio.to_thread(lambda: wa.run_audit(facts, standard, dns, now=datetime.now(timezone.utc), progress=progress))
         s = report["summary"]
         progress(f"Checks done in {time.monotonic() - t:.1f}s: {s['fail']} failure(s), {s['warn']} warning(s), {len(report.get('r2o', []))} R2O check(s). Total {time.monotonic() - started:.1f}s")
-        progress.finish()
+        progress.finish(details=_findings_text(report))
         return report
     except Exception as exc:
         log.exception("Wireless audit failed")

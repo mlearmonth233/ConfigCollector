@@ -1299,3 +1299,28 @@ and the message and trap logs (AireOS). Run the lookup again when it
 finishes. Such a short collection never replaces the controller's last
 full collection in the audit.
 
+## 20. Log history
+
+Every collection, file push and Wireless Audit run is also saved as a
+plain text file on the server, so you can go back to what a device said
+(or why it failed) after the job is gone from the screen:
+
+- **Collection**: one file per device - job name, device, status, start
+  and finish times, any error, the session log (connect, login, fallback
+  attempts, each command) and everything collected.
+- **File push**: one file per device with the push session log.
+- **Wireless Audit**: the audit log (each stage and how long it took),
+  then every failure and warning, and the R2O failures with their fixes.
+
+The files are under `backend/log_archive/<organization>/<YYYY-MM-DD>/`
+(set `LOG_ARCHIVE_DIR` to move them; the desktop app keeps them in its
+data folder). The **Log history** page lists them by day, newest first:
+filter by kind or by device name / date, click a name to read it (with a
+"show lines containing" filter), download one, or tick several (or a whole
+day) and download them as a zip. Admins can delete the ticked files or
+clear everything older than a number of days (0 clears all).
+
+Files older than `LOG_ARCHIVE_RETENTION_DAYS` (default 30) are removed
+automatically when the app starts and hourly by the scheduler; set it to
+0 to keep them until you clear them yourself. Each organization sees only
+its own files.

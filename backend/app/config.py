@@ -39,6 +39,8 @@ class Settings(BaseSettings):
                 if path and path != ":memory:" and not os.path.isabs(path):
                     self.database_url = prefix + os.path.normpath(os.path.join(BACKEND_DIR, path))
                 break
+        if not os.path.isabs(os.path.expanduser(self.log_archive_dir)):
+            self.log_archive_dir = os.path.normpath(os.path.join(BACKEND_DIR, self.log_archive_dir))
         return self
 
     # Auth
@@ -125,6 +127,13 @@ class Settings(BaseSettings):
     # hosted multi-tenant deployment should turn this off and hand logs
     # out from the server itself instead.
     log_download_enabled: bool = True
+
+    # Log history (services/log_archive.py): every collection, file push and
+    # Wireless Audit run is also written as a text file under
+    # log_archive_dir/<org>/<date>/, for the Log history page. Files older
+    # than log_archive_retention_days are removed (0 keeps them forever).
+    log_archive_dir: str = "./log_archive"
+    log_archive_retention_days: int = 30
 
     # Firmware push: uploaded image files are stored on local disk (not
     # the DB - these can be hundreds of MB, far past what's sane for a text

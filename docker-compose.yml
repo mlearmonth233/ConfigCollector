@@ -33,9 +33,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      LOG_ARCHIVE_DIR: /app/log_archive
       ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
+      - ./log_archive:/app/log_archive
     ports:
       - "8000:8000"
     depends_on:
@@ -53,9 +55,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      LOG_ARCHIVE_DIR: /app/log_archive
       ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
+      - ./log_archive:/app/log_archive
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,9 +78,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://configcollector:configcollector@postgres:5432/configcollector
       REDIS_URL: redis://redis:6379/0
       LOG_DIR: /app/logs
+      LOG_ARCHIVE_DIR: /app/log_archive
       ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./logs:/app/logs
+      - ./log_archive:/app/log_archive
     depends_on:
       postgres:
         condition: service_healthy

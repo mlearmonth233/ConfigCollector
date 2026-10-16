@@ -17,6 +17,7 @@ import { FirmwareJobDetail } from "./pages/FirmwareJobDetail";
 import { JobDetail } from "./pages/JobDetail";
 import { Jobs } from "./pages/Jobs";
 import { Login } from "./pages/Login";
+import { LogHistory } from "./pages/LogHistory";
 import { Monitor } from "./pages/Monitor";
 import { Register } from "./pages/Register";
 import { Schedules } from "./pages/Schedules";
@@ -64,6 +65,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <Inventory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/log-history"
+          element={
+            <ProtectedRoute>
+              <LogHistory />
             </ProtectedRoute>
           }
         />

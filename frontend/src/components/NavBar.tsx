@@ -34,6 +34,9 @@ export function NavBar() {
         <NavLink to="/jobs" className={({ isActive }) => (isActive ? "active" : "")}>
           Jobs
         </NavLink>
+        <NavLink to="/log-history" className={({ isActive }) => (isActive ? "active" : "")}>
+          Log history
+        </NavLink>
         <NavLink to="/firmware" className={({ isActive }) => (isActive ? "active" : "")}>
           Firmware
         </NavLink>
