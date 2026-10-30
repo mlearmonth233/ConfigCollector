@@ -35,10 +35,10 @@ async def test_nothing_happens_when_not_configured(configure):
 
 
 async def test_creates_an_admin_who_can_log_in(client: AsyncClient, configure, unique_email):
-    configure(unique_email, "C!sco123")
+    configure(unique_email, "Test-Admin-Pw1")
     assert ensure_bootstrap_admin(SyncSessionLocal) == "created"
-    assert await _login(client, unique_email, "C!sco123") == 200
-    token = (await client.post("/api/auth/login", json={"email": unique_email, "password": "C!sco123"})).json()["access_token"]
+    assert await _login(client, unique_email, "Test-Admin-Pw1") == 200
+    token = (await client.post("/api/auth/login", json={"email": unique_email, "password": "Test-Admin-Pw1"})).json()["access_token"]
     me = (await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})).json()
     assert me["role"] == "admin" and me["email"] == unique_email
     # Running again changes nothing.
@@ -59,10 +59,10 @@ async def test_recovers_an_existing_account(client: AsyncClient, configure, uniq
         db.close()
 
     # The configured email may differ in case from the stored one.
-    configure(unique_email.upper(), "C!sco123")
+    configure(unique_email.upper(), "Test-Admin-Pw1")
     assert ensure_bootstrap_admin(SyncSessionLocal) == "updated"
     assert await _login(client, unique_email, "forgotten-1") == 401
-    assert await _login(client, unique_email, "C!sco123") == 200
+    assert await _login(client, unique_email, "Test-Admin-Pw1") == 200
 
     db = SyncSessionLocal()
     try:
@@ -72,7 +72,7 @@ async def test_recovers_an_existing_account(client: AsyncClient, configure, uniq
         db.close()
 
 
-@pytest.mark.parametrize("email, password", [("someone@example.com", ""), ("", "C!sco123"), ("not-an-email", "C!sco123"), ("a@example.com", "short")])
+@pytest.mark.parametrize("email, password", [("someone@example.com", ""), ("", "Test-Admin-Pw1"), ("not-an-email", "Test-Admin-Pw1"), ("a@example.com", "short")])
 async def test_unusable_settings_are_skipped(configure, email, password):
     configure(email, password)
     assert ensure_bootstrap_admin(SyncSessionLocal) is None
