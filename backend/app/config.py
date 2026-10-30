@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # test, so a production install always needs a real key.
     licence_override_tier: str = ""
 
+    # An admin login the API makes sure exists at every start-up
+    # (services/bootstrap_admin.py): created, with its own organization, if
+    # the email is new; otherwise its password is set to this one and it is
+    # made an admin. Set these in this machine's .env, never in the code -
+    # leave them empty (the default) and nothing happens.
+    bootstrap_admin_email: str = ""
+    bootstrap_admin_password: str = ""
+    bootstrap_admin_org_name: str = "Packrat"
+
     # Login brute-force protection (core/login_guard.py): after
     # login_max_failures failed attempts from one IP or against one account
     # within login_window_minutes, further attempts get 429 for a lockout

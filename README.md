@@ -218,6 +218,26 @@ If PowerShell blocks the scripts from running, allow local scripts once
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
+### A default admin login
+
+To have a known admin account without registering, put it in this
+machine's settings: `backend\.env` when running from source, or
+`packrat.env` in the data folder (`%LOCALAPPDATA%\Packrat`, or
+`~/Library/Application Support/Packrat` on a Mac) for the installed app.
+
+```
+BOOTSTRAP_ADMIN_EMAIL=you@example.com
+BOOTSTRAP_ADMIN_PASSWORD=a-password-of-8-or-more
+BOOTSTRAP_ADMIN_ORG_NAME=Your Company Ltd
+```
+
+Every time the API starts, it creates that account (with its own
+organization) if the email is new; otherwise it sets the account's
+password to this one and makes it an admin. So it doubles as password
+recovery. While these lines are present, a password changed in the app
+is put back on the next restart: delete them once you no longer need
+them. Both files are on your machine only, and git ignores `.env`.
+
 ### VS Code
 
 Open the repo root as the workspace. `.vscode/launch.json` provides:

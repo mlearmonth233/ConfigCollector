@@ -63,6 +63,13 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(rekey_stored_secrets, SyncSessionLocal)
     except Exception:
         log.exception("Re-encrypting stored secrets failed")
+    try:
+        from app.db_sync import SyncSessionLocal  # noqa: PLC0415
+        from app.services.bootstrap_admin import ensure_bootstrap_admin  # noqa: PLC0415
+
+        await asyncio.to_thread(ensure_bootstrap_admin, SyncSessionLocal)
+    except Exception:
+        log.exception("Setting up the bootstrap admin failed")
     settings = get_settings()
     if settings.celery_task_always_eager and settings.reap_jobs_on_start:
         # In eager mode this process *is* the worker, so a job still
