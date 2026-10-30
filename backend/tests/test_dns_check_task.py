@@ -28,7 +28,7 @@ async def test_job_processes_more_targets_than_one_chunk(client: AsyncClient, un
     # loops over every chunk rather than only ever handling the first one.
     monkeypatch.setattr(tasks_module, "DNS_CHECK_CHUNK_SIZE", 2)
 
-    async def fake_run_dns_checks(targets: list[str]) -> list[DnsCheckResult]:
+    async def fake_run_dns_checks(targets: list[str], concurrency: int = 25) -> list[DnsCheckResult]:
         return [
             DnsCheckResult(target=t, ping_ok=True, forward_ok=False, forward_ips=[], reverse_ok=False, reverse_hostname=None)
             for t in targets
@@ -52,7 +52,7 @@ async def test_job_stops_remaining_chunks_once_cancelled_mid_batch(client: Async
     org_id = (await client.get("/api/auth/me", headers=_auth(token))).json()["org_id"]
     call_count = 0
 
-    async def fake_run_dns_checks(targets: list[str]) -> list[DnsCheckResult]:
+    async def fake_run_dns_checks(targets: list[str], concurrency: int = 25) -> list[DnsCheckResult]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -93,3 +93,18 @@ async def test_job_stops_remaining_chunks_once_cancelled_mid_batch(client: Async
     assert len(completed) == 2
     assert len(pending) == 4
     assert call_count == 1
+
+
+def test_a_batch_gets_a_thread_pool_as_wide_as_its_checks():
+    """Each ping and DNS lookup holds a pool thread while it waits; with
+    Python's default pool (cpu_count + 4 threads) a 64-check batch ran a few
+    at a time and a /24 sweep took a minute instead of seconds."""
+    import asyncio
+    import time
+
+    async def forty_waits():
+        await asyncio.gather(*(asyncio.to_thread(time.sleep, 0.3) for _ in range(40)))
+
+    start = time.monotonic()
+    tasks_module._run_async_in_new_thread(lambda: tasks_module._with_thread_pool(forty_waits(), 40))
+    assert time.monotonic() - start < 1.5  # all 40 at once, not in rounds of cpu_count + 4

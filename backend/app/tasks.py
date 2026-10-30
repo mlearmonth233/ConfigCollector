@@ -2,6 +2,7 @@ import asyncio
 import logging
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from app.services.collector import (
 )
 from app.services.device_types import DeviceTypeSpec, build_catalog, parse_command_list
 from app.services.dns_check import CONCURRENCY as DNS_CHECK_CHUNK_SIZE
+from app.services.dns_check import SWEEP_CONCURRENCY as DNS_SWEEP_CHUNK_SIZE
 from app.services.dns_check import run_dns_checks
 from app.services.firmware_push import push_file, render_push_commands, transfer_port
 from app.services.job_reaper import reap_stale_jobs as _reap_stale_jobs
@@ -712,6 +714,17 @@ def _finalize_firmware_job_if_done(db, job_id) -> None:
     db.commit()
 
 
+async def _with_thread_pool(coro, size: int):
+    """Awaits `coro` with this event loop's default thread pool sized to
+    `size`. Each ping and each DNS lookup occupies a pool thread while it
+    waits, and Python's default pool is only cpu_count + 4 threads, so
+    without this a batch of 64 checks on a 4-CPU machine runs 8 at a time.
+    Only for the private loop _run_async_in_new_thread creates: asyncio.run
+    shuts the pool down when that loop ends."""
+    asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=size, thread_name_prefix="dns-check"))
+    return await coro
+
+
 @celery_app.task(name="app.tasks.run_dns_check_job_task", bind=True, max_retries=0)
 def run_dns_check_job_task(self, job_id: str) -> None:
     """Runs every target in a DnsCheckJob, in chunks of DNS_CHECK_CHUNK_SIZE.
@@ -742,12 +755,15 @@ def run_dns_check_job_task(self, job_id: str) -> None:
             .all()
         )
 
-        for chunk_start in range(0, len(items), DNS_CHECK_CHUNK_SIZE):
+        # A subnet sweep is mostly silent addresses that each wait out the
+        # ping timeout, so it runs more checks at once.
+        chunk_size = DNS_SWEEP_CHUNK_SIZE if job.subnet else DNS_CHECK_CHUNK_SIZE
+        for chunk_start in range(0, len(items), chunk_size):
             db.refresh(job)
             if job.cancel_requested:
                 break
 
-            chunk = items[chunk_start : chunk_start + DNS_CHECK_CHUNK_SIZE]
+            chunk = items[chunk_start : chunk_start + chunk_size]
             now = datetime.now(timezone.utc)
             for item in chunk:
                 item.status = JobStatus.RUNNING
@@ -755,7 +771,7 @@ def run_dns_check_job_task(self, job_id: str) -> None:
             db.commit()
 
             targets = [item.target for item in chunk]
-            results = _run_async_in_new_thread(lambda: run_dns_checks(targets))
+            results = _run_async_in_new_thread(lambda: _with_thread_pool(run_dns_checks(targets, concurrency=chunk_size), chunk_size * 2))
 
             now = datetime.now(timezone.utc)
             for item, result in zip(chunk, results):

@@ -14,6 +14,7 @@ import type {
   DeviceType,
   DnsCheckJob,
   DnsCheckJobDetail,
+  SubnetPreview,
   FirmwareImage,
   FirmwareJob,
   FirmwareJobDetail,
@@ -211,6 +212,8 @@ export interface PushDefaults {
 
 export const dnsCheckApi = {
   createJob: (targets: string[]) => apiClient.post<DnsCheckJobDetail>("/api/dns-check/jobs", { targets }),
+  sweepSubnet: (subnet: string) => apiClient.post<DnsCheckJobDetail>("/api/dns-check/jobs", { subnet }),
+  previewSubnet: (subnet: string) => apiClient.get<SubnetPreview>("/api/dns-check/subnet-preview", { params: { subnet } }),
   listJobs: () => apiClient.get<DnsCheckJob[]>("/api/dns-check/jobs"),
   getJob: (id: string) => apiClient.get<DnsCheckJobDetail>(`/api/dns-check/jobs/${id}`),
   cancelJob: (id: string) => apiClient.post<DnsCheckJobDetail>(`/api/dns-check/jobs/${id}/cancel`),

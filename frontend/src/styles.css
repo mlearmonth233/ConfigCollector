@@ -1910,3 +1910,20 @@ a:hover {
 @media (max-width: 640px) {
   .back-to-top { right: 14px; bottom: 14px; }
 }
+
+/* DNS Check: subnet sweep form. */
+.sweep-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sweep-form input {
+  width: 100%;
+}
+
+.sweep-preview {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  min-height: 1.4em;
+}

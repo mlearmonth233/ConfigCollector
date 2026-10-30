@@ -24,6 +24,9 @@ class DnsCheckJob(Base_):
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Set for a subnet sweep ("10.1.1.0/24"): the items are then every
+    # usable address in it. Null for a pasted list of targets.
+    subnet: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     organization: Mapped["Organization"] = relationship(back_populates="dns_check_jobs")
     items: Mapped[list["DnsCheckJobItem"]] = relationship(

@@ -251,6 +251,8 @@ export interface DnsCheckJobItem {
   forward_ips: string[];
   reverse_ok: boolean | null;
   reverse_hostname: string | null;
+  /** IP targets only: whether the PTR name resolves back to this address. */
+  dns_matches: boolean | null;
   started_at: string | null;
   finished_at: string | null;
 }
@@ -262,6 +264,16 @@ export interface DnsCheckJob {
   started_at: string | null;
   finished_at: string | null;
   item_count: number;
+  /** Set for a subnet sweep, e.g. "10.1.1.0/24". */
+  subnet: string | null;
+}
+
+export interface SubnetPreview {
+  network: string;
+  netmask: string;
+  usable: number;
+  first: string | null;
+  last: string | null;
 }
 
 export interface DnsCheckJobDetail extends DnsCheckJob {

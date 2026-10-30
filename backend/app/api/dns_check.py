@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import ipaddress
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,8 +19,9 @@ from app.schemas.dns_check import (
     DnsCheckJobDetailOut,
     DnsCheckJobItemOut,
     DnsCheckJobOut,
+    SubnetPreviewOut,
 )
-from app.services.dns_check import MAX_TARGETS
+from app.services.dns_check import MAX_TARGETS, SubnetError, dns_matches, parse_subnet, usable_hosts
 from app.tasks import run_dns_check_job_task
 
 router = APIRouter(prefix="/api/dns-check", tags=["dns-check"])
@@ -30,14 +33,25 @@ async def create_dns_check_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DnsCheckJobDetailOut:
-    # De-duplicate while preserving order - a pasted list commonly repeats
-    # entries, and there's no reason to check (or show) the same target twice.
-    seen: dict[str, None] = {}
-    for raw in payload.targets:
-        target = raw.strip()
-        if target:
-            seen.setdefault(target, None)
-    targets = list(seen.keys())
+    subnet_label: str | None = None
+    if payload.subnet and payload.subnet.strip():
+        if any(t.strip() for t in payload.targets):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Send either a list of targets or a subnet, not both")
+        try:
+            network = parse_subnet(payload.subnet)
+            targets = usable_hosts(network)
+        except SubnetError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        subnet_label = str(network)
+    else:
+        # De-duplicate while preserving order - a pasted list commonly repeats
+        # entries, and there's no reason to check (or show) the same target twice.
+        seen: dict[str, None] = {}
+        for raw in payload.targets:
+            target = raw.strip()
+            if target:
+                seen.setdefault(target, None)
+        targets = list(seen.keys())
 
     if not targets:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide at least one hostname or IP")
@@ -52,6 +66,7 @@ async def create_dns_check_job(
         created_by_id=user.id,
         status=JobStatus.RUNNING,
         started_at=datetime.now(timezone.utc),
+        subnet=subnet_label,
     )
     db.add(job)
     await db.flush()
@@ -67,6 +82,27 @@ async def create_dns_check_job(
     # fresh through this one rather than touching potentially-stale lazy
     # attributes on this `job`.
     return await fetch_dns_check_job_detail(db, job.id, user.org_id)
+
+
+@router.get("/subnet-preview", response_model=SubnetPreviewOut)
+async def preview_subnet(
+    subnet: str = Query(..., max_length=100),
+    user: User = Depends(get_current_user),
+) -> SubnetPreviewOut:
+    """What sweeping `subnet` would check: its network, mask and the range
+    of usable addresses. A 400 says why it cannot be swept."""
+    try:
+        network = parse_subnet(subnet)
+        hosts = usable_hosts(network)
+    except SubnetError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return SubnetPreviewOut(
+        network=str(network),
+        netmask=str(network.netmask),
+        usable=len(hosts),
+        first=hosts[0] if hosts else None,
+        last=hosts[-1] if hosts else None,
+    )
 
 
 @router.get("/jobs", response_model=list[DnsCheckJobOut])
@@ -96,6 +132,7 @@ async def list_dns_check_jobs(
             started_at=job.started_at,
             finished_at=job.finished_at,
             item_count=counts.get(job.id, 0),
+            subnet=job.subnet,
         )
         for job in jobs
     ]
@@ -182,15 +219,17 @@ async def _get_owned_dns_check_job(db: AsyncSession, job_id: UUID, org_id: UUID)
 
 
 def _to_item_out(item: DnsCheckJobItem) -> DnsCheckJobItemOut:
+    forward_ips = [ip for ip in (item.forward_ips or "").split(", ") if ip]
     return DnsCheckJobItemOut(
         id=item.id,
         target=item.target,
         status=item.status,
         ping_ok=item.ping_ok,
         forward_ok=item.forward_ok,
-        forward_ips=[ip for ip in (item.forward_ips or "").split(", ") if ip],
+        forward_ips=forward_ips,
         reverse_ok=item.reverse_ok,
         reverse_hostname=item.reverse_hostname,
+        dns_matches=dns_matches(item.target, item.reverse_ok, item.forward_ok, forward_ips),
         started_at=item.started_at,
         finished_at=item.finished_at,
     )
@@ -198,12 +237,26 @@ def _to_item_out(item: DnsCheckJobItem) -> DnsCheckJobItemOut:
 
 async def fetch_dns_check_job_detail(db: AsyncSession, job_id: UUID, org_id: UUID) -> DnsCheckJobDetailOut:
     job = await _get_owned_dns_check_job(db, job_id, org_id)
+    items = list(job.items)
+    if job.subnet:
+        # Every item was inserted in one transaction, so they share a
+        # created_at: order a sweep by address instead.
+        items.sort(key=lambda item: _address_sort_key(item.target))
     return DnsCheckJobDetailOut(
         id=job.id,
         status=job.status,
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
-        item_count=len(job.items),
-        items=[_to_item_out(item) for item in job.items],
+        item_count=len(items),
+        subnet=job.subnet,
+        items=[_to_item_out(item) for item in items],
     )
+
+
+def _address_sort_key(target: str) -> tuple[int, int, str]:
+    try:
+        address = ipaddress.ip_address(target)
+    except ValueError:
+        return (9, 0, target)
+    return (address.version, int(address), target)

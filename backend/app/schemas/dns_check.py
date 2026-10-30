@@ -7,7 +7,20 @@ from app.models.job import JobStatus
 
 
 class DnsCheckJobCreate(BaseModel):
-    targets: list[str] = Field(min_length=1)
+    """Either a list of hostnames/IPs, or one subnet to sweep."""
+
+    targets: list[str] = Field(default_factory=list)
+    subnet: str | None = None
+
+
+class SubnetPreviewOut(BaseModel):
+    """What a sweep of the typed subnet would check, before starting it."""
+
+    network: str
+    netmask: str
+    usable: int
+    first: str | None
+    last: str | None
 
 
 class DnsCheckJobItemOut(BaseModel):
@@ -19,6 +32,8 @@ class DnsCheckJobItemOut(BaseModel):
     forward_ips: list[str]
     reverse_ok: bool | None
     reverse_hostname: str | None
+    # IP targets only: does the PTR name resolve back to this address?
+    dns_matches: bool | None = None
     started_at: datetime | None
     finished_at: datetime | None
 
@@ -32,6 +47,7 @@ class DnsCheckJobOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     item_count: int
+    subnet: str | None = None
 
     model_config = {"from_attributes": True}
 

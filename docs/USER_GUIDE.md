@@ -741,10 +741,40 @@ checks**. For each target Packrat reports:
 - **Forward DNS**: the addresses the name resolves to, or "no DNS record
   found". Shown as N/A when the target is already an IP.
 - **Reverse DNS**: the hostname from the PTR record, or "no PTR record".
+- **PTR check**, for IP targets: whether the PTR name resolves back to the
+  same address ("Points back"), or to another address or nowhere
+  ("Mismatch"), which usually means one of the two records is out of date.
 
 Checks run as a background job with a progress bar, so a list of several
 thousand targets is fine. Past checks are listed below the form and can be
-reopened, cancelled or cleared.
+reopened, cancelled or cleared. **Download CSV** on a result saves it as a
+spreadsheet.
+
+### Subnet sweep
+
+Choose the **Subnet sweep** tab to check every usable address in a subnet.
+Type it as `10.1.1.0/24`, `10.1.1.0 255.255.255.0`, or an interface
+address such as `10.1.1.1/24`; the subnets the Inventory found in your
+collected configs are offered as you type. Packrat shows the network, its
+mask and the range it will sweep before you start. The network and
+broadcast addresses are left out, except on a /31 or /32.
+
+Every address is pinged and looked up in reverse DNS, and each PTR name is
+checked to see it points back. The result shows:
+
+| Tile | Meaning |
+|---|---|
+| In use | Answered a ping, has a PTR record, or both |
+| Free | No ping reply and no PTR record |
+| Answering, no PTR | Live hosts missing from reverse DNS |
+| PTR mismatch | The PTR name resolves elsewhere or not at all: a stale record |
+| In DNS, no reply | Has a PTR record but did not answer |
+
+The table opens on the addresses in use; the **Show** box switches to every
+address, the free ones, or any of the problem lists. A /24 takes a few
+seconds. One sweep covers up to 10,000 addresses, a /19 at most; split
+larger subnets. "Free" is a best guess: a host that blocks ping and has no
+DNS record looks exactly like an unused address.
 
 As with reachability on the Devices page, a failed ping usually means a
 firewall dropped ICMP, not that the device is down.
