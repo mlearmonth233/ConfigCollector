@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  NetTools ribbon tab. Each onAction names a public Sub in NetTools.bas
+  with the signature:  Sub Name(control As IRibbonControl)
+-->
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
+  <ribbon>
+    <tabs>
+      <tab id="tabNetTools" label="NetTools">
+
+        <group id="grpChecks" label="DNS &amp; Ping">
+          <button id="btnCheckDns"
+                  label="Check DNS"
+                  size="large"
+                  imageMso="HyperlinkInsert"
+                  onAction="NT_OnCheckDns"
+                  screentip="Check DNS"
+                  supertip="Select a column of IP addresses or hostnames, then click. For each one NetTools does a forward lookup, a reverse (PTR) lookup, checks they agree, and pings it. Results are written to the columns on the right. Press Esc to stop." />
+          <button id="btnDnsOnly"
+                  label="DNS Only"
+                  size="normal"
+                  imageMso="FindDialog"
+                  onAction="NT_OnDnsOnly"
+                  screentip="DNS Only"
+                  supertip="Forward and reverse lookup only - no ping. Faster when you only care about the records." />
+          <button id="btnPingOnly"
+                  label="Ping Only"
+                  size="normal"
+                  imageMso="Refresh"
+                  onAction="NT_OnPingOnly"
+                  screentip="Ping Only"
+                  supertip="Ping each host and report status, latency and TTL." />
+        </group>
+
+        <group id="grpTools" label="Tools">
+          <button id="btnClear"
+                  label="Clear Results"
+                  size="normal"
+                  imageMso="Clear"
+                  onAction="NT_OnClearResults"
+                  screentip="Clear Results"
+                  supertip="Remove the NetTools result columns next to the selected column." />
+          <button id="btnAbout"
+                  label="About"
+                  size="normal"
+                  imageMso="Info"
+                  onAction="NT_OnAbout"
+                  screentip="About NetTools" />
+        </group>
+
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

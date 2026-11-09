@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  NetTools for Excel - per-user MSI (WiX Toolset v5).
+
+  Installs NetTools.xlam into the user's Excel startup folder
+  (%APPDATA%\Microsoft\Excel\XLSTART). Excel opens every add-in in that
+  folder when it starts, and it is one of Office's default trusted
+  locations, so the add-in's macros run without a security prompt.
+  No admin rights are needed. Uninstall from Settings > Apps.
+
+  Built by ..\build.ps1 -Msi, which passes:
+    -d Version=1.0.0  -d XlamPath=..\dist\NetTools.xlam
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="NetTools for Excel"
+           Manufacturer="NetTools"
+           Version="$(var.Version)"
+           UpgradeCode="CA8E7960-DECF-47D1-8A1C-6F5076192080"
+           Scope="perUser"
+           Compressed="yes">
+
+    <SummaryInformation Description="NetTools Excel add-in: DNS lookup, reverse lookup and ping" />
+
+    <!-- Installing a newer MSI replaces the old one in place -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of NetTools for Excel is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="Excel ribbon tab: Check DNS, DNS Only, Ping Only" />
+
+    <StandardDirectory Id="AppDataFolder">
+      <Directory Id="MicrosoftDir" Name="Microsoft">
+        <Directory Id="ExcelDir" Name="Excel">
+          <Directory Id="XLSTARTDIR" Name="XLSTART">
+
+            <Component Id="NetToolsAddin" Guid="D74FA608-98B3-442D-898D-EDE5C3F8B0E2">
+              <File Id="NetToolsXlam" Name="NetTools.xlam" Source="$(var.XlamPath)" />
+              <!-- Per-user components need a registry key path -->
+              <RegistryValue Root="HKCU" Key="Software\NetTools\ExcelAddin"
+                             Name="Version" Type="string" Value="$(var.Version)" KeyPath="yes" />
+              <!-- Only removed if empty, so other startup files are never touched -->
+              <RemoveFolder Id="RemoveXLSTARTDIR" Directory="XLSTARTDIR" On="uninstall" />
+              <RemoveFolder Id="RemoveExcelDir" Directory="ExcelDir" On="uninstall" />
+              <RemoveFolder Id="RemoveMicrosoftDir" Directory="MicrosoftDir" On="uninstall" />
+            </Component>
+
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="NetTools for Excel">
+      <ComponentRef Id="NetToolsAddin" />
+    </Feature>
+  </Package>
+</Wix>
